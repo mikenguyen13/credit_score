@@ -1,5 +1,7 @@
 # Credit Scoring: Theory, Methods, and Practice
 
+**Read the book online:** https://mikenguyen13.github.io/credit_score/
+
 A working, executable, publishable textbook on credit scoring. Covers classical statistics, machine learning, deep learning, alternative data, explainability, fairness, causal inference, graph neural networks, LLMs, regulatory capital, and production deployment. Every example runs on publicly available data.
 
 Book source lives in [`book/`](book/). The book is built with [Quarto](https://quarto.org).
