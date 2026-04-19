@@ -1,0 +1,330 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+bibliography: [../references.bib, ../refs/ch-21.bib, ../refs/ch-22.bib]
+---
+
+# Explanation Quality, Counterfactual Alternatives, and Prototypes {#sec-ch22e}
+
+## Overview {.unnumbered}
+
+SHAP, LIME, Integrated Gradients, and their cousins make different assumptions and produce different attributions (@sec-ch22c). Production deployment demands three things the generators do not supply out of the box: *quantitative quality* (how good is this explanation?), *actionable alternatives* (what else could have produced the decision?), and *example-based transparency* (which past applicants resemble this one?). This chapter covers the three.
+
+The quality question has sharpened since the 2019-2022 wave of work documenting attribution failure modes. Explanations can be unstable under infinitesimal input perturbations [@alvarezmelis2018robustness], can flatly disagree across methods [@krishna2022disagreement], can misidentify important features under structured data [@kumar2020problems], and can be gamed by an adversarial model that detects the explainer [@slack2020fooling]. Each failure mode has a diagnostic and a partial remedy, and a credit-model validator must know them.
+
+The counterfactual question matters because adverse-action notices and GDPR Article 22 decisions are fundamentally about recourse. Telling an applicant "your debt-to-income ratio was too high" fails the "specific reason" standard if the applicant cannot act on it; the actionable form is "a debt-to-income reduction of 8 percentage points would flip the decision, achievable by paying down $X on account Y." This chapter covers CEM, FACE, MACE, and growing-spheres as four materially different generators beyond DiCE (@sec-ch21).
+
+The prototype question is the last thread. @rudin2019stop argues that high-stakes credit decisions should use *inherently interpretable* models, not post-hoc explanations of black boxes. ProtoPNet, MMD-critic, and their cousins sit at the frontier of this research program: they encode reasoning as "this applicant resembles these training examples" rather than as "this feature moved the score by $\phi_j$." For small-business lending with human-in-the-loop review, this form is often the operational win.
+
+## Quality metrics for attributions {#sec-ch22e-quality}
+
+We frame all quality metrics on a common template. Given an attribution $A(x; f)$ and a model $f$, we define a *quality functional* $Q(A, f, \mathcal{D})$ that measures some desirable property over a dataset $\mathcal{D}$. The four functionals that matter in production:
+
+**Stability (Alvarez-Melis and Jaakkola).** An explanation should be approximately Lipschitz: small input perturbations should produce small attribution changes. Define
+
+$$
+L_A(x) = \sup_{x' : \|x' - x\| \leq \varepsilon} \frac{\|A(x') - A(x)\|}{\|x' - x\|}.
+$$ {#eq-alvarez-lipschitz}
+
+@alvarezmelis2018robustness estimate $L_A$ by sampling $x'$ in an $\varepsilon$-ball and taking the empirical max of the ratio. An attribution with $L_A \gg 1$ cannot be trusted for adverse-action notice, because two applicants with nearly identical feature vectors would receive different reasons.
+
+**Infidelity (Yeh et al.).** An attribution should approximate the model's local behavior under structured perturbations. @yeh2019fidelity define
+
+$$
+\mathrm{INFD}(A, f, x) = \mathbb{E}_{I}\left[\big(I^\top A(x) - (f(x) - f(x - I))\big)^2\right],
+$$ {#eq-infidelity}
+
+where $I$ is a random perturbation pattern (often a structured mask: remove $k$ random features). Low infidelity means the attribution summed along the perturbation direction matches the model's actual response.
+
+**ROAR (Hooker et al.).** Remove and retrain. @hooker2019benchmark argue that simply zeroing out the top-$k$ attributed features and measuring accuracy drop is confounded by distribution shift from the zeroing. Their fix is to retrain on the zeroed-out data and compare retrained accuracy to baseline. A good attribution's top-$k$ features, when removed and the model retrained, yield the largest accuracy drop.
+
+**Coverage (conformal bridge).** If the explanation comes with a confidence (a prediction set from @sec-ch22d) rather than a point, coverage is the natural quality metric: does the claimed uncertainty match empirical coverage?
+
+### Implementation
+
+```{python}
+import sys
+sys.path.insert(0, '../code')
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from sklearn.model_selection import train_test_split
+import xgboost as xgb
+import shap
+from csutils import load_taiwan_default
+
+SEED = 0
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+df = load_taiwan_default()
+y = df['default'].values
+X = df.drop(columns=['id', 'default'])
+Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=SEED, stratify=y)
+
+clf = xgb.XGBClassifier(
+    n_estimators=200, max_depth=5, learning_rate=0.07,
+    eval_metric='logloss', random_state=SEED, n_jobs=4
+)
+clf.fit(Xtr, ytr)
+explainer = shap.TreeExplainer(clf)
+sv = explainer.shap_values(Xte.iloc[:200])
+
+def lipschitz_local(f_attr, x, eps=0.05, n=20, rng=None):
+    rng = rng or np.random.default_rng(SEED)
+    base = f_attr(x)
+    worst = 0.0
+    for _ in range(n):
+        dx = rng.normal(0, eps, size=x.shape)
+        a2 = f_attr(x + dx)
+        ratio = np.linalg.norm(a2 - base) / (np.linalg.norm(dx) + 1e-8)
+        worst = max(worst, ratio)
+    return worst
+
+def shap_of(x):
+    return explainer.shap_values(pd.DataFrame([x], columns=X.columns))[0]
+
+x0 = Xte.iloc[0].values.astype(float)
+L_shap = lipschitz_local(shap_of, x0, eps=0.01, n=25)
+print(f"local Lipschitz (TreeSHAP) ~ {L_shap:.3f}")
+```
+
+```{python}
+def infidelity_score(f_pred, f_attr, x, n=100, k=3, rng=None):
+    rng = rng or np.random.default_rng(SEED)
+    attr = f_attr(x)
+    base = f_pred(x)
+    vals = []
+    d = len(x)
+    for _ in range(n):
+        idx = rng.choice(d, size=k, replace=False)
+        I = np.zeros(d); I[idx] = x[idx]
+        x_masked = x.copy(); x_masked[idx] = 0.0
+        pred_diff = base - f_pred(x_masked)
+        approx = (I * attr).sum()
+        vals.append((approx - pred_diff)**2)
+    return np.mean(vals)
+
+def clf_prob(x):
+    return clf.predict_proba(pd.DataFrame([x], columns=X.columns))[0, 1]
+
+inf = infidelity_score(clf_prob, shap_of, x0, n=80, k=4)
+print(f"infidelity(TreeSHAP, masks of 4): {inf:.3e}")
+```
+
+A production quality dashboard should log these numbers per model release. @krishna2022disagreement suggest monitoring method-disagreement directly: compute top-5 features under two methods and report Jaccard overlap.
+
+```{python}
+def top_k_overlap(attr_a, attr_b, k=5):
+    top_a = set(np.argsort(-np.abs(attr_a))[:k])
+    top_b = set(np.argsort(-np.abs(attr_b))[:k])
+    return len(top_a & top_b) / k
+
+explainer_int = shap.TreeExplainer(clf, data=Xtr.sample(100, random_state=SEED), feature_perturbation='interventional')
+sv_int = explainer_int.shap_values(Xte.iloc[:50])
+overlaps = [top_k_overlap(sv[i], sv_int[i], k=5) for i in range(50)]
+print(f"TreeSHAP(observational) vs TreeSHAP(interventional) top-5 Jaccard: mean={np.mean(overlaps):.3f}, min={np.min(overlaps):.3f}")
+```
+
+Low Jaccard is itself a signal: it means the observational-vs-interventional choice is consequential for these applicants and the model card should disclose which was used.
+
+## The disagreement problem, formalized {#sec-ch22e-disagreement}
+
+@krishna2022disagreement formalized six disagreement metrics between attributions $A$ and $B$: feature agreement (top-$k$ overlap), rank agreement, sign agreement, signed rank agreement, rank correlation, and pairwise rank agreement. Empirically, methods agree strongly on *which features matter* but disagree on *rank and sign* for ambiguous applicants. The disagreement is not noise: it reflects that different methods are estimating different underlying games (conditional vs interventional, Shapley vs Banzhaf vs Owen, marginal vs group).
+
+For credit deployment the defensible posture is three-part: (i) fix one canonical method per task type (TreeSHAP for tabular GBM, GradientSHAP for deep tabular, PartitionExplainer for text), (ii) monitor disagreement against an alternative method as a drift signal, and (iii) publish the choice and its rationale in the model card. Regulators reward transparent choices over "we use SHAP."
+
+## ROAR: remove and retrain {#sec-ch22e-roar}
+
+@hooker2019benchmark proposed ROAR as the "ground truth" benchmark for attribution quality. Algorithm:
+
+1. Compute $A_i$ for each training input $x_i$.
+2. For each $k \in \{10\%, 30\%, 50\%, 70\%\}$: construct $x_i^{(k)}$ by zeroing (or baseline-replacing) the top-$k$ features of $x_i$ by $|A_i|$.
+3. Retrain the model on $\{(x_i^{(k)}, y_i)\}$.
+4. Evaluate on a held-out set. A good attribution causes large accuracy drop at small $k$.
+
+Small-$k$ rapid drop means the attribution is locating the truly informative features. ROAR has important subtleties: (a) retraining must be with the same hyperparameters (train until convergence), (b) the baseline replacement must be the training mean to avoid creating out-of-distribution inputs, and (c) with tree models, retraining is cheap enough that ROAR is practical. For deep models ROAR on full retraining is expensive; @hooker2019benchmark show that single-epoch fine-tuning is a defensible approximation.
+
+ROAR is not a real-time monitoring metric; it is a method-selection benchmark run once per quarter. It settles disputes of the form "should we use SHAP or IG for our deep tabular model?" by running ROAR on the candidate methods and picking the one with the steepest curve.
+
+## Counterfactual explanations: beyond DiCE {#sec-ch22e-cf}
+
+@sec-ch21 introduced DiCE. Production deployment often needs alternatives that handle specific failure modes: closeness to the decision boundary (CEM), data-manifold constraints (FACE), causal constraints (MACE), and feasibility guarantees (growing spheres).
+
+### Pertinent negatives: CEM
+
+@dhurandhar2018explanations introduce Contrastive Explanations with Pertinent Negatives (CEM). Unlike Wachter-style counterfactuals that only search for features whose change flips the class (pertinent positives), CEM also searches for features whose *presence* was necessary to keep the current class (pertinent negatives). For a denied applicant, pertinent negatives answer "which features kept me out of approval even if the positives suggest I could be approved?" and surface structural barriers that DiCE hides.
+
+CEM's optimization for a pertinent negative at $x$ with target class $t' \neq t_{\mathrm{pred}(x)}$ solves
+
+$$
+\min_{\delta} \lambda_{\mathrm{fit}} \cdot \big(f_{t'}(x + \delta) - \max_{k \neq t'} f_k(x + \delta) + \kappa\big)^+ + \beta \|\delta\|_1 + \|\delta\|_2^2 + \gamma \cdot \mathrm{AE\_loss}(x + \delta),
+$$ {#eq-cem}
+
+subject to the class flip, where AE\_loss is the reconstruction loss of a fixed autoencoder trained on the data manifold. The autoencoder term is the "on-manifold" guarantee: CEM counterfactuals look like training data.
+
+### On-manifold paths: FACE
+
+@poyiadzi2020face generalize the CEM on-manifold idea into graph-based counterfactual search. Construct a $k$-NN or density-based graph $\mathcal{G}$ over the training set. The FACE counterfactual of $x$ is the shortest path in $\mathcal{G}$ from the node nearest to $x$ to any node classified as the target. Edge weights are proportional to density (denser regions have lower edge cost) so the counterfactual path avoids low-density "gap" regions.
+
+FACE's operational appeal for credit: the counterfactual is a sequence of waypoints through real applicants. Instead of "reduce DTI from 52% to 36%" (which may require an implausible feature combination), FACE returns "applicant A (reduce DTI to 45%, keep revolving utilization) then applicant B (reduce utilization to 30%) then applicant C (now in approve region)." Each waypoint is an existing applicant whose approval outcome and subsequent behavior are observable.
+
+### Model-agnostic causal: MACE
+
+@karimi2020model generalize counterfactual search to a SAT/SMT optimization over arbitrary feature types (continuous, categorical, ordinal) and with arbitrary feasibility constraints. MACE optimizes
+
+$$
+\min_{\delta} \|\delta\|_{\mathrm{cost}} \quad \mathrm{s.t.}\quad f(x + \delta) = t',\, (x + \delta) \in \mathcal{F},
+$$ {#eq-mace}
+
+where $\mathcal{F}$ is a conjunction of declarative constraints (some features are immutable, others are monotonic-only, some have relational bounds) and $\|\cdot\|_{\mathrm{cost}}$ is a weighted Mahalanobis distance that reflects feature-change costs. The optimization is done exactly via SMT solving. For regulatory cases this matters: a MACE counterfactual can declare "gender is immutable, age can only increase, income must lie within a 3-year forecast band" and return counterfactuals that satisfy all.
+
+### Growing spheres: Laugel
+
+@laugel2018comparison propose the simplest counterfactual generator: grow an $L_2$ ball around $x$ outward until you hit a point of the target class, then select the minimum-$L_0$ counterfactual inside that ball. The appeal is operational simplicity (no optimization, no autoencoder, no graph) and interpretability (the counterfactual is literally the closest target-class applicant in feature space). For small-data credit models this is often the right first tool.
+
+```{python}
+def growing_spheres(f_pred, x, target_class, r_max=3.0, n_per_radius=200, rng=None):
+    rng = rng or np.random.default_rng(SEED)
+    d = len(x)
+    for r in np.linspace(0.1, r_max, 30):
+        candidates = x + r * rng.normal(size=(n_per_radius, d)) / np.sqrt(d)
+        preds = np.array([f_pred(c) for c in candidates])
+        hits = candidates[preds >= 0.5] if target_class == 1 else candidates[preds < 0.5]
+        if len(hits) > 0:
+            changes = np.abs(hits - x).sum(axis=1)
+            best = hits[np.argmin(changes)]
+            return best, changes.min()
+    return None, None
+
+x0_arr = Xte.iloc[0].values.astype(float)
+scale = Xtr.std().values.astype(float) + 1e-8
+
+def pred_fn(x):
+    return clf.predict_proba(pd.DataFrame([x], columns=X.columns))[0, 1]
+
+cf, cost = growing_spheres(pred_fn, x0_arr / scale, target_class=1 - int(pred_fn(x0_arr) > 0.5), r_max=2.0, n_per_radius=50)
+if cf is not None:
+    diffs = pd.Series((cf * scale) - x0_arr, index=X.columns).abs().nlargest(5)
+    print(f"growing-spheres counterfactual: top-5 feature changes\n{diffs}")
+else:
+    print("no counterfactual found within radius")
+```
+
+### Deployment patterns
+
+- **ECOA adverse-action notices.** DiCE, CEM, or MACE with immutable-feature constraints are the candidates. Growing spheres is too unstable across runs for legal artifacts.
+- **UX recourse.** FACE returns multi-step paths that are easier to communicate to customers. A customer-facing "here's how to improve your score" product benefits from the sequence of waypoints.
+- **Stress testing.** Growing spheres is fast enough to run for every applicant in a portfolio, which makes it useful for discovering brittle decision regions.
+- **Causal fairness audits.** MACE's SMT constraints are the right tool to ask "would the decision flip if we changed only non-protected features?" under a declared causal graph.
+
+## Example-based transparency: prototypes and criticisms {#sec-ch22e-proto}
+
+Prototypes are representative training examples. Criticisms are representative misclassified or boundary examples. Together they give an interpretable summary of what the model "knows." @kim2016examples introduce MMD-critic: pick prototypes $P$ and criticisms $C$ by
+
+$$
+P = \arg\max_{P \subseteq \mathcal{D}} \mathrm{MMD}^2(\mathcal{D}, P), \qquad C = \arg\max_{C \subseteq \mathcal{D}} \sum_{x \in C} \|\hat\rho(x) - \rho_P(x)\|_1,
+$$ {#eq-mmd-critic}
+
+where MMD is Maximum Mean Discrepancy and $\hat\rho$, $\rho_P$ are density estimates over all data and over $P$. The optimization is submodular and greedy selection gives a $(1-1/e)$-approximation.
+
+For credit scoring, prototypes are the most interpretable artifact in the entire explanation stack: "your application resembles these 10 past applications. Of those, 7 were approved." A validator can read this in seconds; a customer can read it without training in machine learning.
+
+ProtoPNet [@chen2019looks] integrates prototypes into the *model itself* for image classification. Each convolutional channel is trained to respond to a learned "prototype," the prediction is a sum over "this region of the input resembles prototype $p$ by amount $s$," and prototypes are visualizable. Adapting ProtoPNet-style architectures to tabular credit models is an open research direction; published adaptations substitute a feature-subspace prototype for the conv prototype, but the literature is thin.
+
+```{python}
+try:
+    from sklearn.metrics import pairwise_distances
+    def mmd_critic_prototypes(X, m=10, gamma=0.5):
+        K = np.exp(-gamma * pairwise_distances(X, X, metric='sqeuclidean'))
+        n = len(X)
+        col_mean = K.mean(axis=1)
+        selected = []
+        for _ in range(m):
+            remaining = [i for i in range(n) if i not in selected]
+            best_i, best_val = None, -np.inf
+            for i in remaining:
+                s = selected + [i]
+                S = K[np.ix_(s, s)]
+                val = 2 * col_mean[s].sum() - S.sum() / len(s)
+                if val > best_val:
+                    best_i, best_val = i, val
+            selected.append(best_i)
+        return selected
+
+    Xscale = Xtr.sample(500, random_state=SEED).values.astype(float)
+    Xnorm = (Xscale - Xscale.mean(0)) / (Xscale.std(0) + 1e-8)
+    proto_idx = mmd_critic_prototypes(Xnorm, m=6, gamma=0.01)
+    print(f"MMD-critic prototype indices: {proto_idx}")
+except Exception as e:
+    print(f"MMD-critic demo skipped: {e}")
+```
+
+In operations, we pair MMD-critic with TreeSHAP: the prototypes anchor the attributions. The adverse-action notice becomes "your application scored similarly to these 3 prior denied applicants; the dominant features driving the decision for this cluster were X, Y, Z." This is more auditable than either attributions alone or prototypes alone.
+
+## The inherent-interpretability counterpoint {#sec-ch22e-rudin}
+
+@rudin2019stop argues that post-hoc explanations of black boxes are fundamentally unreliable for high-stakes decisions and that the field should build inherently interpretable models instead. For credit scoring the argument has three parts: (i) post-hoc explanations disagree and have poor stability properties (the first half of this chapter), (ii) inherently interpretable models do not sacrifice accuracy in most tabular settings (TreeSHAP reveals that GBM accuracy is close to that of risk scores with $\leq 10$ features), and (iii) the cost of a wrong explanation on a high-stakes decision is higher than the cost of a slightly less accurate model.
+
+The practical middle ground in regulated credit scoring:
+
+- **Use inherently interpretable models where they are accuracy-competitive.** Logistic regression with WOE-binning, optimal scorecards (@sec-ch07), and rule ensembles (RuleFit, @sec-ch11) typically lose 1-3 AUC points against tuned XGBoost on tabular credit data. For low-volume, high-stakes products (small-business term loans, corporate underwriting) the loss is worth the transparency.
+- **Use black-box models with strong post-hoc explanations where accuracy matters.** For consumer revolving credit with large data volumes and fast decision cycles, the accuracy lift of XGBoost plus TreeSHAP often justifies the model-risk overhead.
+- **Publish the choice.** Model cards should explicitly state the accuracy-interpretability tradeoff made for each product, the post-hoc method used, and the monitoring regime for explanation quality.
+
+## Mechanistic interpretability for credit models {#sec-ch22e-mechinterp}
+
+@sec-ch22c introduced mechanistic interpretability for deep models. For tabular credit models the analog is not quite transformer circuits but *model distillation*: fit a simple, interpretable surrogate $\tilde g$ globally to the black-box model $f$ and then audit $\tilde g$. The modern twist is that distillation quality can itself be certified: if the surrogate's fidelity to $f$ on the training distribution is above 95%, the surrogate audit transfers to the black box.
+
+For deep credit-text or credit-image models, the frontier is sparse-autoencoder analysis of internal activations [@bricken2023towards]. For tabular models, Neural Additive Models are a middle ground: they constrain the architecture to a sum of one-dimensional feature networks, which are interpretable by direct plotting. The accuracy loss over XGBoost is small on most credit datasets, and @caruana2015intelligible already demonstrated the healthcare analog.
+
+## Putting it together: the explanation-quality scorecard {#sec-ch22e-scorecard}
+
+A production credit-model validation report in 2026 should include an explanation-quality section with the following fields:
+
+| Axis | Metric | Target | Measured on |
+|------|--------|--------|-------------|
+| Method choice | Axiom contract declared | Efficiency+implementation-invariance | Model card |
+| Stability | Local Lipschitz $L_A$ at $\varepsilon=0.01\sigma$ | Below 5 on normalized features | Rolling month |
+| Infidelity | @yeh2019fidelity score | Below $10^{-2}$ on $\Pr$ scale | Weekly batch |
+| Method agreement | Top-5 Jaccard (primary vs alternative) | Above 0.6 | Weekly batch |
+| ROAR | Top-10% accuracy drop under retraining | Above 5 AUC points | Quarterly |
+| Counterfactual coverage | Fraction of denied applicants with valid CF | Above 90% | Monthly |
+| Counterfactual feasibility | Median $L_1$ cost under immutability constraints | Monitored, not thresholded | Monthly |
+| Prototype coverage | Fraction of applicants with $\leq 3$ nearest prototypes | Above 95% | Monthly |
+
+This scorecard closes the loop. SHAP and IG produce numbers; quality metrics produce numbers on those numbers; the validation report ties both to regulatory obligations; and model-card transparency ties all three to public accountability.
+
+## Regulatory alignment {#sec-ch22e-regulatory}
+
+**ECOA Regulation B** (@sec-ch21 overview) requires specific reasons for adverse actions. Counterfactual explanations with immutability constraints (MACE) produce the most defensible artifact: "your application would have been approved if your revolving utilization were at most 30% and your installment income ratio were at most 35%" directly satisfies the "specific reason" standard and provides actionable recourse.
+
+**GDPR Article 22** [@goodman2017european; @wachter2018counterfactual] grants data subjects a right to contest automated decisions. Counterfactual explanations operationalize this right: the applicant receives a readable explanation they can use to challenge (e.g., "my income was misclassified; here is the corrected value"). The combination of a post-hoc attribution (why this decision) plus a counterfactual (what would flip it) is the minimum acceptable package.
+
+**EU AI Act Article 13** [@euaiact2024] requires technical documentation of interpretability methods. The scorecard above is the documentation template.
+
+**CFPB Circular 2022-03** [@cfpb2022adverse]. The "complex algorithm" rule explicitly contemplates post-hoc explanation methods. The key compliance point is that the explanation must be truthful: if the post-hoc method fails infidelity or stability thresholds, the adverse-action notice is not merely imprecise but materially misleading, and the lender carries corresponding liability.
+
+## Takeaways
+
+- Explanations are not self-certifying. Quality must be measured with Lipschitz stability, infidelity, ROAR, and method-agreement metrics.
+- The disagreement problem is real and structural. Defend against it with one canonical method per task, disclosure in model cards, and agreement monitoring.
+- Counterfactual alternatives to DiCE (CEM, FACE, MACE, growing spheres) fit different deployment profiles: CEM for contrastive reasoning, FACE for stepwise recourse, MACE for constrained settings, growing spheres for rapid stress tests.
+- Prototypes and criticisms (MMD-critic, ProtoPNet) are underused in credit scoring and often more operationally interpretable than attributions.
+- The inherent-interpretability case (Rudin) is strong for low-volume, high-stakes products. Post-hoc methods earn their keep for high-volume products where the accuracy lift justifies the model-risk overhead.
+- A production explanation-quality scorecard is the modern validation artifact. It ties individual metrics to regulatory obligations and to the model card.
+
+## Further reading
+
+- @rudin2019stop is the foundational "stop using black boxes" argument.
+- @alvarezmelis2018robustness, @yeh2019fidelity, @hooker2019benchmark define the quantitative quality metrics.
+- @krishna2022disagreement survey the disagreement problem with practitioner-facing framing.
+- @dhurandhar2018explanations, @poyiadzi2020face, @laugel2018comparison, @karimi2020model cover the four main counterfactual-alternative families.
+- @kim2016examples and @chen2019looks develop MMD-critic and ProtoPNet.
+- @ghorbani2019interpretation documents gradient-attack fragility, which motivated the whole quality-metric program.
+- @bhatt2020evaluating proposes aggregation across methods as a disagreement remedy.
+- @molnar2022interpretable is the open-access survey that cross-walks these methods.

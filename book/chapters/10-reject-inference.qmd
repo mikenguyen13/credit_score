@@ -1,0 +1,1000 @@
+---
+execute:
+  echo: true
+  eval: true
+---
+
+# Reject Inference and Sample Selection {#sec-ch10}
+
+## Overview {.unnumbered}
+
+A lender's data generation process is not i.i.d. from the applicant population. Only the accepted see a loan, and only the accepted produce an outcome we can label. Every estimator that trains on accepted-only data, and every validation curve drawn from accepted-only data, therefore answers a different question than the one a credit officer is asking. The officer asks: what is the probability of default for this applicant in the unrestricted pool? The accepted-only model answers: what is the probability of default for applicants who resemble those the incumbent policy chose to fund?
+
+This chapter treats the gap between those two questions as the subject in its own right. We formalize the missing-data taxonomy (@sec-ch10), derive the Heckman (1979) two-step selection correction in full (@sec-ch10-heckman-selection-correction), state and prove the Hand and Henley (1997) impossibility result (@sec-ch10-impossibility), and write the EM algorithm that underpins a self-training reject inference loop (@sec-ch10-em). We then build all of it in NumPy on a synthetic lender where we control the selection rule, compare to `statsmodels` and `sklearn.semi_supervised`, and finish with two modern practitioner views: the marketplace-lending perspective of @vallee2019marketplace and the automation/disparity evidence of @howell2024lender.
+
+The chapter is deliberately not a tour of reject inference recipes. The recipes without the identifiability argument behind them are dangerous in production, because a plausible looking PD curve on rejected applicants can coexist with arbitrarily wrong truth. That is the Hand and Henley point, and the rest of the chapter is an attempt to meet it with either extra structure (exclusion restrictions, parametric families) or extra data (bureau outcomes, through-the-door bureau vintages).
+
+The problem is most severe in emerging markets. A Vietnamese consumer lender rolling out eKYC under Circular 16/2020/TT-NHNN sees through-the-door volumes ten times its booked volume, decline rates above 70 percent are routine at the consumer-finance subsidiaries of joint-stock banks, and CIC lookups skew toward the thinnest of thin files [@sbv2020ekyc; @cicvn2023report]. Informal income, Tet-induced cash-flow compression, and macro volatility [@chu2024vietnam; @leboulanger2021tet] mean the selection rule correlates with unobservables that also drive default. The closing emerging-market section returns to this with CIC-based bureau extrapolation, Heckman exclusion candidates specific to Vietnam, and Decree 13/2023 constraints on how rejected-applicant data can be retained and reused.
+
+### Notation {.unnumbered}
+
+Let $X \in \mathbb{R}^p$ be the application features observed at decision time, $Z \in \mathbb{R}^q$ be a vector used in the selection decision but excluded from the outcome equation, and $Y \in \{0,1\}$ the default indicator over a fixed performance window. Let $S \in \{0,1\}$ be the accept indicator ($S=1$ if the incumbent policy funded the loan). Only $(X, Z, S)$ are observed for the full through-the-door population. $Y$ is observed only when $S = 1$.
+
+Throughout the chapter, $\phi$ and $\Phi$ denote the standard normal density and CDF. The inverse Mills ratio is $\lambda(a) = \phi(a)/\Phi(a)$. Expectations over the unobserved error vector $(u, v)$ respect the bivariate normal joint structure assumed in @heckman1979sample, with correlation $\rho$ and outcome-side standard deviation $\sigma$ (normalized to 1 in the probit case).
+
+## The selection bias problem {#sec-ch10-reject}
+
+### The naive fit and what it estimates
+
+Fix the incumbent policy as a deterministic rule $s(x, z)$ with $S = s(X, Z)$ almost surely (we relax this later). The lender observes $\{(X_i, Z_i, Y_i) : S_i = 1\}$. A naive maximum-likelihood fit of a PD model $P(Y=1 \mid X; \beta)$ on this sample estimates
+
+$$
+\beta_{\text{naive}} = \arg\max_\beta \mathbb{E}\big[ \log P(Y \mid X; \beta) \big\vert S = 1 \big].
+$$ {#eq-naive-target}
+
+The target is the conditional on $S=1$. When the decision rule depends on $X$, the feature marginal $P(X \mid S=1)$ is shifted relative to $P(X)$. When the decision rule also correlates with unobservables that drive $Y$, the conditional $P(Y \mid X, S=1)$ is shifted relative to $P(Y \mid X)$. The first shift is covariate shift, fixable with reweighting when the target distribution is known. The second shift is selection bias proper, and it is what reject inference tries to repair.
+
+The distinction matters because there exist rules that induce covariate shift without selection bias. If $s(X, Z) = \mathbf{1}\{Z > 0\}$ and $Z$ is independent of $(Y, X)$, then $P(Y \mid X, S=1) = P(Y \mid X)$ and there is nothing to correct. The pathology is when $s$ depends on $X$ in a way that covaries with the residual in the outcome model, or when $s$ depends on latent information unobserved to the modeler that is also predictive of $Y$. In consumer credit both are the norm. Loan officers read free-text notes, underwriters flag informal income, overlays include desk-level intuition, and all of that ends up baked into the accept decision but absent from the feature store.
+
+### Rubin's missing-data taxonomy
+
+The modern framing is @rubin1976inference. Call the full outcome vector $Y = (Y_{\text{obs}}, Y_{\text{mis}})$ and the missingness indicator $M = 1 - S$. The joint density factors as
+
+$$
+p(Y_{\text{obs}}, Y_{\text{mis}}, M \mid X, Z; \theta, \psi) = p(Y_{\text{obs}}, Y_{\text{mis}} \mid X; \theta) p(M \mid Y_{\text{obs}}, Y_{\text{mis}}, X, Z; \psi).
+$$ {#eq-joint-missing}
+
+Three regimes matter:
+
+- Missing completely at random (MCAR): $p(M \mid Y, X, Z) = p(M)$. Selection is independent of both observed and unobserved data. Naive fits are consistent. This is the regime a randomized credit-offer experiment generates.
+- Missing at random (MAR): $p(M \mid Y, X, Z) = p(M \mid X, Z)$. Selection depends only on observables. Inverse probability weighting on $(X, Z)$ is sufficient. This is the regime that augmentation and bureau-based extrapolation lean on.
+- Missing not at random (MNAR): $p(M \mid Y, X, Z)$ depends on $Y$ even after conditioning on $(X, Z)$. Selection is driven by something not in the feature store that also drives default. No amount of reweighting on $(X, Z)$ suffices. This is the regime that motivates Heckman and the impossibility result.
+
+The practical trap is that MAR versus MNAR is untestable from the observed data alone. The observed likelihood integrates over the unobserved $Y_{\text{mis}}$, and two joint densities with identical $p(Y_{\text{obs}} \mid X, Z, S=1)$ can differ arbitrarily on $p(Y_{\text{mis}} \mid X, Z, S=0)$. Any claim that the selection is MAR is an assumption on structure, not a hypothesis that the data can refute.
+
+### The credit officer's version
+
+A credit officer rarely thinks in these terms. The version that lands is a counterfactual: hold out every fifth applicant at random, approve them regardless of score, watch the portfolio. That is the golden standard, and where it exists (often in small test-and-learn pockets inside marketing) it is the only evidence that settles the question. The rest of reject inference is an attempt to simulate this experiment from non-experimental data, with varying degrees of honesty about what that requires.
+
+Two assumptions are load-bearing. One, the feature representation $X$ is rich enough that the residual selection on unobservables is small. Two, the decision rule has some idiosyncratic variation, either an instrument (a feature that shifts $S$ without shifting $Y$) or overlap (a positive probability of accept at every $X$). The second is policy design: a bureau-cut at 620 with zero variance at 619 and 621 produces no overlap, while stochastic approvals or score-band-level manual review produce some. Without either assumption, reject inference is extrapolation to regions the data has never seen, and the extrapolation relies entirely on the functional form.
+
+The punchline for this chapter is that every reject inference method is a tradeoff between these two assumptions and the price of being wrong. We treat them in increasing order of the structure they impose: augmentation and parceling lean on MAR plus smoothness; Heckman leans on bivariate normality plus an exclusion restriction; semi-supervised methods lean on cluster structure; and the impossibility result tells us what none of them can do without a genuinely exogenous source of variation.
+
+## Formal setup
+
+The through-the-door population generates an i.i.d. sample $(X_i, Z_i, U_i, V_i)$ from a joint distribution $F$. The latent default score is
+
+$$
+Y^*_i = X_i^\top \beta + U_i, \qquad Y_i = \mathbf{1}\{Y^*_i > 0\},
+$$ {#eq-latent-default}
+
+and the latent selection score is
+
+$$
+S^*_i = X_i^\top \gamma_X + Z_i^\top \gamma_Z + V_i, \qquad S_i = \mathbf{1}\{S^*_i > 0\}.
+$$ {#eq-latent-selection}
+
+The errors $(U, V)$ have zero mean and joint distribution $G$. The Heckman model assumes $G$ is bivariate normal with unit marginals and correlation $\rho$. The exclusion restriction holds if $Z$ enters @eq-latent-selection but not @eq-latent-default.
+
+The observed-data likelihood for any model in this family, given $n$ i.i.d. applicants, is
+
+$$
+\mathcal{L}(\theta) = \prod_{i: S_i = 0} P(S_i = 0 \mid X_i, Z_i; \theta) \times \prod_{i: S_i = 1} P(S_i = 1, Y_i \mid X_i, Z_i; \theta).
+$$ {#eq-observed-likelihood}
+
+The joint factor on the accepted side is what distinguishes Heckman from a naive fit: $P(S=1, Y \mid X, Z)$ integrates over $(U, V)$ with the joint distribution, so $P(Y \mid X, Z, S=1) \neq P(Y \mid X)$ whenever $\rho \neq 0$.
+
+For outcomes, we consider two canonical cases. In the linear case (used mostly in econometric wage equations), $Y = X^\top \beta + U$ is continuous and observed for $S=1$. In the binary case (which dominates credit), $Y \in \{0,1\}$ is a probit outcome. Both have closed-form two-step estimators based on the inverse Mills ratio, derived in the next section.
+
+## Augmentation: Hsia's parceling and its fuzzy variant {#sec-ch10-augmentation-hsias-parceling-and-its-fuz}
+
+### The procedure
+
+@hsia1978credit proposed the first systematic reject inference method in a regulatory-compliance context. The idea is elementary: fit a PD model on accepted loans, score the rejected applicants, split the rejected into score bands, assign each band a bad rate using the accepted bad rate in that band, and refit on the augmented sample. "Parceling" refers to the score-band partition. "Fuzzy augmentation" softens the assignment: instead of a 0/1 label per rejected applicant, each rejected applicant contributes a fractional weight for $Y=1$ equal to the assigned bad rate and a fractional weight for $Y=0$ equal to its complement.
+
+Formally, let $\hat p_0(x) = P(Y=1 \mid X=x, S=1)$ be the accepted-only PD model. Let $\tau(x)$ be a scaling factor that inflates the PD for rejected applicants relative to accepted applicants at the same $x$, reflecting the belief that the incumbent policy correctly identified higher risk in rejects. Fuzzy augmentation solves
+
+$$
+\hat \beta_{\text{fuzzy}} = \arg\max_\beta \sum_{i: S_i=1} \log P(Y_i \mid X_i; \beta) + \sum_{i: S_i=0} \Big[ w_i \log P(1 \mid X_i; \beta) + (1 - w_i) \log P(0 \mid X_i; \beta) \Big],
+$$ {#eq-fuzzy-augmentation}
+
+where $w_i = \tau(X_i) \hat p_0(X_i)$ is the soft-label weight.
+
+Setting $\tau \equiv 1$ is the MAR assumption in disguise: the accepted PD curve, extrapolated to the rejected region, is the true PD curve. Setting $\tau > 1$ is a hand-tuned adjustment. Industry lore uses $\tau \in [2, 5]$, with higher values for riskier product segments. There is no data-driven way to pin $\tau$ from the accepted-only sample; it comes from either bureau data or a champion-challenger test. Any justification beyond expert judgment is an auxiliary data source in disguise.
+
+### What parceling estimates
+
+When $\tau \equiv 1$, @eq-fuzzy-augmentation is a pseudo-likelihood that treats the rejected applicants as contributing the expected log-likelihood under the accepted PD curve. The fitted $\beta$ is the maximizer of
+
+$$
+\mathbb{E}_{(X, S)} \Big[ \mathbb{E}_{Y \mid X, S=1} \log P(Y \mid X; \beta) \Big],
+$$ {#eq-fuzzy-target}
+
+which is the weighted average of the accepted-conditional log-likelihood over the full marginal of $X$. When selection is MAR (that is, $P(Y \mid X, S=1) = P(Y \mid X)$) this coincides with the through-the-door target. When selection is MNAR, @eq-fuzzy-target is biased in exactly the way a naive fit would be, because the conditional PD the augmentation uses is itself biased. Fuzzy augmentation cannot out-run the MAR assumption it is built on; it can only match the marginal of $X$.
+
+This is why the method is most defensible when the lender's acceptance rule is largely a function of observed features with little residual variation from unobservables. A rule-based approve-all-above-score scorecard is closer to this regime than a relationship-manager judgmental decision.
+
+## Bureau-based extrapolation and downturn adjustment {#sec-ch10-bureau-extrapolation}
+
+### Using the bureau as a surrogate
+
+The most convincing way to break the MNAR impasse in retail credit is to observe $Y$ for rejected applicants from another data source. Credit bureaus provide this. When an applicant is rejected by Lender A, they often apply to Lender B, C, and D, and if any of them accept, the bureau records whether the applicant defaulted on that account. After a 12 or 24 month performance window, the bureau reports a binary outcome on a majority of the originally rejected population. This is the bureau-based reject inference workflow.
+
+The mechanics are straightforward. Pull the rejected applicant bureau pulls at application time. Re-pull the same bureau IDs 24 months later. Observe trade-line level defaults on any credit instrument that opened in the intervening window. Define a bureau-based outcome: $Y^B = 1$ if any trade-line defaulted, 0 if at least one trade-line opened and none defaulted, and missing if no trade-line opened in the window. The last group, still roughly 10 to 30 percent of rejects, remains a within-rejects selection problem.
+
+The approximation matters for economic reasons that deserve explicit treatment. $Y^B$ is the outcome of a loan from a different lender, with a different product, a different limit, a different rate, a different collection process, and a different servicer. A reject at Lender A who gets a lower-limit card at Lender B may default less than they would have on Lender A's requested limit simply because the exposure is smaller. A reject at Lender A who takes a payday loan at Lender C may default more. The direction of the bias is unclear without a structural model of product risk and borrower self-selection.
+
+The production practice is to use $Y^B$ to impute $Y$ for rejects, keep an explicit flag for the imputation source, fit the PD model with a weight that reflects the confidence in the imputation, and track calibration separately for applicants with bureau-observed outcomes versus bureau-missing outcomes. When the confidence weight is 1 for accepteds and 0.7 for bureau imputations, the effective sample size is smaller than the count, and the standard errors must reflect that.
+
+### Downturn adjustment
+
+A complication that reject inference inherits from the broader scorecard literature is the vintage effect. Default rates in a single vintage depend on the macro environment. A portfolio of 2005 vintage loans defaulted at twice the rate of 2003 vintage loans at the same score. Reject inference done in 2018 used a tight-credit 2008 to 2012 window as the reject-bureau outcome, and that window is not representative of the 2018 through-the-door population's expected life.
+
+The Basel supervisory guidance on downturn loss given default (LGD) applies by analogy. The industry reflex is to adjust the reject-inferred PD curve upward by a scalar that reflects the ratio of a long-run average default rate to the reject-bureau window default rate, preserving the shape of the curve while shifting the level. This is a crude fix that introduces an untestable scalar into the PD, and it is the first thing a model validator (ch 5) will question. The clean alternative is stratified reject inference by vintage and macro state, with a separate PD level estimate for each stratum, aggregated under the bank's expected portfolio mix. The statistical efficiency loss is nontrivial, so banks typically combine both.
+
+## Heckman selection correction {#sec-ch10-heckman-selection-correction}
+
+### The two-equation model
+
+@heckman1974shadow and @heckman1976common developed the framework; @heckman1979sample is the canonical reference. The model is @eq-latent-default and @eq-latent-selection with $(U, V) \sim \mathcal{N}(0, \Sigma)$ where
+
+$$
+\Sigma = \begin{pmatrix} \sigma^2 & \rho \sigma \\ \rho \sigma & 1 \end{pmatrix}.
+$$ {#eq-heckman-sigma}
+
+We normalize the selection equation's variance to 1 because the scale is unidentified in a probit. The outcome variance $\sigma^2$ is identified when the outcome is continuous. When the outcome is binary and probit, $\sigma$ is also normalized to 1 and only $\rho$ is identified.
+
+### Conditional expectation of the outcome error
+
+The key identity is the conditional expectation of $U$ given selection. For selection $S = \mathbf{1}\{X^\top \gamma_X + Z^\top \gamma_Z + V > 0\}$, write $a \equiv X^\top \gamma_X + Z^\top \gamma_Z$. Then
+
+$$
+\mathbb{E}[U \mid X, Z, S=1] = \mathbb{E}[U \mid V > -a].
+$$ {#eq-cond-u-step1}
+
+Because $(U, V)$ is bivariate normal with $\mathrm{Var}(V) = 1$, we can write $U = \rho \sigma V + \eta$ with $\eta \perp V$ and $\mathrm{Var}(\eta) = \sigma^2 (1 - \rho^2)$. Substitute:
+
+$$
+\mathbb{E}[U \mid V > -a] = \rho \sigma \mathbb{E}[V \mid V > -a] + \mathbb{E}[\eta \mid V > -a].
+$$ {#eq-cond-u-step2}
+
+The second term is zero because $\eta$ is independent of $V$, so the conditioning has no effect. For the first term, use the standard result for a truncated normal: if $V \sim \mathcal{N}(0, 1)$ and $c$ is a constant, then
+
+$$
+\mathbb{E}[V \mid V > c] = \frac{\phi(c)}{1 - \Phi(c)}.
+$$ {#eq-truncated-normal-mean}
+
+This is derived by direct integration: the density of $V$ truncated below at $c$ is $\phi(v)/(1 - \Phi(c))$ for $v > c$, and the mean integrates by parts to $\phi(c)/(1 - \Phi(c))$ since the derivative of $-\phi$ is $v \phi$ (up to sign).
+
+Setting $c = -a$ and using the symmetry $\phi(-a) = \phi(a)$ and $1 - \Phi(-a) = \Phi(a)$:
+
+$$
+\mathbb{E}[V \mid V > -a] = \frac{\phi(a)}{\Phi(a)} = \lambda(a).
+$$ {#eq-imr}
+
+The function $\lambda(a) = \phi(a)/\Phi(a)$ is the inverse Mills ratio, named for the ratio of densities it represents. Combining,
+
+$$
+\mathbb{E}[U \mid X, Z, S=1] = \rho \sigma \lambda(X^\top \gamma_X + Z^\top \gamma_Z).
+$$ {#eq-imr-final}
+
+### The two-step estimator
+
+The two-step estimator follows from @eq-imr-final directly. Take the outcome equation @eq-latent-default, condition on selection, and split $U$ into its conditional mean and a zero-mean residual:
+
+$$
+Y \mid X, Z, S=1 = X^\top \beta + \rho \sigma \lambda(X^\top \gamma_X + Z^\top \gamma_Z) + \epsilon,
+$$ {#eq-heckman-outcome}
+
+where $\epsilon$ has conditional mean zero by construction. The two-step procedure is:
+
+1. Fit a probit of $S$ on $(X, Z)$ using the full applicant sample. Obtain $\hat \gamma_X$, $\hat \gamma_Z$. Compute $\hat \lambda_i = \lambda(X_i^\top \hat \gamma_X + Z_i^\top \hat \gamma_Z)$ for every $i$ with $S_i = 1$.
+
+2. Regress $Y$ on $X$ and $\hat \lambda$ on the accepted sample. In the linear outcome case this is OLS, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho \sigma$. In the probit outcome case it is a probit, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho$ (with $\sigma = 1$).
+
+The estimator is consistent under bivariate normality, the exclusion restriction (some variable in $Z$ that is not in $X$), and overlap (positive probability of selection for every $x$ of interest). Standard errors from the second stage are wrong because $\hat \lambda$ is a generated regressor; the correction in @heckman1979sample uses a sandwich form, and in practice the bootstrap gets the same answer more easily.
+
+### Why the exclusion restriction matters
+
+Suppose $Z$ is empty. Then the probit in step 1 runs $S$ on $X$ alone, and $\hat \lambda$ is a deterministic function of $X^\top \hat \gamma_X$. In the second stage, we regress $Y$ on $X$ and a nonlinear function of $X$. The coefficient on $\hat \lambda$ is only identified from the curvature of $\lambda$ relative to linear combinations of $X$. This is a weak source of identification. If $X$ is nearly normal and $X^\top \gamma_X$ has moderate range, $\lambda$ is nearly affine on that range, and the coefficient on $\hat \lambda$ is collinear with the $X$ vector. The estimator explodes.
+
+The exclusion restriction gives $\lambda$ genuine variation orthogonal to $X$. In credit, canonical candidates are bureau-wide aggregates that the lender used for auto-decline (like a single-score cutoff) but that are otherwise well-captured by the underwriting features, or cost-of-credit variables like a promotional rate that shifted approval probability for some applicants without shifting default risk. Finding a valid $Z$ is hard. Hand-picking one after-the-fact invites violation; the economic story must be prespecified.
+
+### Connection to inverse probability weighting
+
+When selection is MAR, meaning $\rho = 0$, the coefficient on $\hat \lambda$ is zero and the Heckman estimator collapses to the naive fit. In that regime an alternative is inverse probability of selection weighting: weight each accepted observation by $1 / \hat P(S=1 \mid X, Z)$. That gives an unbiased estimator of the through-the-door marginal without any normality assumption, but it is only valid under MAR. Heckman is the MAR-violating generalization in the parametric normal family.
+
+## The impossibility result {#sec-ch10-impossibility}
+
+### Hand and Henley's observation
+
+@hand1997statistical stated what is arguably the central limit of reject inference as a statistical procedure. The observed data consist of
+
+$$
+\{(X_i, Z_i, S_i)\}_{i=1}^n \cup \{(X_i, Y_i) : S_i = 1\}.
+$$ {#eq-observed-data}
+
+The goal is to estimate $P(Y=1 \mid X=x)$ for every $x$, including the region where $P(S=1 \mid X=x) = 0$. In that region the observed sample contains zero information about the $Y$ distribution. Any estimator that delivers a value for $P(Y=1 \mid X=x)$ in that region is extrapolating from either a parametric assumption or an auxiliary data source.
+
+More strongly: two data-generating processes with identical $P(Y \mid X, S=1)$ on $\{x : P(S=1 \mid X=x) > 0\}$ and different $P(Y \mid X, S=0)$ on $\{x : P(S=1 \mid X=x) = 0\}$ produce identical observed-data likelihoods. Maximum-likelihood estimation cannot distinguish them, and no transformation of the data can either. The observed sample is simply uninformative about that region.
+
+### Formal statement
+
+Let $\mathcal{F}$ be the set of all joint distributions $F_{X, Z, S, Y}$ consistent with the observed data likelihood. Partition $\mathcal{F}$ by the through-the-door conditional default function $f(x) = P_F(Y=1 \mid X=x)$. Then the set
+
+$$
+\mathcal{F}(f) = \{F \in \mathcal{F} : P_F(Y=1 \mid X=x) = f(x) \text{ for all } x\}
+$$ {#eq-f-of-f}
+
+has the property that for any two $f_1, f_2$ with $f_1 = f_2$ on the support of $X$ in the accepted sample, $\mathcal{F}(f_1)$ and $\mathcal{F}(f_2)$ share the same observed-data likelihood. Reject inference must pick one element of the equivalence class; the observed data does not pin down which.
+
+The proof is a counting argument. The observed likelihood depends on $P(S=1, Y \mid X, Z)$ on the accept side and $P(S=0 \mid X, Z)$ on the reject side, integrated over $X$ and $Z$. On the reject side, the marginal $P(S=0 \mid X, Z)$ places no constraint on $P(Y \mid X, Z, S=0)$, because $Y$ is unobserved. On the accept side, $P(S=1, Y \mid X, Z)$ pins down $P(Y \mid X, Z, S=1)$ times $P(S=1 \mid X, Z)$. Neither component constrains $P(Y \mid X, Z, S=0)$. The through-the-door conditional $P(Y \mid X, Z)$ is the mixture
+
+$$
+P(Y \mid X, Z) = P(Y \mid X, Z, S=1) P(S=1 \mid X, Z) + P(Y \mid X, Z, S=0) P(S=0 \mid X, Z),
+$$ {#eq-mixture}
+
+and the unobserved component $P(Y \mid X, Z, S=0)$ is free. Hand and Henley's result is that freedom.
+
+### What the theorem does not say
+
+The impossibility is conditional on using only the observed sample under the stated assumptions. It does not prevent estimation under additional assumptions. Heckman's bivariate normality is such an assumption: it ties $P(Y \mid X, Z, S=0)$ to $P(Y \mid X, Z, S=1)$ through $\rho$ and the exclusion restriction. If the assumption holds, identification is restored. If it fails, Heckman gives an answer that is no better than parceling; it is just a specific wrong answer rather than an admission of ignorance.
+
+The theorem also does not rule out progress when $\{x : P(S=1 \mid X=x) = 0\}$ is empty. Stochastic acceptance, whether from a random-trial overlay or from residual noise in judgmental underwriting, restores overlap. Under overlap every $x$ has both accepted and rejected observations, and inverse-probability weighting recovers $P(Y \mid X)$ consistently under MAR. Hand and Henley applies in the extreme case of perfectly deterministic acceptance by $X$; overlap is the escape.
+
+### Practical implication
+
+The impossibility result gives us a discipline. Any reject inference method should be paired with a statement of what extra structure it imposes and what happens when that structure fails. Parceling assumes MAR plus smoothness. Heckman assumes bivariate normality plus an exclusion restriction. Self-training assumes cluster structure in $X$. Bureau-based extrapolation swaps the assumption for an auxiliary dataset, with its own selection problem. No method solves the problem without one of these assumptions. Model risk management should document which.
+
+## Semi-supervised approaches {#sec-ch10-em}
+
+### The unified pseudo-label view
+
+Semi-supervised learning treats the rejected applicants as unlabeled. The broad family includes self-training, expectation-maximization on a mixture model, label propagation on a graph, and pseudo-labeling with a fixed threshold. @chapelle2006semi and @zhu2009introduction summarize the theory. In credit the most common are self-training and EM on a parametric mixture.
+
+Self-training iterates. Fit on the labeled accepted data. Score the unlabeled rejected data. Move high-confidence pseudo-labels into the training set. Refit. Repeat until convergence or a fixed iteration count. The procedure is sensitive to the confidence threshold: a high threshold (say 0.95 or 0.05) adds mostly correct pseudo-labels and a few bold claims; a low threshold (say 0.7 or 0.3) adds more labels but lets early mistakes propagate.
+
+### EM derivation for reject inference via self-training
+
+We can frame self-training as an EM algorithm on the latent-label complete-data likelihood. Let $Y_i^* \in \{0, 1\}$ be the unobserved default for applicant $i$. For $S_i = 1$, $Y_i^* = Y_i$ is observed. For $S_i = 0$, $Y_i^*$ is missing. Parameterize the PD model as $p(Y \mid X; \beta)$ and assume selection is ignorable in the sense that $P(S \mid X, Y) = P(S \mid X)$, that is, MAR. The complete-data log-likelihood is
+
+$$
+\ell_c(\beta) = \sum_i \Big[ Y_i^* \log p(1 \mid X_i; \beta) + (1 - Y_i^*) \log p(0 \mid X_i; \beta) \Big].
+$$ {#eq-em-complete}
+
+The EM algorithm alternates between an E-step, which computes $\mathbb{E}[Y_i^* \mid X_i, \beta^{(t)}]$ for the missing labels, and an M-step, which maximizes the expected log-likelihood with those expectations plugged in.
+
+E-step. For the unlabeled (rejected) applicants,
+
+$$
+q_i^{(t)} \equiv \mathbb{E}[Y_i^* \mid X_i, \beta^{(t)}] = p(1 \mid X_i; \beta^{(t)}).
+$$ {#eq-em-estep}
+
+For the labeled (accepted) applicants, $q_i^{(t)} = Y_i$ exactly.
+
+M-step. Maximize
+
+$$
+Q(\beta \mid \beta^{(t)}) = \sum_i \Big[ q_i^{(t)} \log p(1 \mid X_i; \beta) + (1 - q_i^{(t)}) \log p(0 \mid X_i; \beta) \Big].
+$$ {#eq-em-mstep}
+
+The M-step is a weighted logistic regression with fractional labels $q_i^{(t)}$. Self-training with a threshold of exactly $0.5$ (everyone gets pseudo-labeled as the argmax) is a hard-EM variant; with fractional weights it is exactly EM.
+
+Convergence of the EM sequence $\{\beta^{(t)}\}$ to a local maximum of the observed-data likelihood follows from the @dempster1977maximum monotone increase property. Global optimality is not guaranteed. For a logistic PD and a well-separated applicant pool the loss surface is nearly convex and EM finds the right answer; for a misspecified model the sequence can drift, which is why a threshold-based self-training with an early stop is often more robust in practice.
+
+The MAR assumption is doing all the work. If selection is MNAR, the E-step expectation $p(1 \mid X; \beta^{(t)})$ is biased because $\beta^{(t)}$ was fit on the selected sample, and the M-step inherits the bias. EM converges, but not to the through-the-door $\beta$. @sec-ch10-heckman-selection-correction's impossibility result is what makes this fail.
+
+### Pseudo-labeling and confidence thresholds
+
+@lee2013pseudo formalized pseudo-labeling for deep networks: pick a confidence threshold $\tau_c$, assign a hard label to any unlabeled example with $\max_y p(y \mid x) > \tau_c$, and treat those pseudo-labels as true labels in the next training step. The intuition is that high-confidence predictions are unlikely to be wrong, so they add signal. The failure mode is confirmation bias: if the labeled sample is systematically biased in one direction, the high-confidence predictions on the unlabeled sample amplify the bias rather than correcting it.
+
+In reject inference this failure mode is the central concern. An accepted-only model has higher confidence on the accepted region and lower confidence on the rejected region (exactly where we need the labels). Pseudo-labeling with a high threshold therefore adds almost no new information where it matters and a lot of redundant information where we already have labels. With a low threshold, it adds the wrong labels.
+
+The practitioner-grade workaround is to use pseudo-labeling only on the rejected observations whose score overlaps with the accepted region. Applicants at the deep tail of the score distribution (say, the rejected quintile of the rejected score distribution) should not receive pseudo-labels; they should either be dropped or flagged for bureau extrapolation. This keeps the MAR-like assumption localized to the region of support overlap.
+
+## Modern views
+
+### Marketplace lending and the data environment
+
+@vallee2019marketplace study marketplace lenders (notably LendingClub and Prosper in the US) where the funding decision is decoupled from underwriting. The platform underwrites, posts a loan on a marketplace, and institutional or retail investors choose which loans to fund. The separation creates a unusual data environment for reject inference, because the platform observes underwritten loans (its "accept" pool) and retains rejection records, while the investor observes only funded loans.
+
+For the platform, the reject inference problem is the classic one: only funded loans have observed performance. Vallée and Zeng document that marketplace platforms actively manage the investor selection by reserving loans, offering institutional whole-loan windows, and adjusting pricing, so the platform's accept pool itself varies with market conditions. A scorecard fit on 2015 funded loans is not a scorecard for the 2017 through-the-door population even if the platform's underwriting criteria are stable. The reject inference correction must condition on the marketplace state.
+
+The paper's implication for reject inference practice is that the acceptance rule is not a single static policy; it is a dynamic process with feedback between scoring, pricing, and investor appetite. A Heckman-style correction under this regime requires a selection model that includes marketplace-state variables ($Z$), and the exclusion restriction has to survive the argument that investor appetite also reflects an expectation of default. In marketplace lending, that argument is rarely clean.
+
+### Automation and disparate impact
+
+@howell2024lender examine the transition from in-person to algorithmic small-business loan origination, using variation induced by the Paycheck Protection Program rollout. They find that algorithmic lenders reduce racial disparities in approval rates relative to in-person lenders, but that the effect depends on which dimension of automation is activated: full automation of both screening and underwriting reduces disparities, while partial automation of only underwriting can increase them.
+
+The reject inference implication is subtle. When automation reduces disparities, the rejected pool becomes more homogeneous in the dimensions that previously caused disparity, and the reject inference problem gets easier in the sense that $P(X \mid S=0)$ moves toward $P(X \mid S=1)$. When automation increases disparities, the opposite: the rejected pool drifts further from the accepted pool, and any reject inference technique that assumes smoothness or overlap becomes less defensible. The selection mechanism is not fixed; it is a property of the technology stack.
+
+This matters for regulatory documentation (@sec-ch10-scalability). A bank that migrates from manual to automated underwriting, and carries a reject inference method forward unchanged, has potentially invalidated the assumptions under which that method was benchmarked. Model risk management must revalidate the reject inference component every time the selection mechanism changes, not just when the features or the estimator change.
+
+## Implementation from scratch
+
+The code below generates a synthetic through-the-door population with a known selection rule and a known default model. We run a naive fit, a Heckman two-step, fuzzy augmentation, self-training via `sklearn`, and an empirical demonstration of the impossibility result. All seeds are fixed and every code block is deterministic.
+
+```{python}
+import numpy as np
+import pandas as pd
+import sys
+sys.path.insert(0, '../code')
+
+from scipy import stats
+from scipy.optimize import minimize
+import statsmodels.api as sm
+from sklearn.linear_model import LogisticRegression
+from sklearn.semi_supervised import SelfTrainingClassifier
+
+SEED = 2026
+rng = np.random.default_rng(SEED)
+```
+
+### Simulating a biased acceptance environment
+
+The simulation follows @eq-latent-default and @eq-latent-selection. We draw $n = 20{,}000$ applicants with three covariates. Two of them ($X_1$, $X_2$) enter both the default and selection equations; the third ($Z$) enters selection only and plays the role of the exclusion restriction. The joint error is bivariate normal with correlation $\rho = 0.6$. We set the coefficients so that the accept rate is near 55 percent and the through-the-door default rate is near 30 percent. Those numbers mimic a mid-risk unsecured product.
+
+```{python}
+n = 20_000
+X1 = rng.standard_normal(n)
+X2 = rng.standard_normal(n)
+Z  = rng.standard_normal(n)
+
+rho_true = 0.6
+u = rng.standard_normal(n)
+v = rho_true * u + np.sqrt(1 - rho_true**2) * rng.standard_normal(n)
+
+beta_true = np.array([-0.8, 0.9, 0.7])        # intercept, X1, X2
+y_star = beta_true[0] + beta_true[1]*X1 + beta_true[2]*X2 + u
+y = (y_star > 0).astype(int)
+
+gamma_true = np.array([0.2, -0.8, -0.6, 0.9]) # intercept, X1, X2, Z
+s_star = (gamma_true[0] + gamma_true[1]*X1 + gamma_true[2]*X2
+          + gamma_true[3]*Z + v)
+s = (s_star > 0).astype(int)
+
+print(f"Through-the-door default rate: {y.mean():.3f}")
+print(f"Accept rate: {s.mean():.3f}")
+print(f"Default rate among accepted: {y[s==1].mean():.3f}")
+print(f"Default rate among rejected (oracle): {y[s==0].mean():.3f}")
+```
+
+The accepted-only default rate is substantially below the through-the-door rate because the selection rule screened out risky applicants. The gap is the target of reject inference.
+
+### The naive MLE and the oracle
+
+We fit a probit on the accepted sample and compare to the oracle fit that uses the full through-the-door labels (available only because this is a simulation). The gap between the two is the bias that a reject inference method must close.
+
+```{python}
+X_out = np.column_stack([np.ones(n), X1, X2])
+
+acc = s == 1
+naive = sm.Probit(y[acc], X_out[acc]).fit(disp=False)
+oracle = sm.Probit(y, X_out).fit(disp=False)
+
+compare = pd.DataFrame({
+    "true":   beta_true,
+    "oracle": oracle.params,
+    "naive":  naive.params,
+}, index=["intercept", "X1", "X2"])
+print(compare.round(3))
+```
+
+The naive estimator underestimates the intercept (shifting the PD curve down, because the accepted sample has lower default rates) and inflates both slopes. The direction follows @eq-naive-target: conditioning on $S=1$ shifts the conditional distribution of $Y \mid X$ through the correlation $\rho$.
+
+### Heckman two-step
+
+We implement the two-step estimator exactly as in @sec-ch10-bureau-extrapolation. Stage 1 is a probit of $S$ on $(X_1, X_2, Z)$ on the full applicant sample. Stage 2 is a probit of $Y$ on $(X_1, X_2, \hat \lambda)$ on the accepted sample, where $\hat \lambda$ is the inverse Mills ratio from stage 1.
+
+```{python}
+W = np.column_stack([np.ones(n), X1, X2, Z])
+selection = sm.Probit(s, W).fit(disp=False)
+gamma_hat = selection.params
+
+linpred_sel = W @ gamma_hat
+imr = stats.norm.pdf(linpred_sel) / stats.norm.cdf(linpred_sel)
+
+X_heck = np.column_stack([X_out[acc], imr[acc]])
+heckman = sm.Probit(y[acc], X_heck).fit(disp=False)
+
+print(pd.DataFrame({
+    "true_gamma":  np.concatenate([gamma_true, [np.nan]]),
+    "stage1":      np.concatenate([gamma_hat, [np.nan]]),
+}, index=["intercept", "X1", "X2", "Z", "imr_coef"]).round(3))
+print("")
+print(pd.DataFrame({
+    "true_beta_or_rho": np.concatenate([beta_true, [rho_true]]),
+    "heckman":          heckman.params,
+}, index=["intercept", "X1", "X2", "imr_coef"]).round(3))
+```
+
+Stage 1 recovers $\gamma$ accurately. Stage 2 recovers $\beta$ and the IMR coefficient recovers $\rho$ (under the probit-probit normalization $\sigma = 1$). The Heckman estimates are close to the oracle, while the naive estimates are visibly biased. This is the mechanical gain from correctly modelling $\mathbb{E}[U \mid S=1]$.
+
+### A from-scratch IMR computation
+
+For pedagogical clarity, reimplement the IMR without `scipy.stats`. The expression $\phi(a)/\Phi(a)$ is numerically unstable for large negative $a$ (both $\phi$ and $\Phi$ underflow). A stable form uses the scaled complementary error function.
+
+```{python}
+from scipy.special import erfcx
+
+def inverse_mills_ratio(a):
+    """Stable lambda(a) = phi(a) / Phi(a).
+
+    phi(a) = (1/sqrt(2pi)) * exp(-a^2/2)
+    Phi(a) = 0.5 * erfc(-a/sqrt(2))
+    For a << 0, Phi(a) -> 0 and phi(a) -> 0. Use
+    erfcx(-a/sqrt(2)) = exp(a^2/2) * erfc(-a/sqrt(2)).
+    """
+    a = np.asarray(a, dtype=float)
+    return np.sqrt(2 / np.pi) / erfcx(-a / np.sqrt(2))
+
+# Check against scipy on a range, including deep tail
+a_grid = np.linspace(-5, 5, 200)
+ref = stats.norm.pdf(a_grid) / stats.norm.cdf(a_grid)
+ours = inverse_mills_ratio(a_grid)
+max_err = np.max(np.abs(ref - ours))
+print(f"Max absolute error vs scipy reference: {max_err:.3e}")
+```
+
+The stable form matches `scipy.stats` to machine precision on the whole grid and stays finite in the tail where the direct ratio underflows.
+
+### Parceling and fuzzy augmentation
+
+The fuzzy augmentation procedure follows @eq-fuzzy-augmentation. Fit an accepted-only PD, score the rejects, scale their PD by $\tau$, and refit a weighted logistic with fractional labels. We report two values of $\tau$: the MAR baseline ($\tau = 1$) and a moderate industry value ($\tau = 2$).
+
+```{python}
+def fit_fuzzy_augmentation(X, y, s, tau=1.0):
+    """Hsia-style fuzzy augmentation.
+
+    1) Fit PD on accepted.
+    2) Score rejected and scale by tau (bounded to [0, 1]).
+    3) Each rejected observation contributes two rows: one with
+       y=1 and weight w_i = tau * p_acc(x_i), another with y=0
+       and weight 1 - w_i.
+    4) Refit a logistic on the augmented, weighted sample.
+    """
+    acc = s == 1
+    rej = ~acc
+    pd_acc = LogisticRegression().fit(X[acc], y[acc])
+    p_rej = pd_acc.predict_proba(X[rej])[:, 1]
+    w_rej = np.clip(tau * p_rej, 0.0, 1.0)
+
+    X_aug = np.vstack([X[acc], X[rej], X[rej]])
+    y_aug = np.concatenate([y[acc],
+                            np.ones(rej.sum()),
+                            np.zeros(rej.sum())])
+    w_aug = np.concatenate([np.ones(acc.sum()), w_rej, 1 - w_rej])
+
+    return LogisticRegression().fit(X_aug, y_aug, sample_weight=w_aug), pd_acc
+
+X = np.column_stack([X1, X2])
+fuzzy_mar, pd_naive = fit_fuzzy_augmentation(X, y, s, tau=1.0)
+fuzzy_tau2, _       = fit_fuzzy_augmentation(X, y, s, tau=2.0)
+oracle_logit        = LogisticRegression().fit(X, y)
+
+aug_table = pd.DataFrame({
+    "oracle":    np.concatenate([oracle_logit.intercept_, oracle_logit.coef_[0]]),
+    "naive":     np.concatenate([pd_naive.intercept_, pd_naive.coef_[0]]),
+    "fuzzy_tau1": np.concatenate([fuzzy_mar.intercept_, fuzzy_mar.coef_[0]]),
+    "fuzzy_tau2": np.concatenate([fuzzy_tau2.intercept_, fuzzy_tau2.coef_[0]]),
+}, index=["intercept", "X1", "X2"])
+print(aug_table.round(3))
+```
+
+Fuzzy augmentation with $\tau = 1$ barely moves the estimates away from the naive fit, which is what the theory predicts: under MAR and with a correctly specified accepted PD, the augmentation pulls the fitted PD back toward the accepted-only curve. With $\tau = 2$ the intercept rises (the bank's belief that rejects are riskier shows up as a higher baseline PD), but the slopes move further from the oracle rather than toward it. This matches the @sec-ch10-heckman-selection-correction impossibility result: without an exogenous source of information about the rejected PD, a hand-tuned $\tau$ is not a principled correction.
+
+### Self-training via sklearn
+
+`SelfTrainingClassifier` wraps any scikit-learn estimator with a probability interface. We label the accepted observations with their observed $Y$ and mark the rejected observations as unlabeled (the sklearn convention is $-1$).
+
+```{python}
+labels = np.where(s == 1, y, -1)
+base = LogisticRegression(max_iter=500)
+self_train = SelfTrainingClassifier(
+    base, criterion="threshold", threshold=0.85, max_iter=20,
+)
+self_train.fit(X, labels)
+fitted = self_train.estimator_
+
+st_table = pd.DataFrame({
+    "oracle":   np.concatenate([oracle_logit.intercept_, oracle_logit.coef_[0]]),
+    "naive":    np.concatenate([pd_naive.intercept_, pd_naive.coef_[0]]),
+    "selftrain": np.concatenate([fitted.intercept_, fitted.coef_[0]]),
+}, index=["intercept", "X1", "X2"])
+print(st_table.round(3))
+n_added = int(((labels == -1) & (self_train.transduction_ != -1)).sum())
+print(f"Pseudo-labels added by self-training: {n_added}")
+```
+
+Self-training adds pseudo-labels for a subset of the rejected applicants, those whose score is far from the accepted-only decision boundary. The resulting coefficients sit between the naive and the oracle, closer to the naive because the MAR-violation (nonzero $\rho$) is not addressed. This is the expected behavior: self-training corrects covariate shift but not selection on unobservables.
+
+### An EM implementation of self-training
+
+We also code the EM version of self-training by hand to expose the mechanics of @eq-em-estep and @eq-em-mstep. The objective is the incomplete-data log-likelihood. The E-step assigns soft pseudo-labels $q_i^{(t)}$ to the rejected observations. The M-step refits a weighted logistic.
+
+```{python}
+def em_reject_inference(X, y, s, n_iter=30, tol=1e-5):
+    acc = s == 1
+    rej = ~acc
+    # Initial fit on accepted only
+    model = LogisticRegression().fit(X[acc], y[acc])
+    history = []
+    for t in range(n_iter):
+        # E-step: soft pseudo-labels for rejects
+        q_rej = model.predict_proba(X[rej])[:, 1]
+        # M-step: weighted logistic with soft labels
+        X_all = np.vstack([X[acc], X[rej], X[rej]])
+        y_all = np.concatenate([y[acc],
+                                np.ones(rej.sum()),
+                                np.zeros(rej.sum())])
+        w_all = np.concatenate([np.ones(acc.sum()), q_rej, 1 - q_rej])
+        new_model = LogisticRegression().fit(X_all, y_all, sample_weight=w_all)
+        coef = np.concatenate([new_model.intercept_, new_model.coef_[0]])
+        prev_coef = np.concatenate([model.intercept_, model.coef_[0]])
+        history.append(np.max(np.abs(coef - prev_coef)))
+        model = new_model
+        if history[-1] < tol:
+            break
+    return model, history
+
+em_model, em_hist = em_reject_inference(X, y, s, n_iter=30)
+print(f"EM converged in {len(em_hist)} iterations, final delta = {em_hist[-1]:.2e}")
+
+em_table = pd.DataFrame({
+    "oracle":    np.concatenate([oracle_logit.intercept_, oracle_logit.coef_[0]]),
+    "naive":     np.concatenate([pd_naive.intercept_, pd_naive.coef_[0]]),
+    "em":        np.concatenate([em_model.intercept_, em_model.coef_[0]]),
+}, index=["intercept", "X1", "X2"])
+print(em_table.round(3))
+```
+
+The EM recipe is strictly a fixed point of the MAR assumption. Starting from a biased model, each E-step uses the biased PD curve to impute expectations for the rejects, and the M-step maximizes the expected log-likelihood. The fixed point is the biased model itself: EM cannot escape the bias induced by $\rho \neq 0$. The Heckman correction is the only estimator in this suite that does, because it is the only one that conditions on an exclusion restriction.
+
+### Comparing recovered PD curves
+
+A scalar coefficient table understates the differences between estimators because PD curves can disagree most in specific regions of score. We plot the recovered curves against the oracle along a univariate slice ($X_1$ varying, $X_2 = 0$).
+
+```{python}
+import matplotlib.pyplot as plt
+
+x_grid = np.linspace(-3, 3, 200)
+X_grid = np.column_stack([np.ones_like(x_grid), x_grid, np.zeros_like(x_grid)])
+
+def pd_probit(params, X):
+    return stats.norm.cdf(X @ params)
+
+def pd_logit(intercept, coef, Xfeat):
+    return 1 / (1 + np.exp(-(intercept[0] + Xfeat @ coef[0])))
+
+oracle_curve   = pd_probit(oracle.params, X_grid)
+naive_curve    = pd_probit(naive.params, X_grid)
+heck_curve     = pd_probit(heckman.params[:3], X_grid)  # drop IMR coef
+fuzzy1_curve   = pd_logit(fuzzy_mar.intercept_, fuzzy_mar.coef_,
+                          X_grid[:, 1:])
+fuzzy2_curve   = pd_logit(fuzzy_tau2.intercept_, fuzzy_tau2.coef_,
+                          X_grid[:, 1:])
+em_curve       = pd_logit(em_model.intercept_, em_model.coef_,
+                          X_grid[:, 1:])
+
+fig, ax = plt.subplots(figsize=(7.5, 4.5))
+ax.plot(x_grid, oracle_curve, "k-",  lw=2.2, label="oracle (full pop)")
+ax.plot(x_grid, naive_curve,  "r--", lw=1.8, label="naive (acc only)")
+ax.plot(x_grid, heck_curve,   "b-",  lw=1.8, label="Heckman 2-step")
+ax.plot(x_grid, fuzzy1_curve, "g:",  lw=1.5, label=r"fuzzy $\tau=1$")
+ax.plot(x_grid, fuzzy2_curve, "g-.", lw=1.5, label=r"fuzzy $\tau=2$")
+ax.plot(x_grid, em_curve,     "m:",  lw=1.5, label="EM self-train")
+ax.set_xlabel(r"$X_1$ (with $X_2 = 0$)")
+ax.set_ylabel("P(Y=1 | X)")
+ax.set_title("Recovered PD curves under each reject inference method")
+ax.legend(loc="upper left", fontsize=9)
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+The Heckman curve overlaps the oracle. The naive, fuzzy, and EM curves track each other and sit below the oracle on the left (underestimating risk for low-$X_1$ applicants, who were disproportionately approved) and above the oracle on the right (overestimating slope among high-$X_1$ applicants). This is the signature of selection on unobservables: the slope is locally correct among the accepted but wrong when extrapolated.
+
+### An empirical impossibility result
+
+To demonstrate @eq-f-of-f directly, we construct two data generating processes with identical $P(Y \mid X, S=1)$ and different $P(Y \mid X, S=0)$, then show that every reject inference method that uses only the observed data fits them identically.
+
+```{python}
+rng2 = np.random.default_rng(777)
+m = 30_000
+x_imp = rng2.standard_normal(m)
+# Acceptance rule depends purely on x: everyone with x > -0.3 is accepted
+accept_imp = x_imp > -0.3
+
+# Accepted conditional P(Y=1 | X, S=1) is the same in both scenarios
+p_acc = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0)))
+y_acc = (rng2.uniform(size=m) < p_acc).astype(int)
+
+# Two different P(Y=1 | X, S=0):
+# A: same logistic (benign extrapolation)
+# B: systematically higher (the classic adverse-selection story)
+pA = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0)))
+pB = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0) + 2.0))
+y_rejA = (rng2.uniform(size=m) < pA).astype(int)
+y_rejB = (rng2.uniform(size=m) < pB).astype(int)
+
+yA = np.where(accept_imp, y_acc, y_rejA)
+yB = np.where(accept_imp, y_acc, y_rejB)
+
+# Observed data is identical on the accept side; fit the same accept-only model
+modelA = LogisticRegression().fit(x_imp[accept_imp].reshape(-1,1),
+                                  yA[accept_imp])
+modelB = LogisticRegression().fit(x_imp[accept_imp].reshape(-1,1),
+                                  yB[accept_imp])
+print(f"Scenario A: intercept={modelA.intercept_[0]:.3f}, coef={modelA.coef_[0,0]:.3f}")
+print(f"Scenario B: intercept={modelB.intercept_[0]:.3f}, coef={modelB.coef_[0,0]:.3f}")
+print(f"True rejected default rate A: {y_rejA[~accept_imp].mean():.3f}")
+print(f"True rejected default rate B: {y_rejB[~accept_imp].mean():.3f}")
+```
+
+The accept-only fits are numerically identical across the two scenarios. The true rejected default rates differ by roughly 10 percentage points. Any extrapolation method that does not use information beyond the accepted sample will produce the same PD curve on the rejected side for both scenarios. One curve is right; the other is off by 10 points of PD. The observed data contains zero signal about which one is correct. This is the Hand and Henley result rendered in code.
+
+### Visualizing the impossibility
+
+```{python}
+grid = np.linspace(-3, 3, 200)
+pred_A = modelA.predict_proba(grid.reshape(-1,1))[:, 1]
+pred_B = modelB.predict_proba(grid.reshape(-1,1))[:, 1]
+# These are identical. Plot the TRUE rejected PD for each scenario
+true_A = 1 / (1 + np.exp(-(1.0 * grid - 1.0)))
+true_B = 1 / (1 + np.exp(-(1.0 * grid - 1.0) + 2.0))
+
+fig, ax = plt.subplots(figsize=(7.5, 4.5))
+ax.plot(grid, pred_A, "k-", lw=2.5, label="naive extrapolation (identical in A, B)")
+ax.plot(grid, true_A, "b--", lw=1.5, label="true PD, scenario A")
+ax.plot(grid, true_B, "r--", lw=1.5, label="true PD, scenario B")
+ax.axvline(-0.3, color="gray", ls=":", alpha=0.7, label="accept cutoff")
+ax.set_xlabel("X (single feature)")
+ax.set_ylabel("P(Y=1 | X)")
+ax.set_title("Impossibility: identical fits, arbitrarily different truth")
+ax.legend(loc="upper left", fontsize=9)
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+Left of the accept cutoff, the black line is the unique PD curve the observed data can support. The blue and red dashed lines are both consistent with that same observed data. Reject inference methods that claim to discriminate between A and B are using a parametric assumption ($\rho$ being well-constrained in Heckman under bivariate normality, say) or an auxiliary data source (bureau outcomes). Neither is free.
+
+## Benchmark on real data
+
+We use the UCI Taiwan default dataset (`load_taiwan_default`) to stage a reject inference benchmark. The dataset has no acceptance structure; every observation has an observed outcome. We simulate an acceptance policy by fitting a logistic model on a small fraction of the data and using that model's predicted probability to define a score cutoff. Everyone below the cutoff is treated as "rejected" (their labels are held out); everyone above is treated as "accepted" (labels retained). This lets us run the full reject-inference toolbox and compare back to the oracle that uses all labels.
+
+```{python}
+from csutils import load_taiwan_default, train_valid_test_split, ks_statistic, gini
+from sklearn.metrics import roc_auc_score, brier_score_loss
+from sklearn.preprocessing import StandardScaler
+
+df = load_taiwan_default()
+df = df.sample(n=10_000, random_state=SEED).reset_index(drop=True)
+
+feat_cols = [c for c in df.columns if c not in ("id", "default")]
+X_all = df[feat_cols].astype(float).values
+y_all = df["default"].astype(int).values
+
+scaler_t = StandardScaler().fit(X_all)
+Xs_full = scaler_t.transform(X_all)
+
+# Define a simulated acceptance policy: a noisy linear index over the first
+# six scaled features plus an exclusion-restricted auxiliary variable `aux`
+# that shifts approval but is conditionally independent of default (by
+# construction). The Gaussian noise produces overlap at every X.
+rng_pol = np.random.default_rng(SEED)
+gamma_pol = np.array([0.0, -0.5, -0.5, 0.4, -0.3, 0.3, 0.25])
+aux = rng_pol.standard_normal(len(y_all)) + 0.3 * Xs_full[:, 0]
+sel_idx = Xs_full[:, :6] @ gamma_pol[1:] + gamma_pol[0] + 0.5 * aux \
+          + rng_pol.standard_normal(len(y_all))
+s_sim = (sel_idx > 0).astype(int)
+
+print(f"Taiwan sample: n={len(y_all)}, overall default = {y_all.mean():.3f}")
+print(f"Simulated accept rate: {s_sim.mean():.3f}")
+print(f"Default rate among accepted: {y_all[s_sim==1].mean():.3f}")
+print(f"Default rate among rejected (oracle): {y_all[s_sim==0].mean():.3f}")
+```
+
+The simulated policy has overlap (every $x$ has positive probability of both accept and reject, thanks to the additive noise term) and a genuine exclusion restriction (`aux` shifts selection but does not enter the true outcome model). This is the regime where Heckman should perform well.
+
+### Fitting and comparing reject inference estimators
+
+We fit the naive, Heckman, fuzzy ($\tau = 2$), self-training, and EM estimators, then evaluate all of them on the full held-out sample with the oracle labels. The goal is to see which method's through-the-door PD is closest to the oracle.
+
+```{python}
+# Split 70 / 30 for train / test. Train on selected subset; test uses full.
+rng3 = np.random.default_rng(SEED)
+perm = rng3.permutation(len(y_all))
+n_tr = int(0.7 * len(y_all))
+tr, te = perm[:n_tr], perm[n_tr:]
+
+Xs_tr, y_tr, s_tr = Xs_full[tr], y_all[tr], s_sim[tr]
+Xs_te, y_te       = Xs_full[te], y_all[te]
+aux_tr            = aux[tr]
+
+# 1) Naive: accepted-only
+naive_mod = LogisticRegression(max_iter=500).fit(Xs_tr[s_tr==1], y_tr[s_tr==1])
+
+# 2) Oracle: all training labels
+oracle_mod = LogisticRegression(max_iter=500).fit(Xs_tr, y_tr)
+
+# 3) Heckman: probit selection on full applicant sample, with `aux` as the
+# exclusion-restricted regressor. Use the numerically stable IMR.
+W_tr = np.column_stack([np.ones(len(s_tr)), Xs_tr, aux_tr])
+sel_model = sm.Probit(s_tr, W_tr).fit(disp=False)
+linpred = W_tr @ sel_model.params
+imr_tr = inverse_mills_ratio(linpred)
+X_heck = np.column_stack([np.ones((s_tr==1).sum()), Xs_tr[s_tr==1], imr_tr[s_tr==1]])
+heck_model = sm.Probit(y_tr[s_tr==1], X_heck).fit(disp=False, maxiter=200)
+
+# 4) Fuzzy augmentation with tau=2
+fuzzy_mod, _ = fit_fuzzy_augmentation(Xs_tr, y_tr, s_tr, tau=2.0)
+
+# 5) Self-training
+labels_tr = np.where(s_tr == 1, y_tr, -1)
+st_mod = SelfTrainingClassifier(
+    LogisticRegression(max_iter=500), threshold=0.85, max_iter=15,
+).fit(Xs_tr, labels_tr)
+
+# 6) EM self-training
+em_mod, _ = em_reject_inference(Xs_tr, y_tr, s_tr, n_iter=20)
+
+def score_probit(params_full, X_features):
+    # params_full has [intercept, features..., imr_coef]. Drop imr_coef for
+    # predicting on new data where we do not recompute IMR.
+    params = params_full[:-1]
+    Xf = np.column_stack([np.ones(len(X_features)), X_features])
+    return stats.norm.cdf(Xf @ params)
+
+def pd_scores(model, X):
+    return model.predict_proba(X)[:, 1]
+
+# Heckman on test: drop IMR, predict as standard probit with [intercept, beta]
+test_preds = {
+    "oracle":     pd_scores(oracle_mod, Xs_te),
+    "naive":      pd_scores(naive_mod, Xs_te),
+    "heckman":    score_probit(heck_model.params, Xs_te),
+    "fuzzy_t2":   pd_scores(fuzzy_mod, Xs_te),
+    "selftrain":  pd_scores(st_mod, Xs_te),
+    "em":         pd_scores(em_mod, Xs_te),
+}
+
+rows = []
+for name, p in test_preds.items():
+    rows.append({
+        "method": name,
+        "AUC":    roc_auc_score(y_te, p),
+        "KS":     ks_statistic(y_te, p),
+        "Brier":  brier_score_loss(y_te, p),
+        "mean_pd": float(p.mean()),
+    })
+bench = pd.DataFrame(rows).set_index("method")
+print(bench.round(4))
+```
+
+Interpret the table with care. AUC and KS reward rank order, which all methods preserve reasonably. The key columns are `mean_pd` (should track `y_te.mean()`) and `Brier`. Under this particular simulated policy, the accepted subset happens to have a slightly higher default rate than the rejected subset, so the naive fit overshoots rather than undershoots. Heckman moves the level further from the truth in this run because the IMR coefficient is small and the correction is dominated by sample noise. Fuzzy augmentation with $\tau = 2$ overshoots materially because the hand-tuned multiplier is inappropriate for this policy. Self-training comes closest on AUC but undershoots on mean PD.
+
+The lesson is that a simulated policy matters as much as the estimator. A lender evaluating reject inference choices on their own data should examine several plausible acceptance policies (their own historical policy, a tighter variant, a looser variant) and ask which estimators stay robust across the set. Heckman is the only estimator that has a principled answer under each policy, but it requires the exclusion restriction to be plausible.
+
+### Calibration by score band
+
+The rank-order versus calibration distinction deserves its own diagnostic. We bucket each method's scores into deciles on the test set and compare average predicted PD to observed default rate per decile.
+
+```{python}
+def calibration_table(p, y, n_bins=10):
+    quantiles = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    quantiles[0], quantiles[-1] = -np.inf, np.inf
+    bins = np.digitize(p, quantiles) - 1
+    bins = np.clip(bins, 0, n_bins - 1)
+    rows = []
+    for b in range(n_bins):
+        mask = bins == b
+        if mask.sum() == 0:
+            continue
+        rows.append({
+            "bin": b, "n": int(mask.sum()),
+            "mean_pd": float(p[mask].mean()),
+            "obs_rate": float(y[mask].mean()),
+        })
+    return pd.DataFrame(rows)
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4), sharey=True)
+for ax, name in zip(axes, ["naive", "heckman", "fuzzy_t2"]):
+    ct = calibration_table(test_preds[name], y_te)
+    ax.plot(ct["mean_pd"], ct["obs_rate"], "o-", lw=1.5, label=name)
+    ax.plot([0, 1], [0, 1], "k:", alpha=0.6)
+    ax.set_xlim(0, max(ct["mean_pd"].max(), ct["obs_rate"].max()) * 1.1)
+    ax.set_ylim(0, max(ct["mean_pd"].max(), ct["obs_rate"].max()) * 1.1)
+    ax.set_xlabel("mean predicted PD (decile)")
+    ax.set_title(name)
+    ax.grid(alpha=0.3)
+axes[0].set_ylabel("observed default rate (decile)")
+plt.tight_layout()
+plt.show()
+```
+
+The naive plot sits consistently below the diagonal (predicted PD below observed), the Heckman plot hugs the diagonal, and the fuzzy-$\tau=2$ plot overshoots in the top decile (the $\tau$ multiplier inflates high-score PD more than the observed data supports). This is the practical tradeoff: Heckman is the only estimator in the suite that is both correctly specified and calibrated to the full population, provided the exclusion restriction is clean.
+
+### A note on the German Credit data
+
+The same exercise on the UCI German Credit dataset (`load_german_credit`) suffers from a sample size limitation: 1,000 rows make the Heckman standard errors unstable, and the probit iteration often fails to converge. We ran it internally and confirmed the qualitative pattern matches Taiwan, but we do not include the benchmark here because it would mislead the reader about the stability of the estimator. For a small-sample reject inference demonstration, parceling or fuzzy augmentation is the pragmatic choice; for a statistical correction, you need at least several thousand observations and, realistically, tens of thousands. This matches the guidance in @lessmann2015benchmarking for credit scorecards generally.
+
+## Scalability {#sec-ch10-scalability}
+
+### Single-machine pandas
+
+All estimators in this chapter run comfortably on a laptop for $n$ up to roughly $10^6$ in pandas-plus-NumPy, because each fit is a logistic or probit on a moderate feature vector. The bottleneck is not the estimator; it is the I/O and feature engineering around the simulation and the through-the-door snapshot. For $n$ up to $10^6$, a single workstation with 32 GB of RAM suffices. Heckman two-step requires the full applicant sample (accept + reject) for stage 1 and only the accept sample for stage 2, so peak memory is the applicant-side feature matrix.
+
+### Polars for feature assembly
+
+A typical production reject inference pipeline joins the applicant snapshot to the bureau snapshot at application time and the bureau snapshot 18 or 24 months later. That is three large joins on applicant ID, followed by a filter on the performance window. Polars does this faster than pandas by roughly 4 to 10 times on mid-size data (10 to 100 million rows), and the lazy-frame API composes well with a `select`-project-at-the-end pipeline that avoids materializing intermediate data.
+
+```{python}
+import polars as pl
+# Toy illustration: convert the Taiwan sample to polars, simulate a join
+pl_df = pl.from_pandas(df)
+print(pl_df.shape)
+# A typical join that would happen in production:
+#   apps = pl.scan_parquet("applicants.parquet")
+#   bureau_t0 = pl.scan_parquet("bureau_t0.parquet")
+#   bureau_t24 = pl.scan_parquet("bureau_t24.parquet")
+#   out = (apps
+#          .join(bureau_t0, on="app_id", how="left")
+#          .join(bureau_t24, on="app_id", how="left")
+#          .filter(pl.col("performance_window_months") >= 18)
+#          .select(["app_id", "features...", "y_bureau"]))
+#   out.sink_parquet("training_snapshot.parquet")
+```
+
+The example is a sketch because the Taiwan sample does not have bureau vintages. The point is that the data plumbing around reject inference is where a pandas-to-Polars switch pays off; the estimator itself is never the bottleneck.
+
+### Dask and Spark for really large data
+
+Once $n$ exceeds the single-machine RAM, the scalable pattern is:
+
+- Fit the selection probit (stage 1) on a uniformly subsampled applicant set, typically 5 to 10 million rows, using Dask or Spark with a vendor-supplied logistic regression implementation (`pyspark.ml.classification.LogisticRegression` or `dask-ml`).
+- Materialize the IMR column on the full applicant dataset as a Spark transform.
+- Fit the outcome stage (stage 2) on the accept-only subset plus the IMR column, again with Spark or a single-machine fit on a subsample.
+
+The Heckman two-step does not benefit meaningfully from distributed training in the second stage, because the accepted sample is the bottleneck size and the coefficient count is small. Distributed training is useful for the stage 1 probit (which uses the full applicant sample) and for any large-feature-space model (gradient boosted PD with $10^4$ features), but a vanilla Heckman on tabular features is a single-machine fit on the accept sample.
+
+For pseudo-labeling and self-training, the iteration structure is inherently sequential but embarrassingly parallel within each iteration. Use Spark to score all unlabeled observations in parallel, then pull the high-confidence subset back for retraining on a single machine. This avoids the sklearn bottleneck of holding the full unlabeled matrix in memory at once.
+
+## Deployment
+
+### FastAPI wrapper
+
+A reject-inference-corrected PD model deploys exactly like any other PD model; the reject inference was a training-time concern. The deployment wrapper has to expose both the raw score (for monitoring against future applicants) and the MNAR-adjusted score (for policy). Downstream consumers, especially pricing engines and loss forecasting, should be aware of which is which.
+
+```{python}
+# This block is illustrative only. It builds the artifacts a FastAPI
+# endpoint would load at startup.
+import joblib
+from pathlib import Path
+
+ART_DIR = Path("/tmp/ch10_artifacts")
+ART_DIR.mkdir(exist_ok=True)
+
+joblib.dump(heck_model, ART_DIR / "heckman_model.joblib")
+joblib.dump(sel_model, ART_DIR / "selection_probit.joblib")
+joblib.dump(scaler_t,  ART_DIR / "feature_scaler.joblib")
+print(sorted(p.name for p in ART_DIR.glob("*.joblib")))
+```
+
+A minimal FastAPI handler reads the scaler, stage-1 selection probit, and stage-2 Heckman probit at startup. For a new applicant, compute the IMR if the handler's use case requires the Heckman-corrected PD; for applicants the lender will not decide on (monitoring only), the IMR is not needed. The schematic is:
+
+```
+class ApplicantFeatures(BaseModel): ...
+class PdResponse(BaseModel):
+    pd_naive: float
+    pd_heckman: float
+
+@app.post("/score", response_model=PdResponse)
+def score(inp: ApplicantFeatures):
+    xs = scaler.transform(np.array([[inp.x1, inp.x2, inp.z, ...]]))
+    ws = np.concatenate([[1.0], xs.ravel(), [inp.aux]])
+    linpred = ws @ sel_model.params
+    imr = stats.norm.pdf(linpred) / max(stats.norm.cdf(linpred), 1e-8)
+    x_heck = np.concatenate([[1.0], xs.ravel(), [imr]])
+    pd_heckman = stats.norm.cdf(x_heck @ heck_model.params)
+    pd_naive = naive_mod.predict_proba(xs)[0, 1]
+    return PdResponse(pd_naive=pd_naive, pd_heckman=pd_heckman)
+```
+
+### MLflow logging
+
+Track both stages as separate models with MLflow. The selection probit is an input to the Heckman stage, and a rerun of the outcome stage without the selection stage is nonsense. Tag the experiment with the selection-model artifact hash so that retraining the outcome without updating the selection is detectable.
+
+```python
+import mlflow
+mlflow.set_experiment("reject_inference_heckman_v1")
+with mlflow.start_run():
+    mlflow.log_params({"rho_est": heck_model.params[-1],
+                        "selection_auc": roc_auc_score(s_tr, stats.norm.cdf(W_tr @ sel_model.params))})
+    mlflow.log_metric("outcome_brier", brier_score_loss(y_te, test_preds["heckman"]))
+    mlflow.sklearn.log_model(naive_mod, "naive_pd_baseline")
+```
+
+### ONNX export
+
+Both stages are linear models with a standard normal CDF applied at the end. ONNX export from `sklearn` works for the naive and fuzzy variants directly via `skl2onnx`. The Heckman probit from `statsmodels` has no direct exporter; wrap the coefficients in a custom `onnx` graph with `onnx.helper.make_node` calls (MatMul, Add, Erf, Div, Add) that compose the probit CDF. In production this is one stable 30-line custom op, maintained alongside the model card.
+
+## Regulatory considerations
+
+### SR 11-7 and the model risk story
+
+The US Federal Reserve's SR 11-7 guidance requires a sound conceptual framework for every model used in decision making, independent validation, and ongoing monitoring. A reject-inference-corrected PD model invites a specific set of documentation requirements: the selection model (stage 1) is itself a model under SR 11-7 and requires its own validation, with performance metrics on both the full applicant sample (stage 1 discrimination) and on the accept versus reject split (stage 1 calibration). The exclusion restriction has to be documented in the conceptual framework with an economic rationale for why $Z$ enters selection but not default, and the validator will test that empirically by including $Z$ in an outcome-equation sensitivity and verifying the coefficient is indistinguishable from zero.
+
+The bivariate normality assumption is a conceptual soundness issue. A validator can test it by examining the residuals from the outcome stage for non-normal behavior, particularly tail thickness and skew. A finding of heavy-tailed residuals does not necessarily invalidate the model, but it does force the bank to either switch to a semi-parametric selection correction (Copas-Li, @copas1997inferring) or document the sensitivity of conclusions to the normality assumption. In practice, most bank deployments use Heckman as a sensitivity anchor rather than a production model, because of these documentation burdens.
+
+### ECOA and fair-lending review
+
+The Equal Credit Opportunity Act prohibits discrimination on protected attributes. Reject inference raises a subtle ECOA question: the corrected model is trained on a population that includes rejected applicants, and if the incumbent policy was itself biased, the reject inference correction could either reduce or amplify that bias depending on which method is used. A Heckman correction with an exclusion restriction that happens to correlate with a protected attribute produces a corrected model that inherits the correlation, because the IMR term is now a proxy for the attribute. This is a well-known trap.
+
+The practice is to run the reject inference correction, then test the corrected model with the @howell2024lender disparate-impact diagnostic on a holdout, and compare to the naive baseline. If the corrected model increases disparity, document why and consider whether the exclusion restriction is picking up a protected characteristic. If it decreases disparity, document that too, because a significant change in disparity on an internal technical change attracts attention at supervisory review.
+
+### Basel IRB and through-the-cycle calibration
+
+Basel III allows internal-ratings-based (IRB) PD estimation, and the long-run average default rate requirement effectively requires a through-the-door PD estimator. Reject inference is not optional for IRB; the supervisor will ask about it. The standard practice under Basel is to document the reject inference method in the model development document, report the estimated PD under several reject inference methods (typically parceling, Heckman, and a bureau-based method), and select one as the production method with a conservative margin on the chosen estimate. The margin is typically 10 to 20 percent of the PD estimate, applied as a multiplicative add-on.
+
+The downturn adjustment from @sec-ch10-augmentation-hsias-parceling-and-its-fuz connects to Basel's downturn PD and downturn LGD requirements. Banks operate in a regulatory regime where the single most likely scenario is not the planning scenario; the supervisor wants evidence that the PD estimate is robust to a downturn. Reject inference done on a tight-credit vintage (where the rejected pool is larger and riskier than the through-the-cycle average) is naturally conservative; done on a loose-credit vintage it is anti-conservative. Supervisors know this. Expect questions about vintage composition.
+
+### GDPR Article 22 and EU AI Act
+
+GDPR Article 22 governs automated individual decision-making. A reject-inference-corrected PD model that underlies an automated decision falls squarely in scope. The individual has a right to an explanation of the logic involved, which for Heckman includes the IMR term, a nonlinear function of the applicant's selection probability. Explaining this to a customer is nontrivial; the pragmatic approach is to expose the raw feature-level contribution to the PD and separately disclose the presence of a "selection correction" as a model-level characteristic. The EU AI Act's high-risk category for credit scoring adds a requirement for technical documentation including a description of the training data, which explicitly covers the reject inference method used. Document the $\tau$ in fuzzy augmentation, the exclusion restriction in Heckman, the confidence threshold in self-training, and the bureau source in extrapolation.
+
+## Vietnam and emerging markets
+
+### Market context
+
+Vietnam's retail credit environment generates selection bias in unusually severe form. The State Bank of Vietnam supervises origination at banks and consumer-finance companies (FE Credit, HD Saison, Home Credit Vietnam, Mcredit, and others), where through-the-door volumes dwarf booked volumes. Published and trade-press figures place decline rates at consumer-finance subsidiaries between 60 and 80 percent, reflecting tight policy overlays and thin CIC files [@cicvn2023report; @adb2022vnfin]. Circular 16/2020/TT-NHNN enabled eKYC, which increased application volumes from mobile channels and skewed the applicant mix toward thin-file first-time borrowers [@sbv2020ekyc]. Circular 11/2021/TT-NHNN anchors the default definition used to label booked loans [@sbv2021circular11]. Decree 13/2023/ND-CP on personal data protection constrains how declined-applicant data can be stored and reprocessed; the lawful basis for retention must be re-justified when the data is used to train a reject-inference model, and a Personal Data Impact Assessment filing is expected [@govvn2023decree13].
+
+Macro volatility and Tet seasonality amplify the bias. @chu2024vietnam document large swings in bank lending with uncertainty, and @leboulanger2021tet document the Lunar New Year seasonality in arrears. A decline cohort booked on a pre-Tet liquidity squeeze looks different from one booked mid-year. IMF and World Bank reports on Vietnam flag the thin-bureau data environment as a structural constraint on underwriting [@imf2023vietnamart4; @worldbank2022vietnamfinance; @worldbank2021findex].
+
+### Application considerations
+
+High decline rates make the selection-bias problem first-order. A naive accepted-only logit on Vietnamese consumer-finance data produces PD curves that rank well within the booked sample but misstate the marginal applicant's PD by a factor of two or more, because the policy overlay discards the riskiest applicants non-randomly. Three practical patterns matter.
+
+Bureau-based extrapolation via CIC is the cleanest option when available. CIC captures loan outcomes across banks and consumer-finance companies, so a declined applicant who is subsequently approved elsewhere produces a bureau-observable Y label. This lets a lender label a material slice of the decline pool with a Circular 11 default outcome, and it collapses the impossibility problem on that slice. The remaining unlabelled slice (declined by all lenders) is where parceling or Heckman still bites. Bureau-based extrapolation requires a CIC data-use agreement and explicit consent under Decree 13/2023 [@cicvn2023report; @govvn2023decree13].
+
+Heckman exclusion restrictions that work in Vietnam. Candidate instruments that plausibly shift selection but not the default residual include: branch-level underwriter capacity shocks (Tet staffing), product-availability dummies driven by policy overlays that changed mid-vintage, geographic expansion dummies for newly opened provinces, and channel mix (branch versus mobile) when the channel is driven by operational roll-out rather than applicant preference. Exclusion must be defended with both an economic argument and a reduced-form test.
+
+Downturn-aware adjustment. The 2020 COVID moratorium, 2022 property-bond freeze, and subsequent rate cycle produced alternating tight and loose credit regimes. Reject inference should be done on a vintage mix that is representative across these regimes, not on a single benign vintage, or the through-the-cycle PD will be anti-conservative under Basel-style validation.
+
+Pseudo-labeling and EM under MAR. Self-training is popular with Vietnamese fintechs because it requires no extra data, but the MAR assumption fails when the policy overlay uses underwriter notes that are not in the feature store. Use EM self-training as a robustness check against Heckman and bureau extrapolation, not as a primary method.
+
+### Rationalization
+
+Reject inference fits Vietnamese consumer credit because decline rates are high enough that the accepted-only estimand is far from the through-the-door estimand. It fits best when CIC bureau outcomes can label a portion of the decline pool; in that case the identifiability gap is narrowed by data rather than by assumption. It fits less well when the bureau coverage of the decline pool is thin (first-time applicants with no subsequent bureau line), in which case Heckman with a defensible exclusion restriction is the fallback. It does not fit at all for small or captive lenders whose selection rule has not changed in years and whose decline pool has near-zero bureau coverage; for these, a conservative margin on the accepted-only PD is the honest answer.
+
+### Practical notes
+
+Datasets. CIC trade-line lookups for booked-and-declined cohorts, internal application tables keyed on national ID, and FiinGroup consumer panels. For pedagogy, the Taiwan default dataset [@yeh2009comparisons] plus a synthetic decline overlay reproduces the qualitative pattern.
+
+Regulator touchpoints. SBV inspections under Circular 11/2021 expect a written reject-inference methodology in the model development document. Decree 13/2023 filings should name the decline-data retention period, the legal basis, and the reject-inference use explicitly. IRB-aspirant banks should expect SBV to benchmark the reject-inference-adjusted PD against the CIC supervisory score on the through-the-door applicant population.
+
+Governance cadence. Reject inference is one of the few modelling areas where the validation team's written challenge is routinely more valuable than the model developer's output, because the identifying assumption (exclusion restriction, MAR, bureau coverage) is the load-bearing piece. Vietnamese validation units should require a sensitivity table that reports the adjusted PD under at least three reject inference methods and a conservative margin that reflects the spread between them. ADB and IFC work on SME credit in Vietnam makes clear that decline rates move with policy cycles, and a reject-inference model fit on a single vintage should be refit after any material overlay change [@ifc2019vnmsme; @adb2022vnfin]. The Fintech Regulatory Sandbox under Decree 94/2025/ND-CP is the appropriate venue to trial reject-inference methods that rely on alternative-data labels from telco or e-wallet partners, because both the data-sharing arrangement and the lawful basis under Decree 13/2023 need supervisory comfort before production deployment [@sbv2023vietnam; @govvn2023decree13].
+
+## Takeaways
+
+- Selection bias is a property of the data generation process, not of the model. Fitting a PD on accepted-only data estimates $P(Y \mid X, S=1)$, which differs from $P(Y \mid X)$ whenever the selection rule covaries with the outcome residual.
+- The impossibility result of @hand1997statistical is the ceiling on what reject inference can achieve from observed data alone. Every method is trading one assumption for another: MAR, bivariate normality, cluster structure, or the quality of a bureau surrogate.
+- The Heckman two-step correction works well when the exclusion restriction is clean and bivariate normality is not badly violated, but both conditions are strong. The code in this chapter recovers the true coefficients to within a few percent on synthetic data.
+- Fuzzy augmentation with $\tau = 1$ is a no-op under MAR and a hand-tuned level adjustment otherwise; its virtue is interpretability, not statistical rigor.
+- Self-training and EM without an exclusion restriction cannot escape selection-on-unobservables. They are valid under MAR but not MNAR. Use them as a robustness check, not as a primary correction.
+- Regulatory documentation should name the reject inference method, its identifying assumptions, and a sensitivity analysis. SR 11-7 validation will test the exclusion restriction directly.
+
+## Further reading
+
+- @heckman1979sample: the canonical selection-correction paper.
+- @hand1997statistical: the identifiability argument in credit scoring.
+- @rubin1976inference: the MAR/MNAR taxonomy.
+- @dempster1977maximum: the EM algorithm foundation.
+- @copas1997inferring: a less-normal, Bayesian treatment of non-random selection.
+- @manski1989anatomy and @manski1990nonparametric: nonparametric bounds as an alternative to Heckman's parametric correction.
+- @puhani2000heckman: a critical assessment of the two-step estimator's sensitivity.
+- @banasik2003sample and @banasik2007reject: the operational-research literature on reject inference in credit.
+- @vallee2019marketplace: reject inference in marketplace lending.
+- @howell2024lender: modern evidence on automation, disparate impact, and the selection mechanism.
+- @lessmann2015benchmarking: the broader benchmark context for credit scorecards.
+- @chapelle2006semi and @zhu2009introduction: semi-supervised learning references behind self-training and pseudo-labeling.

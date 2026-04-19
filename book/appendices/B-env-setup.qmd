@@ -1,0 +1,748 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+bibliography: ../refs/appx-B.bib
+---
+
+# Environment Setup and Reproducibility {#sec-app-B}
+
+## Why reproducibility matters for credit models {#sec-app-B-env}
+
+A credit score is a regulated artefact. When a supervisor, an internal validator, or a plaintiff asks how a score was produced, the lender must be able to rebuild it. Bit-for-bit reproduction is rarely required. Score-for-score reproduction on the same inputs is. SR 11-7 makes this explicit. Effective model risk management requires "robust model development, implementation, and use" and "ongoing monitoring" [@fed2011sr117]. None of that is possible without a pinned environment.
+
+Three concrete use cases drive the constraints in this appendix. First, regulatory audit. Examiners will ask for the exact library versions that produced the approved champion. Second, model validation. An independent second line of defence rebuilds the model from source. They must be able to match every number in the development document. Third, challenger recreation. A researcher five years from now needs to reproduce the baseline before claiming a lift.
+
+The Basel IRB framework adds a second layer. A PD, LGD, or EAD model feeds regulatory capital. Any drift between development and production translates into a capital mis-statement [@bcbs2005irb]. Supervisors expect the bank to demonstrate that the production artefact equals the development artefact under the same inputs.
+
+The rules below are prescriptive. Follow them for every chapter, every notebook, every deployment. Deviation is an audit finding waiting to happen.
+
+## Tooling overview
+
+This book pins a single Python version, a single lockfile, and a single Quarto kernel. The stack is:
+
+- `uv` for Python version management and dependency resolution.
+- Python 3.12 inside a project-local `.venv`.
+- A Quarto project that executes each chapter against a named Jupyter kernel.
+- A `pyproject.toml` plus `uv.lock` under version control.
+
+You will not use `conda`, `pip install` outside the venv, `pyenv`, or `pipx` for this project. Mixing tools is the most common cause of non-reproducible failures we have seen in credit model validation.
+
+## uv-managed Python environments
+
+`uv` is a fast Python package and project manager. It replaces `pip`, `pip-tools`, `virtualenv`, `pyenv`, and `poetry` for this project. The reason to adopt it here is speed and lockfile fidelity. Resolution that takes minutes under `pip` takes seconds under `uv`.
+
+### Install uv
+
+On macOS and Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Verify:
+
+```bash
+uv --version
+```
+
+### Install Python 3.12 through uv
+
+`uv` ships its own Python builds. You do not need a system Python.
+
+```bash
+uv python install 3.12
+uv python list
+```
+
+The first command downloads a standalone CPython 3.12 build. The second lists installed interpreters. Use the pinned 3.12 shown there for every command below.
+
+### Create the project venv
+
+From the repository root:
+
+```bash
+uv venv --python 3.12 .venv
+```
+
+This creates `.venv/` next to `pyproject.toml`. Activate it the usual way. On macOS or Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+On Windows:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+If you prefer not to activate, prefix commands with `uv run`. `uv run python` picks up the project venv automatically.
+
+### Install dependencies from pyproject.toml
+
+The book ships a `pyproject.toml` and a `uv.lock`. To install the exact pinned set:
+
+```bash
+uv sync
+```
+
+`uv sync` creates the venv if it does not exist, resolves against the lockfile, and installs every dependency at the locked version. This is the command you run on a fresh clone.
+
+To add a new dependency:
+
+```bash
+uv add "fairlearn>=0.11"
+```
+
+`uv add` edits `pyproject.toml`, updates `uv.lock`, and installs the package into `.venv` in one step.
+
+To refresh the lockfile after editing `pyproject.toml` manually:
+
+```bash
+uv lock
+uv sync
+```
+
+Commit `pyproject.toml` and `uv.lock` together. Never commit `.venv/`. The lockfile is the contract; the venv is derived.
+
+### Reproducibility properties of uv.lock
+
+`uv.lock` pins every direct and transitive dependency with a cryptographic hash. Two engineers running `uv sync` against the same lockfile get identical bytes on disk for every wheel. The file also records the resolution environment (Python version, platform markers), so conditional dependencies resolve the same way. This is the level of pinning an independent validator expects.
+
+## Python version policy
+
+This book uses **Python 3.12**. The `pyproject.toml` declares `requires-python = ">=3.11,<3.13"`, but the lockfile resolves against 3.12. The rationale:
+
+- 3.12 improves error messages and f-string expressiveness.
+- 3.12 is the newest version with wheel coverage for every heavy dependency we use, including `xgboost`, `lightgbm`, `catboost`, `torch`, `torch-geometric`, `scikit-survival`, and `pyspark`.
+- 3.13 dropped the GIL default only as opt-in free-threading. Several C extensions used here (notably `torch-geometric` and `aif360`) did not ship 3.13 wheels at the time of writing.
+- 3.11 is acceptable but slower. Pick it only if a transitive dependency forces downgrade.
+
+Upper bound matters. If you let the interpreter drift to 3.13, `uv sync` will fail to resolve wheels that were built against 3.12 ABI. Keep the constraint.
+
+For ML wheel compatibility, stick to the official build channels. `pip install torch` from PyPI gives a CPU-only wheel on macOS, a CUDA 12 wheel on Linux, and a CPU wheel on Windows. If you need a non-default variant, use the explicit index. For example, to force the CPU build of torch on Linux:
+
+```bash
+uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+Record the resolution flags used for any non-default wheel in the project README. Validators will ask.
+
+## Dependency inventory
+
+The `pyproject.toml` groups roughly 50 packages. Read the file for the authoritative list. The groups and their purpose:
+
+**Core numerics.** `numpy`, `pandas`, `polars`, `pyarrow`, `scipy`. `numpy` is the substrate. `pandas` is the default frame. `polars` is the columnar engine for scalability chapters. `pyarrow` backs cross-engine I/O. `scipy` supplies stats, linear algebra, and sparse matrices.
+
+**Classical statistics.** `statsmodels`, `patsy`. `statsmodels` gives the full GLM machinery for logistic regression, including robust standard errors. `patsy` powers the R-style formula language used in several chapters.
+
+**Classical ML.** `scikit-learn`. One package. Used for preprocessing, cross-validation, baseline linear models, trees, calibration, and metrics.
+
+**Gradient boosting.** `xgboost`, `lightgbm`, `catboost`. The three production-ready boosted-tree libraries. All three support monotonic constraints, which matter for ECOA-defensible scorecards.
+
+**Deep learning.** `torch`, `pytorch-tabnet`. `torch` is the tensor and autograd backbone. `tabnet` is used in the tabular deep learning chapter.
+
+**Survival analysis.** `lifelines`, `scikit-survival`. `lifelines` gives Kaplan-Meier, Cox, and parametric AFT models. `scikit-survival` adds random survival forests and gradient-boosted Cox.
+
+**Imbalanced learning.** `imbalanced-learn`. SMOTE, ADASYN, and related rebalancing tools.
+
+**Explainability (XAI).** `shap`, `lime`, `dice-ml`. `shap` produces Shapley-value attributions. `lime` produces local surrogate explanations. `dice-ml` generates counterfactuals.
+
+**Fairness.** `fairlearn`, `aif360`. Demographic parity, equalised odds, and reweighting. Used in the fairness chapters.
+
+**Scorecard-specific.** `optbinning`, `scorecardpy`. Optimal binning with monotonic constraints and a traditional scorecard builder.
+
+**NLP and LLM.** `transformers`, `tokenizers`, `sentencepiece`, `datasets`, `peft`, `accelerate`. Used for the text and LLM-for-credit chapters. `peft` and `accelerate` enable low-rank adapters and device placement.
+
+**Graphs.** `networkx`, `torch-geometric`. Payment network construction plus message-passing GNNs.
+
+**Causal inference.** `econml`, `dowhy`, `linearmodels`. Double machine learning, graphical causal queries, and panel IV.
+
+**Big data.** `dask[complete]`, `pyspark`, `ray[default]`. Used in the scalability section of every chapter that benefits. Ray is optional; use it only for hyperparameter sweeps.
+
+**MLOps and deployment.** `mlflow`, `fastapi`, `uvicorn`, `pydantic`, `joblib`, `onnx`, `onnxruntime`, `skl2onnx`. Experiment tracking, serving, schema validation, model persistence, and portable model export.
+
+**Visualization.** `matplotlib`, `seaborn`, `plotly`. Chapters embed matplotlib or seaborn only. `plotly` is available for interactive dashboards outside the book render.
+
+**Utilities.** `requests`, `tqdm`, `openpyxl`, `xlrd`, `ucimlrepo`. HTTP, progress bars, Excel readers, and the UCI repository client.
+
+**Kernel.** `jupyter`, `ipykernel`, `nbformat`. Needed to register the Jupyter kernel that Quarto uses.
+
+## macOS-specific fixes: libomp for xgboost and lightgbm
+
+Both `xgboost` and `lightgbm` ship macOS wheels that link dynamically against the OpenMP runtime `libomp.dylib`. On Linux the OpenMP runtime ships with gcc. On macOS, Apple's `clang` does not ship a public OpenMP runtime and Apple does not link one by default. Users typically obtain `libomp` through Homebrew. Several corporate and CI environments have no Homebrew. Many macOS laptops ship with a corporate Homebrew cask policy that blocks system-wide installs. You need an in-venv fallback.
+
+The recipe below is self-contained. It downloads a prebuilt `libomp.dylib`, places it where the wheels search, and patches the rpath.
+
+### Step 1. Download the prebuilt runtime
+
+```bash
+curl -L \
+  -o /tmp/openmp.tar.gz \
+  https://mac.r-project.org/openmp/openmp-19.1.5-darwin20-Release.tar.gz
+mkdir -p .venv/openmp
+tar -xzf /tmp/openmp.tar.gz -C .venv/openmp
+ls .venv/openmp/usr/local/lib
+```
+
+The archive expands into `.venv/openmp/usr/local/lib/libomp.dylib` (plus headers). The R Project hosts this tarball and signs binaries; it is a standard source for macOS OpenMP in statistical computing.
+
+### Step 2. Copy libomp next to the wheels
+
+```bash
+LIBOMP=.venv/openmp/usr/local/lib/libomp.dylib
+SITE=$(./.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
+cp "$LIBOMP" "$SITE/xgboost/lib/"
+cp "$LIBOMP" "$SITE/lightgbm/lib/"
+```
+
+### Step 3. Patch the rpath so the wheels find the sibling library
+
+```bash
+install_name_tool -add_rpath "@loader_path" \
+  "$SITE/xgboost/lib/libxgboost.dylib"
+install_name_tool -add_rpath "@loader_path" \
+  "$SITE/lightgbm/lib/lib_lightgbm.dylib"
+```
+
+`@loader_path` resolves to the directory of the binary that triggered the load. After the patch, when `libxgboost.dylib` looks up `libomp.dylib`, dyld searches the same `lib/` folder and finds the copy you just placed.
+
+Verify:
+
+```bash
+./.venv/bin/python -c "import xgboost; print(xgboost.__version__)"
+./.venv/bin/python -c "import lightgbm; print(lightgbm.__version__)"
+```
+
+Both imports should succeed without `Library not loaded: @rpath/libomp.dylib`.
+
+### Alternative: DYLD_FALLBACK_LIBRARY_PATH
+
+If you cannot run `install_name_tool` (for example, on a locked-down corporate laptop with SIP constraints), set the dynamic loader fallback path for each shell session:
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH=\
+"$PWD/.venv/openmp/usr/local/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+```
+
+Put the line in your shell rc file or in a project-local `.envrc` that direnv sources. The render pipeline used in this book relies on this variable when running Quarto locally on macOS.
+
+Why is this needed. A fresh `uv sync` installs wheels that assume `libomp.dylib` is available at load time. Without system Homebrew, the wheels cannot find it. The fixes above give you two orthogonal escape hatches: one baked into the venv (rpath patch), one in the process environment (DYLD_FALLBACK_LIBRARY_PATH).
+
+## GPU and accelerator notes
+
+PyTorch supports three backends that matter for this book:
+
+- **CPU** on every platform. Slow for deep learning. Fine for chapters where torch is used only for autograd demonstrations.
+- **MPS** on Apple Silicon. Uses the Metal Performance Shaders backend. Good for laptop-scale TabNet and small transformers. Some ops fall back to CPU silently.
+- **CUDA** on Linux or Windows with an NVIDIA GPU. Default for large-scale LLM or GNN training.
+
+Pick the device at runtime. The following helper is used across chapters:
+
+```python
+import torch
+
+def pick_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+device = pick_device()
+print("device:", device)
+```
+
+Do not hardcode `"cuda"`. The book renders on laptops and CI runners that have neither CUDA nor MPS.
+
+For Hugging Face `transformers`, `device_map="auto"` asks `accelerate` to place model layers across available devices. On a single-GPU machine this is equivalent to `.to(device)`. On a multi-GPU machine it enables tensor sharding without manual code:
+
+```python
+from transformers import AutoModelForSequenceClassification
+
+model = AutoModelForSequenceClassification.from_pretrained(
+    "distilbert-base-uncased",
+    num_labels=2,
+    device_map="auto",
+)
+```
+
+Always keep a CPU fallback path. If the reader has no accelerator, the chapter must still render. The pattern looks like this:
+
+```python
+import torch
+
+def safe_to_device(model, tensor, prefer: str = "mps"):
+    try:
+        if prefer == "mps" and torch.backends.mps.is_available():
+            return model.to("mps"), tensor.to("mps")
+        if prefer == "cuda" and torch.cuda.is_available():
+            return model.to("cuda"), tensor.to("cuda")
+    except RuntimeError:
+        pass
+    return model.to("cpu"), tensor.to("cpu")
+```
+
+On MPS, watch for float64 operations. MPS supports float32 and float16. Cast explicitly before sending tensors to the device. On CUDA, check `torch.cuda.mem_get_info()` before loading 7B-parameter LLMs; the LLM chapter uses 8-bit quantisation via `bitsandbytes` to fit on a 24GB card.
+
+## Quarto
+
+Quarto is the static site and book renderer used across every chapter. Install it once per machine.
+
+### Install
+
+On macOS via the official installer:
+
+```bash
+# Download from https://quarto.org/docs/get-started/
+# Or via Homebrew:
+brew install --cask quarto
+```
+
+On Linux:
+
+```bash
+wget https://quarto.org/download/latest/quarto-linux-amd64.deb
+sudo dpkg -i quarto-linux-amd64.deb
+```
+
+Verify:
+
+```bash
+quarto --version
+quarto check
+```
+
+`quarto check` runs a diagnostic that lists installed formats, the detected Jupyter executable, and the LaTeX installation. Read every warning. PDF output requires a working TeX distribution. TinyTeX is fine:
+
+```bash
+quarto install tinytex
+```
+
+### Register the Jupyter kernel
+
+The book's `_quarto.yml` sets `jupyter: credit-scoring-book`. That kernel name must be registered and must point at the project venv. From the activated venv:
+
+```bash
+python -m ipykernel install --user \
+  --name credit-scoring-book \
+  --display-name "Credit Scoring Book (Python 3.12)"
+```
+
+Verify:
+
+```bash
+jupyter kernelspec list
+```
+
+You should see `credit-scoring-book` pointing at `.venv/bin/python`. If not, the kernel was registered against the wrong interpreter. Run the install command again with the venv activated.
+
+### Render the book
+
+From the repo root:
+
+```bash
+quarto render
+```
+
+To render a single chapter:
+
+```bash
+quarto render chapters/07-logistic-scorecard.qmd
+```
+
+On macOS with the libomp rpath fix applied, no extra environment variables are required. Without the rpath fix:
+
+```bash
+DYLD_FALLBACK_LIBRARY_PATH=$PWD/.venv/openmp/usr/local/lib quarto render
+```
+
+## Jupyter kernel hygiene
+
+One kernel, one venv. Do not register a kernel from a conda environment with the same name. Do not use the system Jupyter. The `ipykernel` entry in `pyproject.toml` ensures Jupyter itself is installed inside the project venv.
+
+If you need to delete a stale kernel:
+
+```bash
+jupyter kernelspec remove credit-scoring-book
+```
+
+Then reinstall.
+
+If `quarto render` fails with `Kernel credit-scoring-book not found`, check that the venv is activated or that `uv run quarto render` is used. Quarto inspects `$PATH` and the current interpreter to resolve kernels.
+
+## Data caching
+
+Chapters download public datasets the first time they run. Cached copies live under `book/data/`. The layout is flat:
+
+```
+book/data/
+  german.data
+  taiwan_default.xls
+  application_train.csv
+  ...
+```
+
+`csutils._cache_get` implements the caching logic. The function is a dozen lines:
+
+```python
+def _cache_get(url: str, filename: str, timeout: int = 60) -> Path:
+    dst = DATA_DIR / filename
+    if dst.exists() and dst.stat().st_size > 0:
+        return dst
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    dst.write_bytes(resp.content)
+    return dst
+```
+
+Three properties matter:
+
+- It never re-downloads a non-empty file. Deletes are the only way to force a refresh.
+- It writes atomically through `Path.write_bytes`. Interrupted downloads leave a zero-byte file, which triggers a re-download on the next call.
+- It respects a 60-second timeout. On a slow network, increase the argument at the call site.
+
+### Gitignore large files
+
+`book/data/` should be excluded from version control except for small fixtures. Add to `.gitignore`:
+
+```
+book/data/*
+!book/data/.gitkeep
+```
+
+The `.gitkeep` sentinel keeps the directory present after clone. Chapters recreate the data on first run. If you need a deterministic data snapshot for a release, archive `book/data/` separately. Never commit `application_train.csv`; it is 150MB.
+
+### Dataset provenance
+
+For every dataset, the chapter must record the source URL, the download date, and a hash. Validators will ask for provenance. The cache helper does not compute hashes today. A small addition you may keep locally:
+
+```python
+import hashlib, json
+from pathlib import Path
+
+def hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+```
+
+Write the hash and URL into `book/data/PROVENANCE.json` on first download. This is a cheap audit trail.
+
+## Determinism checklist
+
+Determinism is a property of the training code, not the library. You have to ask for it. The checklist below is non-negotiable for any number reported in the book.
+
+### Seed every RNG
+
+```python
+import os, random
+import numpy as np
+
+os.environ["PYTHONHASHSEED"] = "0"
+random.seed(0)
+np.random.seed(0)
+```
+
+For `numpy >= 1.17`, prefer a `Generator`:
+
+```python
+rng = np.random.default_rng(42)
+```
+
+For scikit-learn, always pass `random_state=...`. There is no global seed for sklearn. Every estimator and every `train_test_split` call needs the argument.
+
+For PyTorch:
+
+```python
+import torch
+torch.manual_seed(0)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(0)
+if torch.backends.mps.is_available():
+    torch.mps.manual_seed(0)
+```
+
+For xgboost, lightgbm, and catboost, pass `random_state=0` (xgboost, lightgbm) or `random_seed=0` (catboost). Also pin `n_jobs=1` if you need exact reproducibility across machines. Multi-threaded tree building produces non-deterministic orderings under some flags.
+
+### PYTHONHASHSEED
+
+Set it before the interpreter starts. Inside the process, changing `os.environ["PYTHONHASHSEED"]` does nothing. Put the export in your shell rc file or at the top of the driver script:
+
+```bash
+export PYTHONHASHSEED=0
+```
+
+This controls the randomisation of hashes for strings, bytes, and several other types. Without it, dict iteration order differs run-to-run for tie-breaking paths that hash values.
+
+### OpenMP thread count
+
+For byte-identical outputs across hosts, pin the thread count:
+
+```bash
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+```
+
+BLAS reductions are not associative in float arithmetic. Different thread counts compute partial sums in different orders, which changes the last few ULPs of the result. For model monitoring (PSI over time), those ULPs are irrelevant. For bit-for-bit reproduction of a regulatory artefact, they matter.
+
+### CUDA determinism flags
+
+On NVIDIA GPUs:
+
+```python
+import torch
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=True)
+```
+
+Also export:
+
+```bash
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+```
+
+`warn_only=True` trades determinism for fallback on ops that have no deterministic kernel. For regulatory artefacts, set it to `False` and accept that some ops will raise. You then have to rewrite the forward pass to avoid them.
+
+### End-to-end snippet
+
+The block below is the canonical determinism preamble for this book. It executes without error under the verified environment:
+
+```python
+import os
+import random
+import numpy as np
+
+os.environ["PYTHONHASHSEED"] = "0"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
+random.seed(0)
+np.random.seed(0)
+
+import torch
+torch.manual_seed(0)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(0)
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.datasets import make_classification
+
+X, y = make_classification(n_samples=500, n_features=10, random_state=0)
+lr = LogisticRegression(max_iter=1000, random_state=0).fit(X, y)
+print("coef[0,0] =", round(float(lr.coef_[0, 0]), 6))
+```
+
+Running this on the reference machine prints `coef[0,0] = -0.079236`. If a validator on a different machine gets a different number by more than 1e-6, check the BLAS backend first.
+
+## Docker image
+
+A container lets you hand a validator a single artefact that builds the book end to end. The Dockerfile below uses a multi-stage pattern. Stage one resolves dependencies with `uv`. Stage two renders the book with Quarto.
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+
+# ---------- Stage 1: resolve deps ----------
+FROM python:3.12-slim AS resolver
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates build-essential libgomp1 git \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /src
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+# ---------- Stage 2: render ----------
+FROM python:3.12-slim AS render
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates libgomp1 gdebi-core \
+ && curl -L -o /tmp/quarto.deb \
+      https://quarto.org/download/latest/quarto-linux-amd64.deb \
+ && gdebi -n /tmp/quarto.deb \
+ && rm -rf /var/lib/apt/lists/* /tmp/quarto.deb
+WORKDIR /book
+COPY --from=resolver /src/.venv /book/.venv
+COPY . /book
+ENV PATH="/book/.venv/bin:${PATH}"
+ENV PYTHONHASHSEED=0
+ENV OMP_NUM_THREADS=1
+RUN python -m ipykernel install --sys-prefix \
+    --name credit-scoring-book \
+    --display-name "Credit Scoring Book (Python 3.12)"
+RUN quarto render
+CMD ["quarto", "preview", "--host", "0.0.0.0"]
+```
+
+Build and render:
+
+```bash
+docker build -t credit-scoring-book:latest .
+docker run --rm -v "$PWD/_book:/book/_book" credit-scoring-book:latest \
+  quarto render
+```
+
+The Linux image does not need the macOS `libomp` dance. `libgomp1` from apt provides the OpenMP runtime for every gradient-boosting wheel. PyTorch in this image is CPU-only. For GPU rendering, start from `nvidia/cuda:12.1.1-runtime-ubuntu22.04` and install Python 3.12 through `uv python install 3.12`.
+
+## Continuous integration
+
+Nightly renders catch the three classes of breakage that matter: upstream dataset URL changes, library deprecation, and transitive dependency drift. The GitHub Actions workflow below is minimal and sufficient.
+
+```yaml
+# .github/workflows/render.yml
+name: Render book
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # nightly 03:00 UTC
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Sync deps
+        run: uv sync --frozen
+
+      - name: Register Jupyter kernel
+        run: |
+          uv run python -m ipykernel install --user \
+            --name credit-scoring-book \
+            --display-name "Credit Scoring Book (Python 3.12)"
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render
+        run: uv run quarto render
+
+      - name: Upload book
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-html
+          path: _book/
+```
+
+A GitLab CI equivalent:
+
+```yaml
+# .gitlab-ci.yml
+stages: [render]
+
+render:
+  stage: render
+  image: python:3.12-slim
+  variables:
+    PYTHONHASHSEED: "0"
+    OMP_NUM_THREADS: "1"
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends
+        curl ca-certificates libgomp1 gdebi-core
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="$HOME/.local/bin:$PATH"
+    - curl -L -o /tmp/q.deb
+        https://quarto.org/download/latest/quarto-linux-amd64.deb
+    - gdebi -n /tmp/q.deb
+    - uv sync --frozen
+    - uv run python -m ipykernel install --sys-prefix
+        --name credit-scoring-book
+        --display-name "Credit Scoring Book"
+  script:
+    - uv run quarto render
+  artifacts:
+    paths: [_book/]
+    expire_in: 7 days
+  only:
+    - schedules
+    - main
+```
+
+For both systems, cache `.venv/` and `~/.cache/uv` across runs to cut CI time from 10 minutes to 1 minute on warm cache.
+
+## A minimal sanity check
+
+Before you trust the environment, run one block that exercises the common imports:
+
+```python
+import os, sys, platform
+import numpy as np
+import pandas as pd
+import sklearn
+import xgboost as xgb
+import lightgbm as lgb
+import torch
+
+print("python   ", sys.version.split()[0], platform.machine())
+print("numpy    ", np.__version__)
+print("pandas   ", pd.__version__)
+print("sklearn  ", sklearn.__version__)
+print("xgboost  ", xgb.__version__)
+print("lightgbm ", lgb.__version__)
+print("torch    ", torch.__version__,
+      "mps=", torch.backends.mps.is_available(),
+      "cuda=", torch.cuda.is_available())
+```
+
+If `xgboost` or `lightgbm` fails to import on macOS, return to the libomp section. If `torch` loads but `mps` is False on Apple Silicon, check that you installed a recent `torch` (`>= 2.1`) built for arm64, not an x86_64 wheel under Rosetta.
+
+## Writing reproducible chapters
+
+A few rules distilled from the chapters already in the book. Follow them and your chapter will render identically on your laptop and in CI.
+
+1. Put the determinism preamble at the top of every executed block.
+2. Import helpers with `sys.path.insert(0, '../code'); from csutils import ...`. Do not copy helper functions into the chapter.
+3. When you sample data, pass `random_state=seed` to the sampler. Default seeds in the book are `0` for data and `42` for model init. Pick one convention per chapter and stick to it.
+4. Avoid `time.time()` and `datetime.now()` inside cells that render into the book. The printed timestamp breaks byte-for-byte diff checks.
+5. Wall-clock timings are acceptable when the number is the point of the section (for example, "pandas vs polars"). Round to two significant figures so CI noise does not invalidate the prose.
+6. Plot with matplotlib or seaborn. Never embed a `plotly` figure in a chapter; the PDF renderer cannot handle it.
+7. Run `quarto render chapters/<your-file>.qmd` locally before you commit. A chapter that does not render locally will not render in CI.
+
+## Troubleshooting
+
+**`ImportError: dlopen(...libxgboost.dylib): Library not loaded: @rpath/libomp.dylib`.** You skipped the libomp step. Either apply the rpath patch or export `DYLD_FALLBACK_LIBRARY_PATH`.
+
+**`ModuleNotFoundError: No module named 'csutils'`.** The chapter was rendered from outside the project root. `execute-dir: project` in `_quarto.yml` sets the working directory, but only when you run `quarto render` from the root.
+
+**`quarto render` hangs on the first code cell.** Kernel startup is slow on cold disk. Wait. If it never completes, `jupyter kernelspec list` and check that `credit-scoring-book` points at the project venv.
+
+**Nondeterministic AUC across runs.** You forgot to seed. Or you enabled multi-threading without pinning `OMP_NUM_THREADS=1`. Or you passed `shuffle=True` without `random_state` to a CV splitter.
+
+**`RuntimeError: MPS backend out of memory`.** Torch is aggressive about caching on MPS. Wrap training in `with torch.no_grad():` for evaluation, call `torch.mps.empty_cache()` between epochs, and drop batch size.
+
+**Lockfile drift on a team.** Two engineers edit `pyproject.toml` on parallel branches. Merge produces a `uv.lock` that does not match either branch. Fix: run `uv lock` after every merge and commit the result before pushing.
+
+## Further reading
+
+- @fed2011sr117 is the foundational US supervisory guidance on model risk management. Read it before writing any production credit model.
+- @bcbs2005irb explains the IRB risk weight functions. Context for why reproducibility matters for capital calculations.
+- @pineau2021reproducibility reports the NeurIPS 2019 reproducibility program findings. Concrete evidence on where ML research breaks and how pinning helps.
+- @stodden2016enhancing is a short Science policy piece on computational reproducibility standards.
+- @sonnenburg2007need makes the JMLR case for open tooling in ML research. Older but foundational.

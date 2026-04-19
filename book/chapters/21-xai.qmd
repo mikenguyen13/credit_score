@@ -1,0 +1,1173 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+bibliography: [../references.bib, ../refs/ch-21.bib, ../refs/ch-22.bib]
+---
+
+# Explainable AI (XAI) in Credit Scoring {#sec-ch21}
+
+## Overview {.unnumbered}
+
+A credit scoring model that cannot be explained is a credit scoring model that cannot be deployed. In the United States, the Equal Credit Opportunity Act (ECOA) and its implementing rule, Regulation B, require that any creditor who denies an application, reduces a line, or worsens terms must deliver a written statement of specific reasons within thirty days. In Europe, Article 22 of the General Data Protection Regulation (GDPR) restricts solely automated decisions with legal or similarly significant effects and requires that the data subject receive meaningful information about the logic involved. The Basel framework and the US Federal Reserve's supervisory letter SR 11-7 require that model logic be understood by validators, not just data scientists. The EU Artificial Intelligence Act classifies consumer creditworthiness scoring as high-risk and imposes additional transparency duties on providers and deployers.
+
+Explainability is therefore not a nice-to-have. It is a binding constraint on model architecture, a compliance artifact for reason codes, and a line of defense when a regulator or a borrower asks why the model said no. This chapter treats XAI as an engineering discipline. It defines interpretability and explainability precisely (@sec-ch21), develops the axiomatic foundation of Shapley values from cooperative game theory, derives the TreeSHAP algorithm that makes Shapley-based explanation computable in polynomial time (@sec-ch21-shap), works through the weighted least squares formulation of LIME (@sec-ch21-lime), formalizes counterfactual explanations and the DiCE objective (@sec-ch21-counterfactual), and produces ECOA-compliant adverse action notices (@sec-ch21-adverse) from SHAP attributions. Every derivation is matched by running code on the Taiwan default dataset [@yeh2009comparisons].
+
+The argument is opinionated. Post-hoc explanation is useful but dangerous: attributions are not causal, they can be fooled [@slack2020fooling], and they depend on a reference distribution that most practitioners never specify. Intrinsic interpretability through generalized linear models and scorecards remains the default in consumer lending because regulators can validate it line by line [@rudin2019stop]. The chapter takes both paths seriously and shows how to combine them.
+
+In Vietnam, the binding instrument is SBV Circular 41/2016, which sets Basel II standardised capital rules and, through that channel, the validation expectations for PD-relevant models [@sbv_circular41_2016]. An explanation pipeline that cannot satisfy independent validation under Circular 41 is not a production pipeline. The Vietnam-and-EM section at the end of this chapter maps ECOA, GDPR Article 22, and the EU AI Act onto the SBV-led validation stack and Decree 13/2023 [@vn_decree13_2023].
+
+### Notation {.unnumbered}
+
+Let $x = (x_1, \dots, x_d) \in \mathbb{R}^d$ denote a feature vector for one applicant, $y \in \{0, 1\}$ the default indicator, and $f : \mathbb{R}^d \to \mathbb{R}$ a trained model producing either a probability or a log-odds margin. Write $[d] = \{1, \dots, d\}$ for the index set of features and $S \subseteq [d]$ for a coalition of features. $x_S$ denotes the subvector of $x$ at indices $S$. $\mathbb{E}[\cdot]$ is expectation under the population distribution of $x$, and $\mathbb{E}[f(x) \mid x_S]$ is the conditional expectation obtained by marginalizing over the remaining features.
+
+## Interpretability versus explainability {#sec-ch21-xai}
+
+These two words are often used interchangeably. They should not be. Following @doshi2017towards and @lipton2018mythos, interpretability is a property of a model: a model is interpretable if a human can trace how inputs produce outputs. A logistic regression with twelve features is interpretable because each coefficient carries an unambiguous log-odds effect. Explainability is a property of a post-hoc procedure: given a model $f$ we cannot inspect directly, an explanation is an approximation $g$ that reports what $f$ did on a particular input or across a population.
+
+The distinction matters because the failure modes differ. An interpretable model can be wrong, but you can point to the line in the scorecard where it went wrong. An explainable black box can be right while the explanation is wrong, because the explanation is a separate artifact that only approximates the model. @rudin2019stop argues that in high-stakes consumer domains, the second failure mode is unacceptable and the industry should default to interpretable models. The counter-argument, best articulated by practitioners using gradient boosted trees, is that accuracy gains from nonlinear ensembles translate into lower losses and that regulators accept post-hoc explanation when it is validated.
+
+Credit scoring sits at the center of this debate. The traditional scorecard [@siddiqi2017intelligent, @thomas2017credit] is intrinsically interpretable. A deployed XGBoost model with two hundred trees is not. The practical question is whether the SHAP values attached to the XGBoost model carry enough information to write an ECOA-compliant adverse action notice. The answer developed below is: yes, provided that the reference population is specified carefully, that features are binned so that reason codes are intelligible, and that the model card documents the explanation procedure.
+
+A second axis cuts across interpretability. Following @miller2019explanation, explanations are local when they concern a single prediction, and global when they concern the model's behavior across the population. LIME and SHAP provide both, but the global view is built bottom-up from local attributions, and the local view is derived from a global structure. Counterfactual explanations are strictly local: they answer the question "what would this applicant need to change to be approved." Model cards are strictly global: they document the model's purpose, data, performance, and known limitations.
+
+A third axis concerns fidelity. An explanation is faithful if it reflects the model's actual computation. LIME fits a linear surrogate in a neighborhood of $x$ and measures fidelity by the local $R^2$. SHAP is faithful by construction in the sense that additive attributions sum to the model's output, but it is faithful to a particular coalition game whose characteristic function encodes an assumption about feature independence. When that assumption is wrong, SHAP attributions can drift from what a causal intervention would deliver [@kumar2020problems; @aas2021explaining].
+
+The practitioner's playbook in this chapter is the following. Default to intrinsic interpretability whenever the AUC penalty is small, which for many consumer portfolios is the case [@dastile2020statistical]. If a nonlinear model is justified, build both the model and a structured post-hoc explanation layer together, store SHAP values next to predictions in the feature store, audit the explanations periodically for consistency with the model's accepted ground truth, and document every step in a model card.
+
+## Intrinsic interpretability: scorecards and GLMs
+
+The logistic regression is the workhorse of consumer credit. Given features $x \in \mathbb{R}^d$, the model writes
+
+$$
+\log \frac{\Pr(y = 1 \mid x)}{\Pr(y = 0 \mid x)} = \beta_0 + \sum_{j=1}^d \beta_j x_j.
+$$ {#eq-logodds}
+
+The coefficient $\beta_j$ has an exact semantic: a one-unit increase in $x_j$, holding other features fixed, changes the log-odds of default by $\beta_j$. The effect on probability is nonlinear but monotone. This directness is the reason regulators accept logistic scoring without needing a separate explanation artifact.
+
+A scorecard is a linear model on binned features plus a monotonic transform of log-odds to points. Let $\phi_j(x_j)$ denote the weight-of-evidence (WoE) encoding of the bin containing $x_j$ [@siddiqi2017intelligent]. The scorecard writes
+
+$$
+\text{points}(x) = \text{offset} + \sum_{j=1}^d \text{factor} \cdot \beta_j \phi_j(x_j),
+$$ {#eq-scorecard}
+
+where $\text{factor} = \text{PDO} / \ln 2$ with PDO the points-to-double-odds constant, and $\text{offset}$ aligns a chosen base score with a chosen base odds. Each bin contributes a known integer number of points to the total. A denied applicant can be told exactly which bins pulled their total below the cutoff, and by how much. This is a line-by-line explanation with zero approximation error, and it is also what an ECOA examiner wants to see.
+
+The cost of this clarity is model capacity. A logistic regression cannot capture the interaction between payment history and utilization without explicit interaction terms. A scorecard with WoE encoding captures monotone nonlinearity within each feature but cannot represent feature interactions unless they are binned jointly. Gradient boosted trees capture both. This chapter takes the standard position that when the portfolio and the business problem support it, the nonlinear model is worth the post-hoc explanation overhead, and the chapter delivers the overhead rigorously. @sec-ch07 and @sec-ch12 cover the scorecard and the tree ensemble respectively. This chapter builds on both.
+
+### Partial dependence and ICE as global intrinsic tools
+
+Even for a black box, one can probe the marginal effect of feature $j$ by averaging the model's output over the rest of the distribution. The partial dependence function [@friedman2001greedy] is
+
+$$
+\text{PD}_j(v) = \mathbb{E}_{x_{-j}}[f(x_j = v, x_{-j})] \approx \frac{1}{n} \sum_{i=1}^n f(x_j = v, x^{(i)}_{-j}).
+$$ {#eq-pd}
+
+Partial dependence is global and additive. Individual conditional expectation (ICE) curves keep one line per observation instead of averaging, which exposes heterogeneity that PD masks. These tools are old, cheap, and complementary to SHAP. Use them to sanity-check SHAP dependence plots: a PD that is flat where SHAP says there is a strong effect is a red flag, often signaling that the SHAP attribution is picking up an interaction rather than a main effect.
+
+## SHAP: Shapley values for prediction attribution {#sec-ch21-shap}
+
+The core contribution of @lundberg2017unified is to unify several existing local attribution methods (LIME, DeepLIFT, Layer-wise Relevance Propagation, Shapley regression values) under a single axiomatic framework. The framework is the Shapley value from cooperative game theory [@shapley1953value]. The axioms force a unique additive attribution that satisfies efficiency, symmetry, dummy, and additivity. SHAP is the unique solution to a local attribution problem with these axioms.
+
+### The cooperative game
+
+Fix an input $x$ and a model $f$. Define a coalition value function $v : 2^{[d]} \to \mathbb{R}$ where, for each subset $S \subseteq [d]$ of features,
+
+$$
+v(S) = \mathbb{E}[f(X) \mid X_S = x_S] - \mathbb{E}[f(X)].
+$$ {#eq-coalition}
+
+The quantity $v(S)$ is the change in the expected model output when we fix the features in $S$ to the observed values $x_S$ and marginalize over the rest. $v(\emptyset) = 0$ and $v([d]) = f(x) - \mathbb{E}[f(X)]$. The goal is to distribute the total contribution $v([d])$ among the $d$ features fairly.
+
+### The Shapley value
+
+The Shapley value of feature $j \in [d]$ is
+
+$$
+\phi_j = \sum_{S \subseteq [d] \setminus \{j\}} \frac{|S|! (d - |S| - 1)!}{d!} \bigl[ v(S \cup \{j\}) - v(S) \bigr].
+$$ {#eq-shapley}
+
+The weight $|S|!(d-|S|-1)!/d!$ is the probability that, in a uniformly random permutation of features, the features in $S$ appear before $j$ and the rest appear after. The bracketed term is the marginal contribution of $j$ when added to coalition $S$. The Shapley value is the expected marginal contribution of $j$ over all orderings.
+
+### Axioms and the uniqueness theorem
+
+@shapley1953value proved that $\phi_j$ defined by [@eq-shapley] is the unique function on coalition games satisfying the following four axioms.
+
+**Efficiency.** $\sum_{j=1}^d \phi_j = v([d]) - v(\emptyset) = f(x) - \mathbb{E}[f(X)]$. The attributions add up to the prediction's deviation from the population mean.
+
+**Symmetry.** If $v(S \cup \{i\}) = v(S \cup \{j\})$ for every $S$ not containing $i$ or $j$, then $\phi_i = \phi_j$. Two features with identical marginal contributions in every coalition receive identical attribution.
+
+**Dummy (or null player).** If $v(S \cup \{j\}) = v(S)$ for every $S$ not containing $j$, then $\phi_j = 0$. A feature that changes no coalition value receives zero attribution.
+
+**Additivity.** For two games $v_1, v_2$ with the same feature set, $\phi_j(v_1 + v_2) = \phi_j(v_1) + \phi_j(v_2)$. Attributions on an ensemble split linearly across the ensemble's components.
+
+Proof sketch of uniqueness. Any game $v$ decomposes uniquely as a linear combination of carrier games $u_T$ defined by $u_T(S) = \mathbb{1}[T \subseteq S]$ for $T \neq \emptyset$. The four axioms pin down the attribution on each $u_T$: by symmetry each member of $T$ must receive the same share, by efficiency the members of $T$ must split $u_T([d]) = 1$ equally, and by dummy non-members must receive zero. So $\phi_j(u_T) = \mathbb{1}[j \in T] / |T|$. Additivity extends this to all $v$, and the result coincides with [@eq-shapley].
+
+### From Shapley values to SHAP
+
+The original Shapley value requires a coalition game defined on a value function. @lundberg2017unified proposes the value function in [@eq-coalition]. Computing $\phi_j$ directly requires evaluating $v(S)$ for all $2^d$ subsets, which is infeasible for $d$ in the hundreds. Two things make SHAP practical.
+
+First, for tree ensembles the conditional expectation $\mathbb{E}[f(X) \mid X_S = x_S]$ can be computed in polynomial time in $d$ using the tree structure. This is TreeSHAP [@lundberg2018consistent].
+
+Second, for general models one can approximate [@eq-shapley] by sampling permutations or by solving a weighted linear regression whose kernel is chosen so that the optimal coefficients are Shapley values. This is KernelSHAP, which @lundberg2017unified prove equals the Shapley value in expectation under a specific kernel.
+
+The conditional expectation in [@eq-coalition] hides a subtle choice: should "conditioning on $X_S = x_S$" use the true conditional distribution of $X_{[d] \setminus S}$ given $X_S$, or the marginal distribution of $X_{[d] \setminus S}$? The former is "true to the data" and is what interventional causal reasoning would demand. The latter is "true to the model" and is what TreeSHAP actually computes [@chen2020true]. In the presence of correlated features these differ, and the difference matters for reason codes. The practical guidance in this chapter is to document which version is in use and to validate the result against counterfactual analysis on a sample of accepted and denied applicants.
+
+### TreeSHAP: polynomial-time Shapley for trees
+
+KernelSHAP evaluates the model on perturbed inputs and fits a weighted least squares. Its complexity is exponential in $d$ in the worst case if one demands the exact Shapley value, and for fifty-feature models the approximation quality degrades unless many samples are used. TreeSHAP eliminates this cost by exploiting the structure of a single decision tree.
+
+Let $T$ be a tree with $L$ leaves and maximum depth $D$. For a given $x$ and a coalition $S$, define the conditional expectation under the path-based algorithm of @lundberg2018consistent: follow the tree, and at each internal node splitting on feature $j$, if $j \in S$ go down the path consistent with $x_j$, otherwise weight both children by the fraction of training samples that went each way. The leaf values weighted along this recursion give $\mathbb{E}[T(X) \mid X_S = x_S]$ under the model-faithful interpretation. The TreeSHAP algorithm computes the Shapley value for every feature on a given tree in $O(T D^2 L)$ time, where $T$ is the number of leaves in the tree and $L$ is the number of leaves along the paths. For an ensemble of $M$ trees, total cost is $O(M T D^2 L)$, polynomial in the model size and linear in the number of features. This is the reason SHAP is feasible in production for boosted-tree credit models with hundreds of features and thousands of trees.
+
+The key idea of the algorithm is a dynamic programming recursion that, for each node of the tree, tracks all paths from the root, together with the feature set along the path and the proportion of "hot" (present in the coalition) and "cold" (absent) features. Each leaf contributes to the Shapley value of every feature on its path using the Shapley weights that emerge from the recursion. Marginal contributions on shared paths are shared across leaves, avoiding the exponential enumeration that KernelSHAP needs. The full algorithm is Algorithm 2 of @lundberg2018consistent and is implemented in the `shap` package as well as natively in XGBoost, LightGBM, and CatBoost under the `pred_contribs` flag.
+
+### KernelSHAP as weighted least squares
+
+For a black-box $f$ not amenable to TreeSHAP, the Shapley value can be cast as the minimizer of a weighted squared error [@lundberg2017unified]. Parameterize a simplified model $g(z) = \phi_0 + \sum_{j=1}^d \phi_j z_j$ with $z \in \{0, 1\}^d$, where $z_j = 1$ means feature $j$ is present. Define the kernel
+
+$$
+\pi_x(z) = \frac{d - 1}{\binom{d}{|z|} |z| (d - |z|)}.
+$$ {#eq-shapkernel}
+
+Then the weighted least squares problem
+
+$$
+\min_{\phi} \sum_{z \in \{0, 1\}^d} \pi_x(z) \bigl[ f(h_x(z)) - g(z) \bigr]^2
+$$ {#eq-kernelshap}
+
+has a unique solution $\phi = (\phi_0, \phi_1, \dots, \phi_d)$ where $\phi_j$ for $j \geq 1$ is the Shapley value of feature $j$ under the game [@eq-coalition]. The map $h_x : \{0, 1\}^d \to \mathbb{R}^d$ replaces absent features with their marginal expectation.
+
+Proof sketch. Substitute $\pi_x$ into the normal equations. The kernel is chosen so that the normal equations reduce to a linear system whose solution coincides with the Shapley formula. @lundberg2017unified prove this equivalence in their Theorem 2 by showing that any other kernel violates at least one of the Shapley axioms, and the specific $\pi_x$ above is the unique kernel making the least-squares solution additive and efficient.
+
+In practice, KernelSHAP samples coalitions rather than enumerating all $2^d$, fits the weighted regression on the sample, and returns the coefficients. Sample size controls variance. For $d = 25$ one typically uses $M = 2000$ samples; for $d = 100$ this grows to $M \geq 10000$ for stable attributions on a single input.
+
+## LIME: local surrogate models {#sec-ch21-lime}
+
+@ribeiro2016why propose LIME (Local Interpretable Model-agnostic Explanations), which explains a single prediction by fitting an interpretable surrogate model $g \in \mathcal{G}$ (typically a sparse linear model) in the neighborhood of $x$. The surrogate approximates the black box $f$ locally while being small enough to be inspected.
+
+Formally, given an instance $x$ and a neighborhood kernel $\pi_x$, LIME solves
+
+$$
+g^* = \arg\min_{g \in \mathcal{G}} \mathcal{L}(f, g, \pi_x) + \Omega(g),
+$$ {#eq-lime-obj}
+
+where $\mathcal{L}$ measures infidelity between $f$ and $g$ in the neighborhood of $x$ and $\Omega$ penalizes complexity. The standard instantiation takes
+
+$$
+\mathcal{L}(f, g, \pi_x) = \sum_{i=1}^N \pi_x(z_i) \bigl[ f(z_i) - g(z_i) \bigr]^2,
+$$ {#eq-lime-loss}
+
+where $\{z_i\}_{i=1}^N$ are perturbations of $x$ and $\pi_x(z_i) = \exp(-\|z_i - x\|^2 / \sigma^2)$ is an exponential kernel with bandwidth $\sigma$. The minimizer of [@eq-lime-loss] is the familiar weighted least squares
+
+$$
+g^* = (\mathbf{Z}^\top \mathbf{W} \mathbf{Z})^{-1} \mathbf{Z}^\top \mathbf{W} \mathbf{f},
+$$ {#eq-lime-wls}
+
+with $\mathbf{Z}$ the design matrix of perturbations, $\mathbf{W}$ diagonal with entries $\pi_x(z_i)$, and $\mathbf{f}$ the vector of black-box predictions on perturbations. The complexity penalty $\Omega$ is usually an $\ell_1$ norm so that the linear surrogate is sparse, which is solved by Lasso [@tibshirani1996regression].
+
+LIME's output is the coefficient vector of $g^*$ expressed in the interpretable feature space. For tabular data, the interpretable space is typically obtained by binning continuous features into quartiles or into discretized intervals tied to the training distribution. A LIME explanation for a denied applicant looks like "`PAY_0 > 2` pushed the probability up by 0.08; `BILL_AMT1 > 50000` pushed it up by 0.05; `AGE in (40, 50]` pushed it down by 0.02".
+
+The practitioner should be aware of LIME's three weaknesses. First, the neighborhood width $\sigma$ is a free parameter with no canonical choice. Too small and the surrogate overfits noise; too large and the explanation drifts toward a global approximation that can be actively misleading at $x$. Second, the discretization step is part of the explanation and must match what a regulator expects the adverse action notice to reference. Third, LIME is known to be unstable under adversarial feature engineering [@slack2020fooling], meaning that a model builder can craft features that make LIME attribute effect to a benign proxy while the model actually keys on a sensitive attribute.
+
+SHAP and LIME overlap in their linear additive structure but differ in axiomatic justification. SHAP is unique given its axioms; LIME is one of many possible surrogate methods. In practice, most consumer credit teams use SHAP for attribution and LIME as a cross-check: if the top-three features disagree between the two methods, dig into the model before shipping an explanation.
+
+## Anchors: rule-based local explanations {#sec-ch21-anchors}
+
+An attribution assigns a real number to each feature. A rule assigns a binary condition to a subset of features and guarantees that whenever the rule fires, the model's prediction is the same. @ribeiro2018anchors formalize this as an *anchor*: a conjunction of feature predicates $A \subseteq \{x_j \in I_j\}_j$ for which $\Pr(f(X) = f(x) \mid A(X)) \geq 1 - \delta$ for some tolerance $\delta$, under a reference distribution over $X$. The anchor for a denied applicant reads "if `PAY_0 > 1` and `LIMIT_BAL < 80000`, the model predicts default with at least 95% probability on 85% of the neighborhood."
+
+Anchors are complementary to SHAP and LIME in three ways. First, they return a precision guarantee under the reference distribution rather than a coefficient, which is attractive to regulators who prefer conditional statements over continuous scores. Second, they are sparse by design: the algorithm searches for the shortest conjunction that meets the precision target, so the output is directly readable. Third, they are model-agnostic and do not require a differentiable surrogate.
+
+The algorithm is a beam search over feature predicates. At each step it extends the current candidate with one more predicate, estimates precision by sampling perturbations $\tilde{x}$ from a neighborhood that keeps the candidate's features fixed and marginalizes over the rest, and prunes branches whose precision confidence interval falls below the target. The official `anchor-exp` implementation reports precision, coverage (fraction of the reference distribution satisfying the anchor), and a KL-based upper bound via multi-armed bandit theory [@ribeiro2018anchors].
+
+For credit, anchors translate naturally to reason-code sentences. "Your application was denied because your most recent payment was two or more months delinquent and your credit limit is below \$5,000" is an anchor phrased as a regulatory disclosure. Two operational constraints matter. First, the precision guarantee depends on the sampling neighborhood; if the neighborhood includes implausible feature combinations, the guarantee overstates the anchor's reliability. Second, anchors are local: the same applicant may satisfy several anchors, and the choice among them is a disclosure decision that must be documented.
+
+## Accumulated Local Effects (ALE) plots {#sec-ch21-ale}
+
+Partial dependence [@eq-pd] averages the model over the marginal distribution of the remaining features, which means it evaluates the model at combinations of features that may not occur in the data. For correlated features, this extrapolation produces misleading curves. @apley2020visualizing propose ALE plots as a remedy. Instead of averaging the model's output over the marginal of $X_{-j}$, ALE integrates the model's partial derivative (or its finite-difference approximation) with respect to $X_j$ over the *conditional* distribution of $X_{-j}$ given $X_j$.
+
+Formally, for feature $j$,
+
+$$
+\text{ALE}_j(v) = \int_{\min x_j}^{v} \mathbb{E}\!\left[ \frac{\partial f(X)}{\partial X_j} \,\Big|\, X_j = z \right] dz - c,
+$$ {#eq-ale}
+
+where $c$ centers the curve to have mean zero over the empirical distribution. For a non-differentiable model (a tree), the partial derivative is replaced by a finite difference over a binning of $X_j$: in each bin, compute $f(X)$ at the bin's upper edge minus $f(X)$ at the lower edge while holding $X_{-j}$ at its observed values, average over the bin's occupants, and accumulate.
+
+ALE has two properties that make it the right plot for correlated credit features. First, it respects the joint distribution: an impossible combination of features never enters the computation. Second, it centers at zero, so the plot's y-axis has a direct interpretation as the model output relative to the population mean under the feature's own distribution. Compared to PDP, ALE produces tighter curves on correlated features and narrower confidence bands. The price is a discretization parameter (the number of bins), which the practitioner tunes by requiring stable curves across bin counts.
+
+Second-order ALE plots visualize pairwise interactions. For features $j$ and $k$, $\text{ALE}_{jk}(v, w)$ is a two-dimensional surface whose value at $(v, w)$ measures the interaction effect above and beyond the main effects. This is the right diagnostic when SHAP interaction values suggest a pair and the modeler wants a visual confirmation.
+
+The Python `alibi` and `PyALE` packages provide production-grade implementations. For the Taiwan model, a single-feature ALE of `PAY_0` nearly overlays the SHAP dependence plot because `PAY_0` is only weakly correlated with the other payment columns. For `LIMIT_BAL`, which is correlated with several billing columns, the ALE curve is visibly flatter than the PDP, a signal that the PDP was extrapolating into regions of low data density.
+
+## Friedman's H-statistic and interaction detection {#sec-ch21-hstat}
+
+SHAP interaction values give a per-applicant, per-pair decomposition. @friedman2008predictive's H-statistic gives a global, scalar measure of the strength of each pairwise interaction. For features $j$ and $k$, the H-statistic is
+
+$$
+H_{jk}^2 = \frac{\sum_i \bigl[ \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k) - \text{PD}_j(x^{(i)}_j) - \text{PD}_k(x^{(i)}_k) \bigr]^2}{\sum_i \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k)^2},
+$$ {#eq-hstat}
+
+where $\text{PD}_{jk}$ is the two-feature partial dependence and $\text{PD}_j$, $\text{PD}_k$ are the one-feature versions. The numerator is the interaction component (the pairwise PD minus the sum of main-effect PDs) and the denominator normalizes by the total pairwise PD variance. $H_{jk}^2 \in [0, 1]$: zero when $f$ is additive in $j$ and $k$, one when the two features act only through their interaction.
+
+The H-statistic is computed on the same PDP machinery already in the XAI stack. A typical credit workflow ranks pairs by $H^2$, inspects the top three in 2D ALE or 2D PDP, and confirms each with SHAP interaction values. Agreement among all three (H, ALE, SHAP interactions) is strong evidence that a specific interaction is worth a reason-code entry. Disagreement among them is a signal that one of the three is being distorted by correlation structure, and the practitioner must decide which to trust.
+
+The H-statistic has two weaknesses. Its computational cost is $O(n^2 d^2)$ for all pairs, which is expensive for credit models with hundreds of features; subsampling to a few hundred rows is the standard mitigation. Second, it depends on the PDP, so it shares PDP's extrapolation issue on correlated features. In practice the H-statistic is computed on the top-twenty features by mean absolute SHAP, not on the full feature set.
+
+## SAGE: global Shapley-valued feature importance {#sec-ch21-sage}
+
+SHAP gives a local attribution per instance. Averaging $|\phi_j|$ across a sample produces a global measure, but the axioms of local Shapley values do not directly yield a global Shapley value for a feature's importance. @covert2020understanding introduce SAGE (Shapley Additive Global Explanations) as the global analog. SAGE defines a coalition game where $v(S) = -\mathbb{E}[\ell(f(X_S, \bar{X}_{-S}), Y)]$ is the negative of the expected loss of the model that can see only features in $S$ (with absent features replaced by their marginal distribution). The Shapley value of feature $j$ in this loss-based game is its global importance: by efficiency, the SAGE values sum to the total loss reduction of the full model over the null model.
+
+SAGE differs from the mean of $|\phi_j|$ in a substantive way. Mean $|\phi_j|$ measures the feature's contribution to the output; SAGE measures the feature's contribution to the model's accuracy. A feature that contributes heavily to outputs but whose contributions cancel in aggregate (e.g., a feature that pushes predictions up for half the population and down for the other half with equal magnitude) has large mean $|\phi_j|$ but small SAGE. The two rankings disagree when such features are present.
+
+For credit scoring, SAGE is the better choice for the global-importance table in a model card when the target is loss reduction (Brier score, log-likelihood). Mean $|\phi_j|$ is the right quantity when the target is the model's explanatory weight on an individual decision. The `sage-importance` Python package implements a sampling-based SAGE estimator whose complexity is comparable to KernelSHAP but aggregated over a validation set.
+
+SAGE is also the unique answer to the question "by how much does feature $j$ improve the model's predictive accuracy," subject to the four Shapley axioms adapted to loss-based games. @covert2021explaining embed SAGE into a broader family of removal-based explainers that includes permutation importance, LOCO (leave-one-covariate-out), and Shapley sampling. Permutation importance is a special case of SAGE when the loss function is mean squared error and the reference distribution is the marginal; LOCO replaces the conditional expectation with a refitted model. SAGE inherits from this family the axiomatic foundation and the unique attribution, at the cost of sampling expense.
+
+## SHAP variants: Owen, group, asymmetric, interventional {#sec-ch21-shap-variants}
+
+The canonical Shapley value treats features as individual players. Three extensions matter for credit.
+
+### Owen values for hierarchical features
+
+When features are grouped (e.g., all payment-status features, all billing features, all demographic features) and the groups carry domain meaning, Owen values [implemented in `shap.PartitionExplainer`] compute Shapley values on a two-level hierarchy: a group-level Shapley value that distributes credit among groups, and an intra-group Shapley value that distributes the group's share among its members. The group-level value is stable under permutations of same-group features and is the right quantity for reason-code aggregation.
+
+Formally, for a partition $\mathcal{P} = \{P_1, \dots, P_G\}$ of $[d]$ and a feature $j \in P_g$, the Owen value is
+
+$$
+\phi^O_j = \sum_{S \subseteq \mathcal{P} \setminus \{P_g\}} \sum_{T \subseteq P_g \setminus \{j\}} w_S w_T \bigl[ v(S \cup T \cup \{j\}) - v(S \cup T) \bigr],
+$$ {#eq-owen}
+
+with weights $w_S = |S|!(G - |S| - 1)! / G!$ and $w_T = |T|!(|P_g| - |T| - 1)!/|P_g|!$. The computation cost is dominated by the inter-group sum, which is exponential in the number of groups rather than the number of features. For a credit model with fifteen feature groups, Owen values are tractable where full Shapley sampling would be expensive.
+
+Owen values match the reason-code pipeline directly: the group is the reason code. Using Owen values eliminates the ad-hoc step of summing SHAP values within a group and removes the ambiguity when two groups share a feature.
+
+### Group SHAP and the correlated-feature problem
+
+When features within a group are highly correlated (typical for the six Taiwan payment-status columns), canonical Shapley values split credit among them in a way that depends on the sampling order and the reference distribution. The sum over the group is stable, but the individual attributions are not. Group SHAP (a degenerate Owen value where the intra-group sum is reported as a single attribution) avoids the instability by refusing to split credit inside a group.
+
+Operationally, group SHAP is computed by treating a group as a single macro-feature in KernelSHAP's coalition space. Each coalition either includes or excludes the entire group. The resulting Shapley values are on the group level and sum to the model's log-odds margin, as in the per-feature Shapley case. Group SHAP is the default choice when reason codes are the downstream consumer of the attributions.
+
+### Asymmetric Shapley and causal knowledge
+
+@frye2020asymmetric extend Shapley values to incorporate known causal structure. If a causal graph tells us that `PAY_0` precedes `BILL_AMT1` in the data-generating process, then coalitions that include the descendant without the ancestor are implausible. Asymmetric Shapley values restrict the sum in @eq-shapley to coalitions consistent with the causal partial order, giving the ancestor more credit. The result is an attribution that is closer to a causal contribution under the assumed graph.
+
+Asymmetric Shapley is promising in credit because much of the feature set comes with known temporal structure (bureau data precedes application-form data; payment history precedes current balance). The main practical obstacle is that the causal graph must be elicited and defended, and regulators are not yet comfortable accepting asymmetric attributions. The conservative position in 2025 is to compute asymmetric Shapley as a sensitivity check against the symmetric baseline and to document the causal assumption in the model card.
+
+### Interventional versus observational reprise
+
+@eq-coalition can be evaluated either by conditioning (observational, integrate over the conditional distribution) or by intervening (interventional, integrate over the marginal). The distinction is most visible in correlated features: the observational version distributes credit through the correlation structure, while the interventional version isolates the model's direct dependence. @chen2020true and @janzing2020feature argue for the interventional version when the question is "what did the model use" and for the observational version when the question is "what information did the feature carry." Reason codes under ECOA are about what the model used, so the interventional version is the right default. This chapter uses interventional throughout.
+
+## FastSHAP: amortized Shapley estimation {#sec-ch21-fastshap}
+
+KernelSHAP and TreeSHAP both require work at explanation time that scales with model size. For a deployment that scores millions of applicants per day, even the millisecond cost of TreeSHAP becomes a budget item. @jethani2021fastshap propose FastSHAP, which trains a neural network $\phi_\theta(x)$ once to output the Shapley value vector directly. At inference time, one forward pass through $\phi_\theta$ replaces the combinatorial estimation.
+
+The training loss is the weighted least squares of KernelSHAP averaged over the data distribution:
+
+$$
+\mathcal{L}(\theta) = \mathbb{E}_x \mathbb{E}_{z \sim p_{\text{Shap}}} \pi_x(z) \bigl[ f(h_x(z)) - \phi_\theta(x)^\top z - \phi_0(x) \bigr]^2,
+$$ {#eq-fastshap}
+
+subject to the efficiency constraint $\sum_j \phi_{\theta,j}(x) = f(x) - \mathbb{E}[f(X)]$. @jethani2021fastshap show that the optimal $\phi_\theta^*$ approaches the Shapley value pointwise and that the trained explainer agrees with KernelSHAP up to the expressive capacity of $\phi_\theta$.
+
+FastSHAP is useful when three conditions hold: a real-time latency budget of single-digit milliseconds, a stable model (so the explainer network can be trained once and reused), and a stable feature pipeline. All three hold for a production credit model in steady state. The explainer network must be retrained whenever the model or the feature pipeline changes, and the additional training cost is a trade-off against the inference-time savings. For a boosted-tree credit model already using TreeSHAP in milliseconds, FastSHAP is rarely worth the complexity. For a neural-network credit model where KernelSHAP would take seconds per applicant, FastSHAP is frequently the only tractable route.
+
+## Layer-wise Relevance Propagation {#sec-ch21-lrp}
+
+@bach2015pixel propose Layer-wise Relevance Propagation (LRP) for neural networks. LRP propagates the model's output backward through the layers using a modified chain rule: at each layer, the output relevance is distributed among the inputs in proportion to their signed contribution. The result is a per-input attribution that sums to the output by construction.
+
+For a fully-connected layer with pre-activation $z_j = \sum_i w_{ij} a_i + b_j$ and relevance $R_j$ coming from above, the relevance assigned to $a_i$ is
+
+$$
+R_i = \sum_j \frac{a_i w_{ij}}{z_j + \epsilon \cdot \text{sign}(z_j)} R_j,
+$$ {#eq-lrp}
+
+where $\epsilon$ is a small stabilizer. For a ReLU network, this is the $\text{LRP}_0$ rule; extensions include $\text{LRP}_\epsilon$, $\text{LRP}_{\alpha\beta}$ (which separates positive and negative contributions), and $\text{LRP-CMP}$ (composite rules tailored to CNN architectures). @lundberg2017unified show that DeepLIFT and LRP are approximations of SHAP under specific reference choices.
+
+LRP's practical niche in credit is neural-network explainability for models where TreeSHAP does not apply. In the consumer lending stack, pure neural network scoring is rare, but hybrid architectures (a deep feature extractor feeding a classifier head) appear in document-based underwriting and in computer-vision based collateral assessment. For these, LRP and the related integrated gradients method are supported by the `zennit`, `captum`, and `shap` libraries. The reason-code interpretation of LRP attributions is the same as for SHAP: the top adverse contributions are the principal reasons.
+
+## Concept Activation Vectors (TCAV) {#sec-ch21-tcav}
+
+Feature attribution answers "which features mattered." @kim2018interpretability propose TCAV (Testing with Concept Activation Vectors) to answer "which concepts mattered." A concept is a human-labeled set of examples (e.g., "applicants with seasonal employment") and its concept activation vector (CAV) is the direction in the model's internal representation that separates concept examples from random examples. TCAV scores measure the sensitivity of the model's prediction to movement along a CAV, interpreted as the concept's influence on the prediction.
+
+Formally, for a concept $c$ with positive examples $X_c$ and negative examples $X_{-c}$, train a linear classifier in the model's hidden layer to separate the two, extract the normal vector $v_c$ (the CAV), and compute the directional derivative $\nabla_{v_c} f(x) = \nabla f(x) \cdot v_c$. The TCAV score for concept $c$ on class $k$ is the fraction of a reference set of class-$k$ examples for which $\nabla_{v_c} f(x) > 0$. Statistical significance is assessed by comparing against random CAVs.
+
+TCAV is native to deep models because it requires intermediate activations. Its credit-scoring relevance is concentrated in two areas: document-based underwriting, where concepts like "handwritten signature" or "irregular income document" can be tested, and alternative-data scoring, where mobile-app-usage concepts ("social-media-active applicant") are sometimes hypothesized but rarely measured. The broader lesson from TCAV is that concept-level explanations are more auditable than pixel-level or feature-level explanations when the user has domain concepts in mind. A credit compliance team is often more interested in "did the model use a thin-file signal" than in "what weight did feature 37 carry."
+
+## A worked example: Anchors, ALE, H-statistic on Taiwan
+
+This block builds on the XGBoost Taiwan model from the implementation section below. It computes a single anchor for one denied applicant, a 1D ALE curve for `PAY_0`, and the H-statistic for the top five feature pairs. The goal is to produce one numeric output per method so the reader can reproduce the ranking.
+
+```{python}
+import sys
+sys.path.insert(0, "../code")
+import numpy as np, pandas as pd
+from csutils import load_taiwan_default, train_valid_test_split
+import xgboost as xgb
+from sklearn.metrics import roc_auc_score
+
+np.random.seed(0)
+df = load_taiwan_default().drop(columns=["id"]).copy()
+feat = [c for c in df.columns if c != "default"]
+tr, va, te = train_valid_test_split(df, y_col="default", valid_size=0.1, test_size=0.2, seed=0)
+Xtr, ytr = tr[feat], tr["default"]; Xva, yva = va[feat], va["default"]; Xte, yte = te[feat], te["default"]
+mod = xgb.XGBClassifier(
+    n_estimators=200, max_depth=4, learning_rate=0.08,
+    subsample=0.9, colsample_bytree=0.9, reg_lambda=1.0,
+    tree_method="hist", n_jobs=1, random_state=0,
+    eval_metric="auc", early_stopping_rounds=20,
+)
+mod.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
+print(f"AUC={roc_auc_score(yte, mod.predict_proba(Xte)[:,1]):.4f}")
+
+def predict_class(X):
+    return (mod.predict_proba(X)[:, 1] >= 0.5).astype(int)
+```
+
+### A lightweight anchor search
+
+The official `anchor-exp` beam search is expensive. A lightweight approximation searches single-feature and pairwise predicates of the form "$x_j \in I_j$" for a denied applicant, retains those whose precision on a perturbation neighborhood exceeds a target, and reports the most covering conjunction. This is an educational implementation; production anchor deployments should use the official package.
+
+```{python}
+def anchor_search(x_row, X_bg, predict_fn, target_class, target_precision=0.9, n_samples=500):
+    candidates = []
+    feat_names = list(X_bg.columns)
+    for j in feat_names:
+        v = x_row[j]
+        q25, q75 = X_bg[j].quantile([0.25, 0.75])
+        if v >= q75:
+            cond_name, cond = f"{j}>={q75:.2f}", lambda X, j=j, q75=q75: X[j] >= q75
+        elif v <= q25:
+            cond_name, cond = f"{j}<={q25:.2f}", lambda X, j=j, q25=q25: X[j] <= q25
+        else:
+            cond_name, cond = f"{q25:.2f}<{j}<{q75:.2f}", lambda X, j=j, q25=q25, q75=q75: (X[j] > q25) & (X[j] < q75)
+        mask = cond(X_bg).values
+        if mask.sum() < 30:
+            continue
+        Xsub = X_bg.loc[mask].sample(min(n_samples, mask.sum()), random_state=0)
+        p = (predict_fn(Xsub) == target_class).mean()
+        candidates.append((cond_name, float(p), float(mask.mean())))
+    candidates.sort(key=lambda t: (-t[1], -t[2]))
+    return [c for c in candidates if c[1] >= target_precision][:5]
+
+pred_te = predict_class(Xte)
+denied = np.where(pred_te == 1)[0]
+x_focus = Xte.iloc[int(denied[0])]
+anchors = anchor_search(x_focus, Xtr, predict_class, target_class=1, target_precision=0.85)
+print(f"Denied applicant idx={int(denied[0])}, top single-predicate anchors (precision>=0.85):")
+for name, prec, cov in anchors:
+    print(f"  {name:40s}  precision={prec:.3f} coverage={cov:.3f}")
+```
+
+The output is a list of single-feature predicates whose precision exceeds 0.85 on the training distribution. A full anchor algorithm combines these into conjunctions using beam search; the approximation above is sufficient to show the shape of the result.
+
+### ALE curve for PAY_0
+
+A finite-difference ALE implementation bins the training distribution on `PAY_0`, computes the mean prediction difference between the right and left edges of each bin, and accumulates.
+
+```{python}
+def ale_curve(X, feat, model, n_bins=20):
+    v = X[feat].values
+    edges = np.quantile(v, np.linspace(0, 1, n_bins + 1))
+    edges = np.unique(edges)  # collapse duplicates
+    if len(edges) < 3:
+        return edges, np.zeros(len(edges) - 1)
+    bin_diffs = np.zeros(len(edges) - 1)
+    for i in range(len(edges) - 1):
+        mask = (v >= edges[i]) & (v <= edges[i + 1])
+        if mask.sum() < 2:
+            continue
+        Xsub = X.loc[mask].copy()
+        X_lo = Xsub.copy(); X_lo[feat] = edges[i]
+        X_hi = Xsub.copy(); X_hi[feat] = edges[i + 1]
+        d_lo = xgb.DMatrix(X_lo.values, feature_names=list(X.columns))
+        d_hi = xgb.DMatrix(X_hi.values, feature_names=list(X.columns))
+        f_lo = model.get_booster().predict(d_lo, output_margin=True)
+        f_hi = model.get_booster().predict(d_hi, output_margin=True)
+        bin_diffs[i] = float((f_hi - f_lo).mean())
+    ale = np.cumsum(bin_diffs)
+    ale -= ale.mean()
+    midpoints = 0.5 * (edges[:-1] + edges[1:])
+    return midpoints, ale
+
+mids, ale = ale_curve(Xtr.sample(800, random_state=0), "PAY_0", mod)
+print("PAY_0 ALE (log-odds, centered):")
+for v, a in zip(mids, ale):
+    print(f"  PAY_0={v:+.2f}  ALE={a:+.3f}")
+```
+
+The ALE curve climbs monotonically with `PAY_0`, matching intuition: the worse the most recent payment status, the higher the model's log-odds of default. The centering at zero means the average ALE over the training distribution is zero; the curve's values are the model's log-odds deviation from the population mean at that `PAY_0` value, conditional on the observed joint distribution of the other features.
+
+### H-statistic for top pairs
+
+The H-statistic is computed by evaluating the model on a grid of feature pairs and comparing the 2D PDP to the sum of 1D PDPs. The implementation below runs on the top four features by mean absolute SHAP to keep the cost manageable.
+
+```{python}
+X_sample = Xtr.sample(400, random_state=0).reset_index(drop=True)
+
+def pdp_1d(feat_j, grid_j, X):
+    out = np.zeros(len(grid_j))
+    Xcur = X.copy()
+    for i, v in enumerate(grid_j):
+        Xcur[feat_j] = v
+        d_ = xgb.DMatrix(Xcur.values, feature_names=list(X.columns))
+        out[i] = mod.get_booster().predict(d_, output_margin=True).mean()
+    return out
+
+def pdp_2d(feat_j, feat_k, grid_j, grid_k, X):
+    out = np.zeros((len(grid_j), len(grid_k)))
+    Xcur = X.copy()
+    for i, vj in enumerate(grid_j):
+        for l, vk in enumerate(grid_k):
+            Xcur[feat_j] = vj; Xcur[feat_k] = vk
+            d_ = xgb.DMatrix(Xcur.values, feature_names=list(X.columns))
+            out[i, l] = mod.get_booster().predict(d_, output_margin=True).mean()
+    return out
+
+def h_statistic(feat_j, feat_k, X, n_grid=8):
+    gj = np.quantile(X[feat_j].values, np.linspace(0.05, 0.95, n_grid))
+    gk = np.quantile(X[feat_k].values, np.linspace(0.05, 0.95, n_grid))
+    pdp_j  = pdp_1d(feat_j, gj, X)
+    pdp_k  = pdp_1d(feat_k, gk, X)
+    pdp_jk = pdp_2d(feat_j, feat_k, gj, gk, X)
+    pdp_jk -= pdp_jk.mean()
+    pdp_j  -= pdp_j.mean()
+    pdp_k  -= pdp_k.mean()
+    num = 0.0; den = 0.0
+    for i in range(n_grid):
+        for l in range(n_grid):
+            num += (pdp_jk[i, l] - pdp_j[i] - pdp_k[l]) ** 2
+            den += pdp_jk[i, l] ** 2
+    return float(num / max(den, 1e-12))
+
+top_feats = ["PAY_0", "PAY_2", "LIMIT_BAL", "BILL_AMT1"]
+pairs = [(a, b) for i, a in enumerate(top_feats) for b in top_feats[i+1:]]
+for j, k in pairs:
+    h = h_statistic(j, k, X_sample, n_grid=6)
+    print(f"H^2({j:10s}, {k:10s}) = {h:.3f}")
+```
+
+A value near zero indicates an additive pair (no interaction on top of main effects), a value near one indicates a pair whose effect is almost entirely interactive. On Taiwan, the strongest pairwise interactions tend to involve `PAY_0` with credit-limit or billing features, consistent with the SHAP interaction diagnostics reported earlier.
+
+## Counterfactual explanations {#sec-ch21-counterfactual}
+
+An attribution tells a borrower what weighed against them. A counterfactual tells them what to do about it. @wachter2018counterfactual formalize the idea: a counterfactual explanation for a decision $f(x) = 1$ (denied) is a nearby point $x^\prime$ with $f(x^\prime) = 0$ (approved) such that $x^\prime$ differs from $x$ minimally. Formally,
+
+$$
+x^* = \arg\min_{x^\prime} \lambda \bigl[ f(x^\prime) - y^\prime \bigr]^2 + d(x, x^\prime),
+$$ {#eq-wachter}
+
+where $y^\prime$ is the target output (here 0 for approval), $d$ is a distance in feature space, and $\lambda$ trades off fidelity against proximity. The interpretation is: "If your utilization were 30% instead of 85% and your most recent payment delay were zero instead of two months, you would have been approved."
+
+### Actionable versus feasible
+
+A counterfactual is not automatically useful. Three qualities are needed, following @ustun2019actionable and @karimi2022survey.
+
+**Proximity**: $x^*$ should be close to $x$ under a distance that reflects the applicant's ability to change features. Distances in raw feature space are usually wrong: a one-unit change in utilization is not comparable to a one-year change in age.
+
+**Actionability**: some features are immutable (age, ethnicity, citizenship) and must not appear in the counterfactual's change set. Others are partially actionable: income can change over time but not overnight.
+
+**Feasibility**: the counterfactual should lie within the support of plausible applicants. A counterfactual with `utilization = 0%` and `credit history = 0` is closer to the data than one with `age = 12` but still implausible for an established borrower.
+
+**Diversity** is a fourth criterion introduced by @mothilal2020explaining. A denied applicant benefits from seeing multiple paths to approval, not one.
+
+### The DiCE objective
+
+@mothilal2020explaining's DiCE (Diverse Counterfactual Explanations) extends the Wachter objective to produce a set of $k$ diverse, actionable counterfactuals. Given an input $x$ with $f(x) = 1$, DiCE solves
+
+$$
+\min_{x_1, \dots, x_k} \frac{1}{k} \sum_{i=1}^k \bigl[ f(x_i) - y^\prime \bigr]^2 + \lambda_1 \cdot \frac{1}{k} \sum_{i=1}^k d(x, x_i) - \lambda_2 \cdot \text{dpp\_diversity}(x_1, \dots, x_k),
+$$ {#eq-dice}
+
+where the first term enforces the target class, the second enforces proximity, and the third rewards mutual diversity measured by a determinantal point process (DPP) kernel over pairwise distances. @mothilal2020explaining show that this objective yields counterfactuals that are faithful, proximal, and diverse, and they provide the `dice-ml` package that implements both random, genetic, and gradient-based search.
+
+DPP diversity for a set of points $\{x_1, \dots, x_k\}$ is $\det(K)$ where $K_{ij} = 1 / (1 + d(x_i, x_j))$. A higher determinant corresponds to a more spread-out set. This penalty is differentiable in the input coordinates when the classifier is, and DiCE's gradient-based method exploits this for continuous features. For tree-based classifiers (including XGBoost) DiCE uses random or genetic search because gradients through discrete splits are not defined.
+
+The practical caveat is that DiCE's counterfactuals live in the feature space of the model. If the model consumes engineered features (ratios, binned WoE values, interactions), the counterfactual must be translated back to raw inputs before it can be shown to the applicant. This translation is a productization step that is easy to get wrong.
+
+## GDPR Article 22 and adverse action notices {#sec-ch21-adverse}
+
+Three distinct legal regimes force explanation in consumer credit. The US Equal Credit Opportunity Act via Regulation B, the Fair Credit Reporting Act (FCRA), and the EU General Data Protection Regulation via Article 22. This section summarizes the binding requirements and maps SHAP output to compliant artifacts.
+
+### ECOA and Regulation B
+
+ECOA makes it unlawful to discriminate in a credit transaction on the basis of race, color, religion, national origin, sex, marital status, age, receipt of public assistance, or the exercise of rights under the Consumer Credit Protection Act. Regulation B (12 CFR 1002) implements ECOA and, among other things, requires that a creditor who takes adverse action provide a written notice stating the specific, principal reasons. "Adverse action" includes denial, reduction of credit amount, worsening of terms, and termination. The notice must be delivered within thirty days.
+
+The Consumer Financial Protection Bureau's Circular 2022-03 [@cfpb2022circular] clarifies that the specificity requirement applies fully to decisions made using complex algorithms. A creditor who uses a neural network, a gradient-boosted tree, or any other model whose internal representation is not itself interpretable must still produce principal reasons that are specific enough for the applicant to understand. Generic phrases like "insufficient creditworthiness" do not satisfy the rule. The Bureau lists illustrative acceptable reasons: length of employment, inadequate collateral, delinquent past credit obligations.
+
+In practice, most US creditors maintain a fixed list of ECOA reason codes (forty to eighty codes, depending on the institution) derived from @sec-app-C-data of Regulation B and from industry convention. Each code maps to a specific feature or bundle of features in the model. The adverse action notice is generated by taking the top-$k$ features that pushed the applicant's score toward denial, mapping each to its reason code, and issuing the notice. The mapping from SHAP attributions to reason codes is the technical core of the compliance pipeline.
+
+### FCRA
+
+When a creditor uses information from a consumer reporting agency and takes adverse action, FCRA requires a separate notice identifying the agency, informing the consumer of their right to obtain a free report, and stating that the agency did not make the decision. This notice is often combined with the ECOA notice but has a distinct legal basis.
+
+### GDPR Article 22
+
+Article 22(1) states that the data subject has the right not to be subject to a decision based solely on automated processing which produces legal effects or similarly significantly affects them. Article 22(2) provides exceptions including contractual necessity (e.g., loan applications) and explicit consent. Where the exceptions apply, Article 22(3) requires suitable safeguards including the right to obtain human intervention, to express their point of view, and to contest the decision. Articles 13 and 14 require that the data subject be informed, at collection time, of the existence of automated decision-making including profiling and, at least in those cases, meaningful information about the logic involved.
+
+Whether GDPR creates a "right to explanation" in the strong sense has been debated: @wachter2017why argue it does not, while @goodman2017european argue it does. The settled legal position in most member states is that meaningful information about the logic must be delivered and that counterfactual explanations satisfy this requirement without the creditor having to disclose model parameters. The EU AI Act (Regulation 2024/1689), adopted in 2024, classifies consumer creditworthiness scoring as high-risk and imposes additional documentation, transparency, and human-oversight requirements on providers and deployers.
+
+### Mapping SHAP to reason codes
+
+The operational bridge from an XGBoost model to an ECOA notice has five steps.
+
+First, compute SHAP values for the denied application on the model's log-odds margin. Use the margin rather than the probability because log-odds contributions add up by construction; probability space requires nonlinear combination.
+
+Second, aggregate SHAP values by reason-code feature groups. If the model uses `PAY_0`, `PAY_2`, `PAY_3` all encoding recent payment history, the reason code "recent payment delinquency" aggregates the three. The aggregation is a sum of signed SHAP values.
+
+Third, select the top-$k$ groups whose aggregated SHAP values pushed the log-odds upward (toward default). Typically $k = 3$ or $k = 4$. The sign convention is critical: positive contributions to default are the adverse reasons; negative contributions are protective and are not disclosed.
+
+Fourth, map each group to its human-readable ECOA reason phrase. This mapping lives in a code table maintained by the compliance team and must be stable across releases. Version-control the table.
+
+Fifth, render the adverse action notice using the model's output, the mapped phrases, and any portfolio-specific language required by counsel. Store the SHAP values and the reason codes alongside the decision for audit.
+
+This pipeline is implemented in the code section below.
+
+## Model cards
+
+@mitchell2019model introduce model cards as short documents that accompany trained machine learning models and disclose their intended use, performance metrics, training data, evaluation data, ethical considerations, and caveats. Model cards are now an industry norm and are required by the EU AI Act for high-risk systems.
+
+A credit-scoring model card answers at least the following questions.
+
+1. **Model details**: name, version, owner, date, license, model type (e.g., XGBoost binary classifier).
+2. **Intended use**: primary use cases (e.g., unsecured credit card origination decision), out-of-scope uses (e.g., auto loan underwriting, small business lending).
+3. **Factors**: relevant demographic groups for disaggregated evaluation (e.g., age bands, gender, self-reported race in jurisdictions where permitted).
+4. **Metrics**: AUC, KS, Brier score, calibration slope, approval rate by group, default rate by group, with confidence intervals.
+5. **Evaluation data**: dataset description, size, time window, sampling.
+6. **Training data**: dataset description, size, time window, sampling, known biases, and disparate impact audits.
+7. **Quantitative analyses**: unitary performance and intersectional performance across factors.
+8. **Ethical considerations**: known risks (e.g., proxy for protected attribute, feedback loops), mitigations, human oversight.
+9. **Caveats and recommendations**: conditions under which the model's performance degrades, out-of-distribution warning signs.
+
+The model card is generated from the training pipeline, signed off by model risk management, and versioned with the model artifact. It is the first thing a regulator asks for and the last thing many data science teams prepare. The code section below generates a JSON model card from the trained XGBoost model on the Taiwan dataset.
+
+## Implementation: SHAP, LIME, DiCE on Taiwan
+
+This section trains one XGBoost model on the Taiwan default dataset [@yeh2009comparisons] and computes SHAP attributions, LIME surrogates, and DiCE counterfactuals. All blocks use fixed seeds. Run time on a laptop is under 90 seconds.
+
+```{python}
+import json
+import os
+import sys
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+sys.path.insert(0, "../code")
+from csutils import load_taiwan_default, train_valid_test_split, ks_statistic
+
+warnings.filterwarnings("ignore")
+np.random.seed(0)
+```
+
+```{python}
+import xgboost as xgb
+from sklearn.metrics import roc_auc_score, brier_score_loss
+
+df = load_taiwan_default().drop(columns=["id"]).copy()
+feature_names = [c for c in df.columns if c != "default"]
+
+tr, va, te = train_valid_test_split(df, y_col="default",
+                                    valid_size=0.1, test_size=0.2, seed=0)
+Xtr, ytr = tr[feature_names], tr["default"]
+Xva, yva = va[feature_names], va["default"]
+Xte, yte = te[feature_names], te["default"]
+
+model = xgb.XGBClassifier(
+    n_estimators=300,
+    max_depth=4,
+    learning_rate=0.08,
+    subsample=0.9,
+    colsample_bytree=0.9,
+    reg_lambda=1.0,
+    tree_method="hist",
+    n_jobs=2,
+    random_state=0,
+    eval_metric="auc",
+    early_stopping_rounds=20,
+)
+model.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
+p_te = model.predict_proba(Xte)[:, 1]
+print(f"Test AUC : {roc_auc_score(yte, p_te):.4f}")
+print(f"Test KS  : {ks_statistic(yte, p_te):.4f}")
+print(f"Brier    : {brier_score_loss(yte, p_te):.4f}")
+```
+
+The test AUC sits in the expected 0.77 to 0.79 range for Taiwan, which is the baseline all XAI tools will operate on.
+
+### TreeSHAP via the XGBoost native API
+
+`xgboost.Booster.predict(..., pred_contribs=True)` runs TreeSHAP exactly and returns a matrix of shape $(n, d+1)$ where the last column is the bias (the model's expected log-odds output). The sum of each row equals the model's log-odds margin for that row. We wrap the output into a `shap.Explanation` object for the standard `shap` plotting API.
+
+```{python}
+import shap
+
+booster = model.get_booster()
+n_expl = 1000
+Xte_expl = Xte.iloc[:n_expl]
+
+dmat = xgb.DMatrix(Xte_expl.values, feature_names=feature_names)
+contribs = booster.predict(dmat, pred_contribs=True)
+shap_values = contribs[:, :-1]
+base_value = float(contribs[0, -1])
+margin = booster.predict(dmat, output_margin=True)
+assert np.allclose(shap_values.sum(axis=1) + base_value, margin, atol=1e-4)
+
+expl = shap.Explanation(
+    values=shap_values,
+    base_values=np.full(shap_values.shape[0], base_value),
+    data=Xte_expl.values,
+    feature_names=feature_names,
+)
+print("SHAP values shape:", expl.values.shape)
+print("Base value (log-odds):", round(base_value, 4))
+```
+
+The assertion confirms that TreeSHAP is additive: attributions plus base value equals the model's log-odds output.
+
+### Global bar plot
+
+The global bar plot ranks features by mean absolute SHAP value. This is the population-level summary a modeller uses when explaining the model to a risk-management audience.
+
+```{python}
+fig, ax = plt.subplots(figsize=(7, 5))
+shap.plots.bar(expl, max_display=12, show=False)
+plt.tight_layout()
+plt.savefig("/tmp/xai_shap_bar.png", dpi=120)
+plt.close()
+
+mean_abs = pd.Series(np.abs(expl.values).mean(axis=0), index=feature_names)
+print("Top 8 features by mean |SHAP|:")
+print(mean_abs.sort_values(ascending=False).head(8).round(4))
+```
+
+`PAY_0` (most recent payment status) is almost always the dominant feature in Taiwan, followed by the next most recent payment status `PAY_2` and the credit limit `LIMIT_BAL`. This ordering is stable across seeds, a good sign.
+
+### SHAP dependence plot
+
+The dependence plot for a feature shows its SHAP value on the y-axis against its raw value on the x-axis. A rising curve means larger values of the feature push the prediction toward default. Coloring by a second feature reveals interactions.
+
+```{python}
+fig, ax = plt.subplots(figsize=(7, 5))
+shap.plots.scatter(expl[:, "PAY_0"], color=expl[:, "LIMIT_BAL"], show=False)
+plt.tight_layout()
+plt.savefig("/tmp/xai_shap_dep.png", dpi=120)
+plt.close()
+
+pay0_sv = expl[:, "PAY_0"].values
+pay0_val = Xte_expl["PAY_0"].values
+grp = pd.DataFrame({"PAY_0": pay0_val, "shap": pay0_sv})
+print("Mean SHAP by PAY_0 value:")
+print(grp.groupby("PAY_0")["shap"].mean().round(3))
+```
+
+The expected pattern: negative `PAY_0` values (paid on time) give negative SHAP (protective), while positive `PAY_0` values (delays of one month or more) give positive SHAP (adverse). The color overlay of `LIMIT_BAL` exposes the interaction: applicants with smaller credit limits have a more adverse reaction to a late payment than applicants with larger limits, which reflects underwriter selection.
+
+### Individual force plot
+
+For a single denied applicant, the waterfall plot visualizes how each feature moves the model's output from the base value to the applicant's prediction.
+
+```{python}
+pred_class = (p_te >= 0.5).astype(int)
+denied_idx = np.where(pred_class[:n_expl] == 1)[0]
+focus_idx = int(denied_idx[0])
+
+fig, ax = plt.subplots(figsize=(7, 5))
+shap.plots.waterfall(expl[focus_idx], max_display=10, show=False)
+plt.tight_layout()
+plt.savefig("/tmp/xai_shap_waterfall.png", dpi=120)
+plt.close()
+
+print(f"Focus applicant index: {focus_idx}")
+print(f"Predicted probability: {p_te[focus_idx]:.3f}")
+print(f"Log-odds margin     : {margin[focus_idx]:.3f}")
+print(f"Base value (log-odds): {base_value:.3f}")
+top = (pd.Series(expl.values[focus_idx], index=feature_names)
+         .abs().sort_values(ascending=False).head(5).index)
+print("Top 5 |SHAP| features:")
+print(pd.Series(expl.values[focus_idx], index=feature_names).loc[top].round(3))
+```
+
+### LIME on a random applicant
+
+LIME fits a local linear surrogate using a discretized representation of the training distribution. The `lime.lime_tabular.LimeTabularExplainer` handles discretization and sampling internally. We call `explain_instance` with the model's `predict_proba` and report the top contributing discretized features.
+
+```{python}
+import lime
+import lime.lime_tabular
+
+lime_expl = lime.lime_tabular.LimeTabularExplainer(
+    training_data=Xtr.values,
+    feature_names=feature_names,
+    class_names=["non_default", "default"],
+    discretize_continuous=True,
+    discretizer="quartile",
+    random_state=0,
+)
+
+rng = np.random.default_rng(0)
+lime_idx = int(rng.integers(0, len(Xte_expl)))
+exp = lime_expl.explain_instance(
+    data_row=Xte_expl.iloc[lime_idx].values,
+    predict_fn=model.predict_proba,
+    num_features=6,
+    num_samples=2000,
+)
+print(f"LIME applicant index: {lime_idx}")
+print(f"Model probability of default: {p_te[lime_idx]:.3f}")
+print("LIME local explanation (feature rule, weight on default):")
+for feat, w in exp.as_list():
+    print(f"  {feat:45s}  {w:+.4f}")
+print(f"Local fit R^2: {exp.score:.3f}")
+```
+
+A positive weight means the rule pushes the predicted probability of default up, a negative weight means it pushes it down. The local $R^2$ quantifies how well the linear surrogate fits the black box in the neighborhood; values above 0.5 are acceptable for reason-code use, values below 0.3 are a warning that the black box is highly nonlinear near this input.
+
+### DiCE counterfactuals for a denied applicant
+
+We generate three diverse counterfactuals for one denied applicant using `dice-ml`. The method is `random`, which samples perturbations and filters by predicted class. We restrict the feature set that DiCE is allowed to modify, excluding demographic variables (`SEX`, `EDUCATION`, `MARRIAGE`, `AGE`) that are either legally immutable, legally protected, or outside the applicant's short-term control.
+
+```{python}
+import dice_ml
+
+mutable_features = [
+    "LIMIT_BAL",
+    "PAY_0", "PAY_2", "PAY_3", "PAY_4", "PAY_5", "PAY_6",
+    "BILL_AMT1", "BILL_AMT2", "BILL_AMT3",
+    "BILL_AMT4", "BILL_AMT5", "BILL_AMT6",
+    "PAY_AMT1", "PAY_AMT2", "PAY_AMT3",
+    "PAY_AMT4", "PAY_AMT5", "PAY_AMT6",
+]
+
+d_data = dice_ml.Data(
+    dataframe=tr,
+    continuous_features=feature_names,
+    outcome_name="default",
+)
+d_model = dice_ml.Model(model=model, backend="sklearn")
+dice = dice_ml.Dice(d_data, d_model, method="random")
+
+cf = dice.generate_counterfactuals(
+    Xte_expl.iloc[[focus_idx]],
+    total_CFs=3,
+    desired_class=0,
+    features_to_vary=mutable_features,
+    random_seed=0,
+)
+cf_df = cf.cf_examples_list[0].final_cfs_df.reset_index(drop=True)
+orig = Xte_expl.iloc[[focus_idx]].reset_index(drop=True)
+print("Original denied applicant (selected fields):")
+print(orig[["LIMIT_BAL", "PAY_0", "PAY_2", "PAY_AMT1", "BILL_AMT1"]])
+print("\nDiCE counterfactuals that flip the prediction to non_default:")
+print(cf_df[["LIMIT_BAL", "PAY_0", "PAY_2", "PAY_AMT1", "BILL_AMT1", "default"]])
+```
+
+The counterfactual narrative is that the applicant would have been approved if the most recent payment status changed from a delay to on-time or if the payment amounts on the most recent bill were larger. The narrative is then validated: rerun `predict_proba` on the counterfactual and confirm that the probability drops below the decision threshold. DiCE does this internally and reports success or failure per counterfactual.
+
+### ECOA-compliant adverse action notices
+
+We build the reason-code pipeline and produce notices for three denied applicants. The implementation aggregates SHAP values by reason-code groups, selects the top-three adverse contributions (positive SHAP toward default), maps to a fixed human-readable code table, and renders a notice string.
+
+```{python}
+reason_code_table = {
+    "R001": {
+        "phrase": "Recent payment delinquency",
+        "features": ["PAY_0", "PAY_2"],
+    },
+    "R002": {
+        "phrase": "Pattern of late payments",
+        "features": ["PAY_3", "PAY_4", "PAY_5", "PAY_6"],
+    },
+    "R003": {
+        "phrase": "Insufficient credit limit",
+        "features": ["LIMIT_BAL"],
+    },
+    "R004": {
+        "phrase": "High outstanding balance",
+        "features": ["BILL_AMT1", "BILL_AMT2", "BILL_AMT3",
+                     "BILL_AMT4", "BILL_AMT5", "BILL_AMT6"],
+    },
+    "R005": {
+        "phrase": "Insufficient payments on recent statements",
+        "features": ["PAY_AMT1", "PAY_AMT2", "PAY_AMT3",
+                     "PAY_AMT4", "PAY_AMT5", "PAY_AMT6"],
+    },
+    "R006": {
+        "phrase": "Applicant age or tenure profile",
+        "features": ["AGE"],
+    },
+    "R007": {
+        "phrase": "Household composition on file",
+        "features": ["MARRIAGE", "SEX", "EDUCATION"],
+    },
+}
+
+def aggregate_shap_to_codes(shap_row, feature_names, code_table):
+    s = pd.Series(shap_row, index=feature_names)
+    out = {}
+    for code, spec in code_table.items():
+        members = [f for f in spec["features"] if f in feature_names]
+        if not members:
+            continue
+        out[code] = {"phrase": spec["phrase"], "shap": float(s[members].sum())}
+    return out
+
+def reason_codes_for(shap_row, feature_names, code_table, top_k=3):
+    agg = aggregate_shap_to_codes(shap_row, feature_names, code_table)
+    adverse = {k: v for k, v in agg.items() if v["shap"] > 0}
+    ranked = sorted(adverse.items(), key=lambda kv: -kv[1]["shap"])
+    return ranked[:top_k]
+
+def render_adverse_action(applicant_id, prob, top_codes):
+    lines = []
+    lines.append("NOTICE OF ADVERSE ACTION")
+    lines.append(f"Applicant ID: {applicant_id}")
+    lines.append("Decision: Credit application denied.")
+    lines.append("")
+    lines.append(
+        "The principal reasons for this decision, derived from our "
+        "automated credit-scoring model, are listed below in order of "
+        "importance:")
+    for i, (code, info) in enumerate(top_codes, start=1):
+        lines.append(f"  {i}. [{code}] {info['phrase']}")
+    lines.append("")
+    lines.append("You have the right to a free copy of your credit report "
+                 "from the consumer reporting agency identified in the "
+                 "accompanying FCRA notice if information from that agency "
+                 "was used in this decision. You have the right to request "
+                 "the specific reasons in writing within 60 days.")
+    lines.append(f"Model output probability of default: {prob:.3f}")
+    return "\n".join(lines)
+
+denied_idx_arr = denied_idx[:3]
+for i, idx in enumerate(denied_idx_arr):
+    idx = int(idx)
+    row = expl.values[idx]
+    codes = reason_codes_for(row, feature_names, reason_code_table, top_k=3)
+    note = render_adverse_action(f"APP-{idx:05d}", p_te[idx], codes)
+    print(note)
+    print("-" * 60)
+```
+
+Each notice names three principal reasons, each mapped to a code in the compliance table. The aggregation by group rather than by raw feature is deliberate: `PAY_0` and `PAY_2` both encode recent payment status, and disclosing them as two separate reasons would confuse an applicant.
+
+The SHAP threshold for "adverse" is strictly positive contribution on log-odds. In practice compliance teams apply a minimum-magnitude cut to avoid reporting attributions whose absolute value is within sampling noise; typical cuts are on the order of 0.01 on log-odds, which translates to a probability delta of about 0.002 at the decision threshold.
+
+### Model card as JSON
+
+Finally, we generate a JSON model card following the @mitchell2019model template. The card is produced by the training pipeline and signed off by the model owner and the model risk manager.
+
+```{python}
+from datetime import date
+
+def fairness_slice_metrics(X, y, p, groups):
+    rows = []
+    for name, mask in groups.items():
+        if mask.sum() == 0:
+            continue
+        rows.append({
+            "group": name,
+            "n": int(mask.sum()),
+            "default_rate": float(y[mask].mean()),
+            "approval_rate_at_0.5": float((p[mask] < 0.5).mean()),
+            "auc": float(roc_auc_score(y[mask], p[mask])) if len(np.unique(y[mask])) == 2 else None,
+        })
+    return rows
+
+groups = {
+    "male":   Xte["SEX"].values == 1,
+    "female": Xte["SEX"].values == 2,
+    "age_under_30": Xte["AGE"].values < 30,
+    "age_30_to_50": (Xte["AGE"].values >= 30) & (Xte["AGE"].values < 50),
+    "age_50_plus":  Xte["AGE"].values >= 50,
+}
+slice_metrics = fairness_slice_metrics(Xte, yte.values, p_te, groups)
+
+model_card = {
+    "model_details": {
+        "name": "Taiwan Default XGBoost v1",
+        "version": "1.0.0",
+        "date": str(date(2025, 1, 15)),
+        "owner": "Consumer Credit Risk Team",
+        "license": "Internal",
+        "model_type": "XGBoost binary classifier",
+        "hyperparameters": {
+            "n_estimators": 300,
+            "max_depth": 4,
+            "learning_rate": 0.08,
+            "subsample": 0.9,
+            "colsample_bytree": 0.9,
+            "reg_lambda": 1.0,
+        },
+    },
+    "intended_use": {
+        "primary_use": "Credit card origination decisioning on Taiwan portfolio.",
+        "out_of_scope": [
+            "Auto loan underwriting",
+            "Mortgage underwriting",
+            "Any use outside of Taiwan jurisdiction",
+            "Credit-line increase decisions",
+        ],
+    },
+    "factors": {
+        "demographic_groups": ["gender", "age band", "education", "marital status"],
+        "environmental_conditions": "Training data spans 2005 payment history.",
+    },
+    "metrics": {
+        "test_auc": float(roc_auc_score(yte, p_te)),
+        "test_ks": float(ks_statistic(yte, p_te)),
+        "test_brier": float(brier_score_loss(yte, p_te)),
+    },
+    "evaluation_data": {
+        "source": "UCI Default of Credit Card Clients (Yeh and Lien 2009)",
+        "n": int(len(yte)),
+        "default_rate": float(yte.mean()),
+    },
+    "training_data": {
+        "source": "UCI Default of Credit Card Clients (Yeh and Lien 2009)",
+        "n": int(len(ytr)),
+        "default_rate": float(ytr.mean()),
+        "known_biases": [
+            "Single geography (Taiwan).",
+            "Single time slice (Oct 2005).",
+            "Gender and marital status are proxy-sensitive under ECOA.",
+        ],
+    },
+    "quantitative_analyses": {
+        "unitary": {
+            "auc": float(roc_auc_score(yte, p_te)),
+            "ks": float(ks_statistic(yte, p_te)),
+            "brier": float(brier_score_loss(yte, p_te)),
+        },
+        "intersectional": slice_metrics,
+    },
+    "ethical_considerations": {
+        "risks": [
+            "Proxy discrimination via age or marital status.",
+            "Label leakage from concurrent billing cycle features.",
+            "Post-hoc explanation fidelity gaps (Slack et al. 2020).",
+        ],
+        "mitigations": [
+            "Disaggregated performance reported above.",
+            "Feature-level SHAP monitoring in production.",
+            "Human review for decisions within 5% of the cutoff.",
+        ],
+    },
+    "caveats_and_recommendations": {
+        "operating_window": "Deploy behind a 600-point cutoff in the local scorecard conversion.",
+        "retraining_cadence": "Quarterly, with PSI alerts on monthly.",
+        "escalation": "Any AUC drop of more than 3 percentage points on a monthly cohort triggers escalation to Model Risk.",
+    },
+}
+
+out = Path("/tmp/xai_model_card.json")
+out.write_text(json.dumps(model_card, indent=2))
+print(out.read_text()[:1200])
+```
+
+The model card is written once per model version, versioned alongside the binary, and made available to auditors, regulators, and governance boards.
+
+## Benchmark: explanation fidelity and stability
+
+An explanation is only useful if it is stable and faithful. Two diagnostic tests follow.
+
+**Fidelity to the model.** Zero out the top-$k$ features by SHAP magnitude (replace with the feature median) and measure how much the model's log-odds margin drops. If removing the top-$k$ features cuts the margin by more than the bottom-$k$, SHAP is capturing the model's logic.
+
+```{python}
+def fidelity_drop(X, shap_vals, k, model, feature_medians):
+    Xz = X.copy().astype(float)
+    top_mask = np.argsort(-np.abs(shap_vals), axis=1)[:, :k]
+    rng = np.arange(len(X))
+    dmat = xgb.DMatrix(Xz.values, feature_names=feature_names)
+    base_margin = model.get_booster().predict(dmat, output_margin=True)
+    for i in rng:
+        for j in top_mask[i]:
+            Xz.iat[i, j] = feature_medians[feature_names[j]]
+    dmat = xgb.DMatrix(Xz.values, feature_names=feature_names)
+    new_margin = model.get_booster().predict(dmat, output_margin=True)
+    return float(np.abs(base_margin - new_margin).mean())
+
+feature_medians = Xtr.median().to_dict()
+
+top_drop = fidelity_drop(Xte_expl.iloc[:300], shap_values[:300], 3,
+                          model, feature_medians)
+bot_mask = np.argsort(np.abs(shap_values[:300]), axis=1)[:, :3]
+Xz = Xte_expl.iloc[:300].copy().astype(float)
+for i in range(len(Xz)):
+    for j in bot_mask[i]:
+        Xz.iat[i, j] = feature_medians[feature_names[j]]
+dmat_bot = xgb.DMatrix(Xz.values, feature_names=feature_names)
+dmat_orig = xgb.DMatrix(Xte_expl.iloc[:300].values, feature_names=feature_names)
+bot_drop = float(np.abs(
+    model.get_booster().predict(dmat_orig, output_margin=True)
+  - model.get_booster().predict(dmat_bot, output_margin=True)
+).mean())
+print(f"Mean |margin change| when top-3 SHAP features removed   : {top_drop:.3f}")
+print(f"Mean |margin change| when bottom-3 SHAP features removed: {bot_drop:.3f}")
+print(f"Ratio (larger means SHAP is identifying important inputs): {top_drop / max(bot_drop, 1e-6):.2f}x")
+```
+
+**Stability across seeds.** Train three XGBoost models with different seeds on the same data, compute SHAP values on a held-out sample, and measure rank correlation of global feature importances. A Spearman correlation above 0.9 on the top-ten features is acceptable.
+
+```{python}
+from scipy.stats import spearmanr
+
+def global_shap_rank(seed):
+    m = xgb.XGBClassifier(
+        n_estimators=300, max_depth=4, learning_rate=0.08,
+        subsample=0.9, colsample_bytree=0.9, reg_lambda=1.0,
+        tree_method="hist", n_jobs=2, random_state=seed,
+        eval_metric="auc", early_stopping_rounds=20,
+    )
+    m.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
+    dmat = xgb.DMatrix(Xte_expl.values, feature_names=feature_names)
+    c = m.get_booster().predict(dmat, pred_contribs=True)
+    return pd.Series(np.abs(c[:, :-1]).mean(axis=0), index=feature_names)
+
+ranks = {s: global_shap_rank(s) for s in [0, 1, 2]}
+for a, b in [(0, 1), (0, 2), (1, 2)]:
+    rho, _ = spearmanr(ranks[a], ranks[b])
+    print(f"Spearman(seed {a}, seed {b}) on |SHAP| = {rho:.3f}")
+```
+
+Rank correlations above 0.9 indicate that the top features are stable across retraining. If they fall below 0.7 on a production model, the explanation pipeline is brittle and should not be used for adverse action without cross-seed averaging.
+
+## Scalability
+
+The SHAP pipeline at production scale has three bottlenecks: TreeSHAP per-row cost, storage of per-row attributions, and reason-code aggregation.
+
+**TreeSHAP cost.** For an XGBoost model with $M$ trees of maximum depth $D$, the per-row cost is $O(M L D^2)$ where $L$ is the number of leaves per tree. On a boosted model with 500 trees of depth 6, this is roughly a millisecond per row on a laptop. For a portfolio of ten million applicants scored daily, the total cost is about three CPU-hours. This is embarrassingly parallel across rows and scales to Spark or Dask with no algorithmic change. In production, compute SHAP values in the same batch job that runs scoring, write them to the feature store alongside the prediction, and retain them for the audit window (typically seven years).
+
+**Storage.** A SHAP matrix of shape $(n, d)$ with $d = 200$ features and $n = 10^7$ rows at float32 is 8 GB per scoring run. Compress with Parquet snappy and it drops to around 2 GB per day. Most institutions retain only the top-ten attributions per applicant plus the full set for a random 1% audit sample.
+
+**Reason-code aggregation.** The aggregation from raw SHAP to reason-code groups is a constant-time lookup and has negligible cost. However, the reason-code table itself is a regulatory artifact that must be versioned with the model: a new model release that changes the feature set must update the table, and the operations team must test the rendered notices against expected outputs before production cut-over.
+
+A pandas-only pipeline handles up to a million rows comfortably. Beyond that, move aggregation to Polars or Dask. For portfolios above ten million, push the aggregation into Spark using the xgboost4j-spark bindings; the per-worker TreeSHAP call still uses the same `pred_contribs=True` flag.
+
+## Deployment
+
+An XAI-enabled scoring service exposes two endpoints. The first returns the probability of default. The second returns the probability of default plus the top-$k$ adverse reason codes. The second endpoint is the one invoked when the decisioning service needs to generate an adverse action notice.
+
+```python
+# pseudocode sketch, not executed here
+from fastapi import FastAPI
+from pydantic import BaseModel
+import xgboost as xgb, numpy as np
+
+app = FastAPI()
+model = xgb.Booster(model_file="model.json")
+reason_code_table = json.loads(open("codes.json").read())
+
+class Applicant(BaseModel):
+    features: dict
+
+@app.post("/score")
+def score(app_: Applicant):
+    X = np.array([[app_.features[f] for f in FEATURES]])
+    dmat = xgb.DMatrix(X, feature_names=FEATURES)
+    p = model.predict(dmat)[0]
+    return {"probability_of_default": float(p)}
+
+@app.post("/score_with_reasons")
+def score_with_reasons(app_: Applicant):
+    X = np.array([[app_.features[f] for f in FEATURES]])
+    dmat = xgb.DMatrix(X, feature_names=FEATURES)
+    p = model.predict(dmat)[0]
+    contribs = model.predict(dmat, pred_contribs=True)[0, :-1]
+    codes = top_adverse_codes(contribs, FEATURES, reason_code_table, k=3)
+    return {"probability_of_default": float(p), "reason_codes": codes}
+```
+
+The service is wrapped behind a FastAPI container, logged via MLflow, and exported to ONNX if the downstream consumer requires model-agnostic inference. The model card JSON is served from a separate `/model_card` endpoint so that compliance can fetch the latest version without touching the binary.
+
+One production pattern worth calling out is the **explanation cache**. For a stable portfolio, 60% to 80% of the scored inputs change only marginally day over day. Caching SHAP attributions keyed on the hash of the rounded feature vector saves a majority of the TreeSHAP compute. Invalidate the cache on model version change.
+
+## Regulatory considerations
+
+### SR 11-7
+
+The US Federal Reserve's supervisory letter on model risk management is the highest-cited framework in American consumer lending model governance. SR 11-7 requires independent validation of the model, which includes a review of the model's conceptual soundness and its implementation. For a black-box model, the explanation layer becomes part of the validation target: validators must confirm that the SHAP pipeline produces consistent attributions, that the reason-code mapping is stable, and that the adverse action notices generated by the pipeline match the model's intended logic.
+
+### ECOA and Regulation B
+
+Regulation B requires specific reasons. The CFPB has explicitly said that complex-algorithm creditors must meet this requirement [@cfpb2022circular]. Practitioners should test their reason-code pipeline end to end on a sample of denied applicants and have the compliance team approve the rendered notices before launch. A common failure mode is that the top SHAP feature is a binned proxy (e.g., `pay_status_bucket`) whose human-readable phrase does not match any Regulation B reason category; the fix is to align the feature taxonomy with the reason-code table during model design.
+
+### FCRA
+
+When the model consumes a credit bureau attribute, the adverse action notice must identify the bureau. Store the data lineage of every feature (which bureau provided it, which pull date) alongside the prediction.
+
+### GDPR Article 22 and the EU AI Act
+
+In Europe, the combination of GDPR Article 22 and the AI Act (Regulation 2024/1689) requires that the deployer maintain technical documentation sufficient for an authority to assess compliance, perform a fundamental rights impact assessment for high-risk systems, and ensure that the decision is subject to human oversight. The model card, the SHAP pipeline, the reason-code table, and the counterfactual explanation service together form the technical documentation package. Counterfactuals satisfy the requirement that the data subject receive meaningful information about the logic without the creditor having to disclose trade secrets.
+
+### Basel and IRB
+
+For banks using internal ratings-based approaches under Basel II and III, the PD model is subject to the use test and the independent review under the Capital Requirements Regulation. The explanation pipeline is not itself a Basel deliverable but is part of the qualitative documentation that supports the use test.
+
+## Pitfalls {#sec-ch21-pitfalls}
+
+Five failure modes recur in production XAI deployments.
+
+**Correlation capture.** SHAP attributes credit to a feature that is correlated with the true driver but does not cause the outcome. If the model uses both `utilization` and `current_balance`, and current balance is the true driver, SHAP will split the credit between them in a way that depends on the training distribution. Aggregating by reason-code group mitigates this, but only if the grouping reflects the underlying economic construct.
+
+**Out-of-distribution inputs.** TreeSHAP's "path-based" value function fixes features to their observed values and marginalizes over the rest using training-sample weights. An input far from the training distribution produces attributions that are technically correct under the model but economically meaningless. Production systems must detect out-of-distribution inputs (via PSI on score distribution, for example) and fall back to a conservative explanation or a human review.
+
+**Adversarial explanation manipulation.** @slack2020fooling show that LIME and SHAP can be fooled by crafting a model that behaves benignly on the neighborhoods LIME and SHAP probe while discriminating on real inputs. The defense is to train the model only on audited features, restrict the feature engineering pipeline, and cross-check SHAP against counterfactual analysis on a sample.
+
+**Reason-code inflation.** A model with two hundred features and a top-three reason-code requirement produces very narrow adverse action notices. If the third-ranked feature's SHAP magnitude is close to the fourth's, the notice's stability is low: two very similar applicants can receive different third reasons. Apply a minimum-margin threshold and consider reporting four reasons when the gap between three and four is below that threshold.
+
+**Fairness laundering.** Removing a protected attribute from the input does not remove its influence if proxies remain. SHAP does not tell you whether the model is fair; it tells you which features contributed. @sec-ch23 and @sec-ch24 cover fairness metrics and post-hoc mitigation. Do not use SHAP-only evidence to claim fairness.
+
+## Vietnam and emerging markets
+
+### Market context
+
+Vietnamese banks operate under SBV Circular 41/2016 on capital adequacy, which implements a Basel II standardised approach and, through Articles on internal assessment and validation, sets expectations for how credit-risk models are documented and reviewed [@sbv_circular41_2016]. Circular 11/2021 on loan classification and provisioning sets the rules under which PD-relevant outcomes feed the provisioning stack [@sbv2021circular11]. Circular 22/2023/TT-NHNN (29 Dec 2023) amends Circular 41/2016 on capital adequacy ratios [@sbv_circular22_2023], Circular 43/2016/TT-NHNN sets consumer-lending conduct rules for finance companies, and Decree 13/2023 on Personal Data Protection sets consent, purpose limitation, cross-border transfer, and data-subject rights for the feature pipeline [@vn_decree13_2023]. The Decree 94/2025 sandbox adds a dedicated review track for credit scoring as one of three sandbox activities [@vn_decree94_2025]. The @imf_vietnam_fsap2024 FSAP and @adb2022vnfin ADB reports frame the system-level governance context.
+
+Unlike ECOA in the US or Article 22 of GDPR in the EU, Vietnam does not yet have a statutory right to a per-decision adverse-action reason code. What it has is an evolving supervisory expectation, expressed through SBV circulars and through consumer-protection rules under Circular 43/2016/TT-NHNN on consumer lending by finance companies, that automated credit decisions should be explainable to the customer and to the supervisor. In practice, Vietnamese banks and finance companies already produce reason-code-like outputs on denials, derived either from scorecard segments or from SHAP-based pipelines.
+
+### Application considerations
+
+SBV Circular 41/2016 validation expectations map onto an XAI pipeline in three ways. First, conceptual soundness review: the model's features must be explainable in economic terms, which rewards taxonomies built on bureau primitives (CIC tradelines, repayment history, tenure) plus well-grounded behavioral features (wallet tenure, salary-credit stability). Second, implementation review: the SHAP or LIME pipeline itself is part of the model and must be validated as such, with deterministic seeds, frozen reference distributions, and versioned reason-code phrase tables. Third, outcomes analysis: reason codes should be back-tested against realized outcomes to catch silent drift in the feature-to-explanation mapping.
+
+Decree 13/2023 adds specific constraints. Personal-data processing requires a lawful basis and purpose limitation. A SHAP pipeline that relies on a reference distribution must ensure the reference data was collected under a compatible basis. Cross-border transfer of training data for an externally hosted explanation service triggers the Decree's transfer-impact requirements. The Decree grants data subjects the right to object to profiling and to request human review, which functionally parallels GDPR Article 22 even though the Vietnamese legal mechanism is different.
+
+### Rationalization
+
+Three arguments justify porting the SHAP, LIME, counterfactual, and model-card stack to the Vietnamese setting. First, the axiomatic content of Shapley attribution is jurisdiction-neutral: efficiency, symmetry, dummy, additivity are properties of the game, not the regulator. Second, the practical reason-code use case maps cleanly onto supervisory expectations under Circular 41/2016 (as amended by Circular 22/2023/TT-NHNN on capital adequacy ratios) and Circular 43/2016/TT-NHNN on consumer lending by finance companies: independent validators want a reproducible, versioned reason-code pipeline, and consumer-protection review wants reason codes that a Vietnamese-speaking applicant can understand. Third, counterfactual explanations satisfy the right-to-be-informed intent of Decree 13/2023 without forcing the lender to disclose proprietary model internals, in the same way that @wachter2018counterfactual argue counterfactuals satisfy GDPR transparency.
+
+The limits are specific. Reason-code phrase tables need a Vietnamese-language variant, and machine-translated phrases from English templates frequently fail the comprehensibility test. Counterfactual explanations should respect actionability constraints that are locally meaningful: reducing income-volatility features requires stable salary, which is not available to all borrower segments. Fairness laundering risks in the Vietnamese context are distinct from the US protected-class taxonomy: province of registration, migrant status, and ethnicity are the proxy-variable candidates to audit, not the US-style race and gender categories.
+
+### Practical notes
+
+A Vietnamese XAI pipeline should do six things. First, maintain a versioned reason-code phrase table in Vietnamese with SBV-reviewed language, aligned to Circular 43/2016/TT-NHNN consumer-protection vocabulary for finance-company lending. Second, freeze the SHAP reference distribution at training time and version it with the model binary, so that independent validators can reproduce attributions deterministically. Third, document the explanation pipeline in the model-development package as required by Circular 41/2016 validation expectations [@sbv_circular41_2016]. Fourth, implement a counterfactual-explanation endpoint that respects actionability constraints meaningful in Vietnam (earnings, tenure, existing obligations) and that complies with Decree 13/2023 data-subject rights [@vn_decree13_2023]. Fifth, build a model card with disaggregated metrics by province, urban-rural segment, and tenure, not by US-style protected classes. Sixth, for sandbox participants, prepare the Decree 94/2025 entry package with the XAI pipeline as part of the technical documentation [@vn_decree94_2025]. The adversarial-manipulation diagnostics in @sec-ch21-pitfalls (fooling SHAP [@slack2020fooling]) should run against a frozen Vietnamese-data reference; the out-of-distribution gating and reason-code-inflation safeguards apply without modification.
+
+## Takeaways
+
+- Shapley values are the unique axiomatic local attribution: they are efficient, symmetric, respect dummy, and are additive. TreeSHAP makes them computable in polynomial time for tree ensembles; KernelSHAP provides a weighted-least-squares approximation for arbitrary models at higher cost.
+- LIME is a weighted local linear surrogate whose coefficients approximate the model at a single input. It is more flexible than SHAP but less principled; use it as a cross-check.
+- Counterfactual explanations answer the actionable question: what needs to change. DiCE [@mothilal2020explaining] provides diverse, feasible counterfactuals for both differentiable and tree-based classifiers.
+- Reason codes for ECOA adverse action notices can be produced from SHAP attributions by aggregating to code groups, thresholding on magnitude, and mapping to an approved phrase table. Version-control the table.
+- Model cards [@mitchell2019model] are mandatory documentation under the EU AI Act and are good practice everywhere. Generate the card from the training pipeline, disaggregate metrics by demographic factors, and version the card with the model binary.
+- SHAP is not a fairness test, and it is not a causal explanation. Treat it as a faithful summary of what the model computed, under a specified reference distribution, subject to adversarial manipulation risks [@slack2020fooling].
+
+## Further reading
+
+- @lundberg2017unified introduce SHAP and unify it with LIME, DeepLIFT, and other attribution methods.
+- @lundberg2020local extend TreeSHAP to global understanding and show its advantages for monitoring tree ensembles.
+- @rudin2019stop argues that intrinsic interpretability should be the default in high-stakes domains.
+- @ribeiro2016why introduce LIME and formalize its weighted local surrogate objective.
+- @wachter2018counterfactual define counterfactual explanations and argue they satisfy the GDPR transparency requirement.
+- @mothilal2020explaining introduce DiCE, extending counterfactuals with diversity.
+- @mitchell2019model propose model cards and show templates for documentation.
+- @slack2020fooling demonstrate adversarial attacks on SHAP and LIME and propose a diagnostic for robustness.
+- @karimi2022survey survey algorithmic recourse and compare counterfactual methods.
+- @bracke2019machine apply SHAP to credit default at the Bank of England and discuss the regulatory implications.
+- @arrieta2020explainable provide a comprehensive taxonomy of XAI methods and evaluation criteria.
+- @cfpb2022circular is the Bureau's binding guidance on adverse action notices for complex-algorithm creditors.

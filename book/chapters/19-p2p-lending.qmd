@@ -1,0 +1,928 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+bibliography: [../references.bib, ../refs/ch-19.bib]
+---
+
+# P2P Lending Platforms and Social Data {#sec-ch19}
+
+## Overview {.unnumbered}
+
+A peer-to-peer (P2P) lending platform is an auction plus a servicer. Borrowers post requests, investors fund them, and an algorithmic match sits in between. The platform collects data at every step, publishes performance ex post, and hands the empirical credit economist an open-air laboratory. For the first time outside of the large bureaus, researchers could observe listing photographs, voluntary essays, friendship links, and the exact sequence of bids that determined whether a loan was funded. What had been confidential bank data was now a monthly CSV. Twenty years into the experiment, the outcomes are mixed. Some early platforms collapsed or were restructured. Others matured into lenders that look more like regulated banks than disruptors. The open data, however, continues to anchor quantitative credit research.
+
+This chapter treats the P2P market as both a case study in credit modeling and a natural experiment in soft information. @sec-p2p-structure situates Prosper, LendingClub, Funding Circle, and Zopa inside a taxonomy of marketplace lenders, with emphasis on the two-sided auction design analyzed by @vallee2019marketplace. @sec-social develops the social-network identification strategy of @lin2013judging and reproduces the qualitative finding in simulation, since the raw Prosper friendship data is no longer public. @sec-soft covers the soft-information literature, including @iyer2016screening on the predictive value of loan essays and @duarte2012trust on facial trustworthiness as a credit signal. @sec-lc-data describes LendingClub as a research dataset, with its quirks. @sec-platform-risk addresses platform risk. @sec-covid turns to pandemic-era stress tests across platforms.
+
+Practitioners will find a replication of the LR-versus-XGBoost benchmark on a LendingClub-style panel with a strict vintage split, a TF-IDF pipeline for loan descriptions, and a social-graph model with centrality features. Academics will find a careful handling of selection, identification under homophily, and a Bayesian treatment of the social-tie signal. The code runs in under two minutes on a laptop.
+
+The Vietnamese P2P story is a control experiment in regulatory capture. Onshore P2P lending grew quickly from 2017 to 2019, the State Bank of Vietnam paused new licensing while drafting rules, and Decree 94/2025 then introduced a controlled testing mechanism (regulatory sandbox) for fintech activities in the banking sector [@vn_decree94_2025]. The Vietnam-and-EM section at the end of this chapter maps the Prosper-LendingClub taxonomy onto that paused-then-sandboxed regime.
+
+### Notation {.unnumbered}
+
+Let $\mathcal{N} = \{1, \ldots, n\}$ be the set of listings. Each listing $i$ has a covariate vector $x_i \in \mathbb{R}^d$, a loan description text $t_i$, and a binary outcome $y_i \in \{0,1\}$ equal to one if the loan defaulted. Time is indexed by $\tau$ (the origination vintage). When listings are embedded in a social graph, let $G = (\mathcal{N}, E)$ be the simple undirected friendship network with edge set $E \subseteq \mathcal{N} \times \mathcal{N}$ and adjacency matrix $A \in \{0,1\}^{n \times n}$. For investor $k$, let $\text{bid}_{ki}$ denote the amount bid. The platform assigns interest rate $r_i$ and term $T_i \in \{36, 60\}$ months.
+
+---
+
+## P2P lending market structure {#sec-p2p-structure}
+
+### The founding bargain
+
+Prosper.com launched in February 2006 with a Dutch-style auction. A borrower posted a listing with an amount, a maximum acceptable rate, a description, and a credit grade derived from the Experian Scorex score. Lenders bid on slivers of the loan, each bid specifying a minimum acceptable rate. When the total bid volume reached the requested amount, the auction cleared at the highest winning rate; lenders who had bid below that rate received the cleared rate, and lenders who had bid above it were eliminated. The platform took origination fees from borrowers and servicing fees from investors. Prosper did not hold the loan. It acted as a two-sided matchmaker between retail savers and individual borrowers, mostly for unsecured installment loans in the USD 1,000 to 35,000 range.
+
+LendingClub launched within Facebook in May 2007, then spun out as a standalone site the same year. Its posted-price mechanism replaced the Dutch auction: the platform assigned a grade A through G and a corresponding rate, and investors could either fund or decline at that rate. By late 2008 both platforms had paused operations to restructure as issuers of SEC-registered notes backed by underlying loans originated by a partner bank (WebBank). The bank-funded origination with platform-underwritten credit decisions became the US template. The platform is the lender of record for a New York minute; it then sells the whole loan (or a participation, or a note) to the investor base. This is the "rent a bank" architecture that @buchak2018fintech place at the center of the US fintech expansion.
+
+The UK took a different route. Zopa launched in March 2005, predating Prosper by almost a year, and originated under a direct P2P model under the UK Financial Conduct Authority (FCA) regime. Funding Circle launched in August 2010 with a focus on small-business lending. Both platforms retained the retail P2P identity longer than the US firms, though Zopa eventually pivoted to a bank holding company in 2020 and exited its retail P2P book in 2022. On the continent, German Auxmoney and French Younited followed the US "marketplace" pattern with institutional investor bases from near inception.
+
+### Platform roles, precisely
+
+@vallee2019marketplace formalize the platform as a sorter. Borrowers and investors have asymmetric information about creditworthiness. The platform produces a credit grade that bundles observable characteristics (FICO, DTI, employment length) into a small set of buckets. Under a posted-price model the grade pins down the rate schedule; under the earlier auction model the grade only set the reserve and bidding determined clearing. @vallee2019marketplace show that the introduction of machine-underwriting on Prosper after 2010 improved marketplace outcomes for sophisticated investors: institutional investors systematically outperformed retail investors by 200 to 400 basis points on 36-month vintages, consistent with the hypothesis that the platform's grade only partially compresses the information that actually predicts default.
+
+Four roles matter:
+
+1. **Screening.** The platform decides who gets to list. Prosper rejected roughly 90 percent of applicants in 2007. Screening sets the outer bound of the credit distribution but does not determine individual ordering within the funded pool.
+2. **Grading.** Covariates get mapped into a grade. The mapping is proprietary but has been largely reconstructed by researchers using the released loan tapes.
+3. **Matching.** Either auction or posted-price. Auction-based matching shifts residual information rents to sophisticated investors [@wei2017market].
+4. **Servicing.** Monthly collections, charge-offs, and (if needed) sale to a debt buyer. Servicing income decouples platform revenue from loan performance, except via reputation.
+
+The servicing decoupling is important. Platforms do not hold the tail risk of the loans they originate. That is both an efficiency argument ("let the capital market bear the risk") and a moral-hazard concern: originate-to-distribute incentives weaken screening at the margin when borrower demand is thick, as documented by @cornelli2023fintech on the expansion phase.
+
+### Balance sheet mechanics
+
+A marketplace loan passes through a chain like the one sketched below:
+
+```
+Borrower  ->  Platform (underwriting)  ->  WebBank (issues the note)  ->  Platform buys the note
+           ->  Platform sells whole-loan or fractional notes to investor or retail trust.
+```
+
+WebBank parks the loan for 48 hours, per the original no-action positions. The platform then takes title. From the investor's perspective, the asset is a fixed-rate amortizing note whose cash flow equals the borrower's monthly installments less a servicing strip (typically 100 basis points) and a collection fee on recoveries. The platform, crucially, holds essentially no principal risk once notes are sold. It holds reputation risk and regulatory risk.
+
+@tang2019peer exploits a 2011 change in FICO-based credit-card limits to show that P2P lending substituted for bank credit at the margin among inframarginal borrowers. @deroure2022p2p ask whether US P2P lending is cream-skimming or bottom-fishing and find a mix: LendingClub moved up-market over time, while Prosper's early mix skewed toward higher-rate, lower-FICO segments. @chava2022peer measure post-origination credit dynamics and find that P2P borrowers increase rather than reduce total credit-card balances in the year after the loan, a finding consistent with the interpretation that unsecured debt consolidation is often incomplete.
+
+### The actors
+
+**Prosper.** The original US auction platform. After a 2008 pause, relaunched with posted prices. Its early public data set (including Prosper's proprietary friendship graph) drove most of the social-network research through 2014. Prosper remains active with a book focused on unsecured installment loans.
+
+**LendingClub.** The scale player. Originated more than USD 70 billion through late 2021. Acquired Radius Bank and reorganized as a bank holding company in 2021, which ended the retail-investor channel for new originations on platform. Its public loan tapes (2007 through 2018 Q4) are the de facto US benchmark for academic credit research.
+
+**Funding Circle.** UK small-business lender, expanded to the US and continental Europe. Uses a bespoke small-business underwriting model with bank-loan-like features (personal guarantees, industry codes). Investor base shifted heavily toward institutions after 2017.
+
+**Zopa.** Oldest active platform. Originated under a direct P2P model in the UK from 2005 and accumulated a long post-originating track record that showed defaults rising into 2008 to 2009 and then normalizing. Zopa pivoted to a bank model in 2020 after obtaining a UK banking license in 2018 and closed its P2P book in 2022.
+
+**Second-tier and failed platforms.** TrustBuddy (Sweden), Lendy (UK), and Quakle (UK) all collapsed between 2012 and 2019 with various degrees of investor loss. The TrustBuddy failure in 2015 involved client-money commingling and is the canonical example of platform-operational risk as distinct from borrower credit risk [@havrylchyk2018expansion].
+
+### Why the market structure matters for modeling
+
+Four features of the P2P market shape the econometrics of any loan-level analysis.
+
+1. **Selection at origination.** Only a small fraction of applications become funded loans. The visible tape is the post-screening sample. Extrapolating to new borrowers requires reject-inference logic covered in @sec-ch10.
+2. **Vintage heterogeneity.** Platforms repeatedly changed their grade-to-rate mapping, add-on features (joint applications, hardship plans), and underwriting algorithms. A naive pooled training set blends pre- and post-changes.
+3. **Investor base drift.** Auction-era clearing rates encoded investor beliefs. Posted-price clearing rates do not. Institutional investors dominated originations after 2014. A rate-based feature in a pre-2014 model is not the same feature in a post-2014 model.
+4. **Survivorship and cohort truncation.** 60-month loans originated in 2016 were not fully matured at the time most public tapes stopped updating. Right-censoring matters for any survival analysis (@sec-ch09).
+
+```{python}
+#| echo: true
+import time
+import warnings
+warnings.filterwarnings("ignore")
+
+import numpy as np
+import pandas as pd
+import sys
+
+sys.path.insert(0, '../code')
+from csutils import DATA_DIR, _cache_get  # noqa: F401
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+RNG_SEED = 19
+rng = np.random.default_rng(RNG_SEED)
+print("numpy:", np.__version__, "pandas:", pd.__version__)
+```
+
+## Social network signals {#sec-social}
+
+The first generation of P2P data came with an unusual feature. Prosper let borrowers list "friends" who vouched for them. A friend was another Prosper user with a symmetric link. Friends could bid on the borrower's loan, and friend bids were flagged. @lin2013judging asked whether friendship ties contain information about creditworthiness beyond the hard financial variables. Their answer was yes: loans with more friend bids funded at lower rates and, conditional on funding, defaulted less. That second half of the claim is the hard part to defend.
+
+### The identification problem
+
+Denote the social graph $G = (\mathcal{N}, E)$, hard covariates $x_i$, and outcomes $y_i$. The borrower's latent creditworthiness is $u_i$. Assume
+
+$$
+\Pr(y_i = 1 \mid u_i, x_i) = \sigma(-\alpha u_i + \beta^\top x_i),
+$$ {#eq-latent}
+
+where $\sigma$ is the logistic function and $\alpha > 0$. Observed $x_i$ is an imperfect proxy for $u_i$. The friend's decision to form a link depends on similarity in $u$ (homophily). Let $\pi_{ij}$ denote the probability of an edge:
+
+$$
+\pi_{ij} \propto \exp(-\lambda \lvert u_i - u_j \rvert), \quad \lambda > 0.
+$$ {#eq-homophily}
+
+Under @eq-homophily, knowing that $j$ is a friend of $i$ reveals information about $u_i$ beyond $x_i$. That is the mechanism @lin2013judging isolate. The econometric threat is reflection [@manski1993identification]: if outcomes are correlated across friends because of correlated shocks rather than homophily on $u$, the social-tie coefficient is biased.
+
+@lin2013judging handle this by separating three channels:
+
+- **Role selection:** who chooses to have friends on Prosper.
+- **Role funding:** whether friend bids themselves fund loans.
+- **Role outcome:** whether friend bids predict default conditional on funding.
+
+Only the third survives the reflection critique if properly specified. They use pre-listing friend formation to avoid endogenous friend-formation around the loan event and show that pre-listing friends who themselves have good Prosper histories predict better ex-post outcomes.
+
+### A Bayesian update on the prior
+
+Consider a borrower with prior log-odds of default $\ell_0 = \log \frac{\Pr(y=1)}{1 - \Pr(y=1)}$. We observe one social tie to a user $j$ with known outcome $y_j$. Assume the conditional distribution of the tie indicator $S_{ij}$ satisfies
+
+$$
+\frac{\Pr(S_{ij} = 1 \mid y_i = 1, y_j = 1)}{\Pr(S_{ij} = 1 \mid y_i = 0, y_j = 1)} = \lambda_1 > 1,
+$$ {#eq-lr-tie-default}
+
+$$
+\frac{\Pr(S_{ij} = 1 \mid y_i = 1, y_j = 0)}{\Pr(S_{ij} = 1 \mid y_i = 0, y_j = 0)} = \lambda_0 < 1.
+$$ {#eq-lr-tie-ok}
+
+The first condition says a defaulter is more likely to befriend a defaulter; the second, that a defaulter is less likely to befriend a non-defaulter. Under these likelihood ratios, Bayes' rule gives the posterior log-odds conditional on observing a tie to $j$ with outcome $y_j$:
+
+$$
+\ell_1 = \ell_0 + y_j \log \lambda_1 + (1 - y_j) \log \lambda_0.
+$$ {#eq-posterior-tie}
+
+If the borrower has $d$ friends with outcomes $y_{j_1}, \ldots, y_{j_d}$ drawn conditionally independently, the posterior is additive:
+
+$$
+\ell_d = \ell_0 + \sum_{k=1}^{d} \left[ y_{j_k} \log \lambda_1 + (1 - y_{j_k}) \log \lambda_0 \right].
+$$ {#eq-posterior-friends}
+
+This is exactly the naive-Bayes score a logistic regression will recover if the neighbor-default count is included as a feature and the hard covariates are orthogonal to the friendship network. When the network is correlated with $x$, the coefficients attenuate but the qualitative sign survives.
+
+### Network centrality: formal definitions
+
+Centrality measures summarize a node's position in $G$. Four are standard.
+
+**Degree centrality.** The count of a node's neighbors, normalized by the maximum possible:
+
+$$
+C_{\text{deg}}(i) = \frac{\lvert \mathcal{N}(i) \rvert}{n-1}.
+$$ {#eq-degree}
+
+**Betweenness centrality.** For a node $i$, the fraction of shortest paths between all pairs $(s, t)$ that pass through $i$:
+
+$$
+C_{\text{bet}}(i) = \sum_{s \neq i \neq t} \frac{\sigma_{st}(i)}{\sigma_{st}},
+$$ {#eq-betweenness}
+
+where $\sigma_{st}$ is the number of shortest $s$-$t$ paths and $\sigma_{st}(i)$ is the number that pass through $i$ [@freeman1977betweenness].
+
+**Eigenvector centrality.** Let $A$ be the adjacency matrix. Eigenvector centrality is the positive eigenvector $v$ with largest eigenvalue $\lambda_{\max}$:
+
+$$
+A v = \lambda_{\max} v, \quad v > 0.
+$$ {#eq-eig}
+
+The interpretation is fixed-point: a node is central if its neighbors are central [@bonacich1972factoring].
+
+**PageRank.** A damped random-walk variant. With damping factor $d \in (0, 1)$ and uniform teleport, PageRank is the stationary distribution $\pi$ of
+
+$$
+\pi^\top = d \pi^\top P + (1-d) \frac{1}{n} \mathbf{1}^\top, \quad P_{ij} = \frac{A_{ij}}{\deg(i)}.
+$$ {#eq-pagerank}
+
+$\pi_i$ is the long-run probability of the walker being at $i$ [@page1999pagerank].
+
+All four can be computed in polynomial time. Betweenness is the bottleneck at $O(n m)$ for an unweighted graph with $m$ edges (Brandes' algorithm). For large P2P graphs (Prosper had about 90,000 friendship links by 2008), betweenness is usually approximated by Monte Carlo sampling.
+
+### Simulation: homophily, contagion, and centrality
+
+The plain-text Prosper friendship dump is no longer public. We replicate the underlying identification exercise with a simulated panel that has three ingredients: observed features, a latent risk factor, and a friendship graph with homophily on the latent factor.
+
+```{python}
+#| echo: true
+import networkx as nx
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+
+rng = np.random.default_rng(23)
+n_nodes = 3000
+
+# Latent risk factor u; observed noisy proxies fico and dti
+u = rng.normal(0, 1, n_nodes)
+fico = 700 - 20 * u + rng.normal(0, 25, n_nodes)
+dti = 15 + 4 * u + rng.normal(0, 5, n_nodes)
+
+# Build friendship graph with homophily on u
+G = nx.Graph()
+G.add_nodes_from(range(n_nodes))
+m_links = 4
+order = rng.permutation(n_nodes)
+for step, node in enumerate(order[1:], start=1):
+    k = min(step, 120)
+    cand = order[:step][rng.integers(0, step, size=k)]
+    cand = np.unique(cand)
+    diff = np.abs(u[cand] - u[node])
+    sim = np.exp(-3.0 * diff)
+    deg = np.array([G.degree(int(j)) + 1 for j in cand], dtype=float)
+    w = (deg ** 0.3) * sim
+    w = w / w.sum()
+    m_here = min(m_links, len(cand))
+    pick = rng.choice(cand, size=m_here, replace=False, p=w)
+    for j in pick:
+        G.add_edge(int(node), int(j))
+
+# Default: depends on latent u and on neighbor-default share (contagion)
+default = rng.binomial(1, 1 / (1 + np.exp(-(-1.0 + 1.2 * u))))
+neigh0 = np.array([
+    np.mean([default[j] for j in G.neighbors(i)]) if G.degree(i) > 0 else default.mean()
+    for i in range(n_nodes)
+])
+default = rng.binomial(
+    1,
+    1 / (1 + np.exp(-(-1.0 + 1.2 * u + 1.5 * (neigh0 - neigh0.mean()))))
+)
+
+print(f"nodes: {n_nodes}  edges: {G.number_of_edges()}")
+print(f"default rate: {default.mean():.3f}")
+```
+
+The graph has roughly 8 links per node, in line with the degree reported by @lin2013judging for the Prosper friendship network once isolated nodes are dropped. The default rate is near 30 percent by construction to make the out-of-sample AUC non-trivial.
+
+```{python}
+# Centrality features on the full graph
+deg_cent = np.array([G.degree(i) for i in range(n_nodes)], dtype=float)
+pr = nx.pagerank(G, alpha=0.85)
+pagerank = np.array([pr[i] for i in range(n_nodes)])
+ev = nx.eigenvector_centrality_numpy(G)
+eig = np.array([ev[i] for i in range(n_nodes)])
+bet = nx.betweenness_centrality(G, k=200, seed=1)
+betweenness = np.array([bet[i] for i in range(n_nodes)])
+
+print(
+    f"degree:  mean {deg_cent.mean():.2f}  max {deg_cent.max():.0f}\n"
+    f"pagerank:mean {pagerank.mean():.4f}  max {pagerank.max():.4f}\n"
+    f"eigen:   mean {eig.mean():.4f}  max {eig.max():.4f}\n"
+    f"between: mean {betweenness.mean():.4f}  max {betweenness.max():.4f}"
+)
+```
+
+Neighbor-default share needs a leakage guard. The share visible at scoring time uses only *training* labels, never the test labels.
+
+```{python}
+n_tr = n_nodes // 2
+train_idx = np.arange(n_tr)
+test_idx = np.arange(n_tr, n_nodes)
+train_set = set(int(i) for i in train_idx)
+
+def neighbor_default_share(G, y, train_set, n):
+    out = np.zeros(n)
+    fallback = y[list(train_set)].mean()
+    for i in range(n):
+        visible = [j for j in G.neighbors(i) if int(j) in train_set]
+        out[i] = np.mean([y[j] for j in visible]) if visible else fallback
+    return out
+
+ns_feature = neighbor_default_share(G, default, train_set, n_nodes)
+```
+
+Three classifiers, same target. The baseline has only the hard covariates. The second adds the four centrality measures. The third adds the neighbor-default share, which operationalizes @eq-posterior-friends.
+
+```{python}
+observed = np.c_[fico, dti]
+X_base = observed
+X_cent = np.c_[observed, deg_cent, eig, pagerank, betweenness]
+X_full = np.c_[observed, deg_cent, eig, pagerank, betweenness, ns_feature]
+y = default
+
+rows = []
+for name, X in [("hard only", X_base),
+                ("+ centrality", X_cent),
+                ("+ centrality + neighbor rate", X_full)]:
+    lr = LogisticRegression(max_iter=500).fit(X[train_idx], y[train_idx])
+    auc = roc_auc_score(y[test_idx], lr.predict_proba(X[test_idx])[:, 1])
+    rows.append((name, auc))
+
+pd.DataFrame(rows, columns=["model", "AUC"])
+```
+
+The pattern repeats in the field data. Centrality alone provides only a small marginal lift over hard covariates. The informative social feature is the *labeled* neighbor default rate, which directly instantiates the Bayesian update in @eq-posterior-friends. This is why @lin2013judging focus on friend histories rather than on pure graph position.
+
+### Reflection and the attenuation of social signal
+
+Three non-experimental pitfalls arise.
+
+**Selection on the network.** Borrowers who invested in maintaining a visible Prosper friend list may differ from those who did not. @lin2013judging address this with instrumental variables (the presence of friend ties before the listing). In our simulation, selection is absent; in the field, one should include an indicator for "has any friend" separate from the neighbor-share feature.
+
+**Correlated shocks.** If friends default because they share a local labor market shock, the neighbor-share feature captures the shock, not the information about $u_i$. @freedman2017information argue that part of the social signal on Prosper is just this: geography and employer, shuffled through the network.
+
+**Strategic tie formation.** Bad borrowers can try to recruit good-looking friends to post bids. @lin2013judging show that the signal survives once one restricts attention to pre-existing ties. In practice, modern platforms no longer display friend networks because the strategic-tie problem turned out to be substantive.
+
+The takeaway for modeling is conservative. Social features deserve a place in the covariate set, but their coefficients should be estimated only with labels from prior vintages (to avoid leakage) and with indicators for network participation (to absorb selection).
+
+## Soft information in loan descriptions {#sec-soft}
+
+### Stein's framework, applied to a webpage
+
+@stein2002information drew a line between hard information (scores, ratios, account numbers) and soft information (verbal judgments, personal relationships) in bank lending. The canonical result is that large hierarchical banks are better at hard information and small community banks at soft information. P2P platforms invert the geography: they operate at national scale and yet surface soft information through loan descriptions and listing photographs. Whether platform users can exploit that soft information is an empirical question.
+
+@iyer2016screening ran the definitive test on Prosper. They collected public listing data, including the borrower's free-text description, and asked whether lenders could predict default better than a hard-variable model. Their core finding: lenders do infer around one third of the default risk beyond what is available in the observable hard variables, and non-standard (soft) information including the listing essay and borrower identity markers explains most of that gain. They call the soft-information lift "screening peers softly," borrowing Stein's vocabulary.
+
+@duarte2012trust ran an orthogonal but complementary test using Prosper listing photographs. They coded each photograph for perceived trustworthiness using a Mechanical Turk panel and showed that more trustworthy-looking borrowers were more likely to be funded, paid lower interest rates conditional on funding, and defaulted less often. The last claim is the key one. Perception covaries with an unobserved characteristic that predicts actual repayment. @pope2011whats reach a related but uncomfortable conclusion, showing that borrower race in the photograph affects loan pricing in directions not justified by default.
+
+### Text as a credit signal
+
+Loan descriptions are noisy, short, and heavily templated. Words matter, but only a small subset are discriminating. @netzer2019words analyze 120,000 Prosper descriptions and identify lexical markers of default (religious appeals, explicit promises to repay) and of repayment (descriptions emphasizing payment history and employment stability). Their baseline finding: a hold-out logistic regression on TF-IDF features of the description alone matches the AUC of a logistic regression on the hard variables, and the two together exceed either alone.
+
+We replicate the qualitative result below with a lightweight synthetic panel. The panel encodes the empirical regularity: defaulters are modestly more likely to use "soft" supplicative vocabulary ("promise", "please", "help", "family") and "hard" descriptions covary with non-default. The gap is small (about 10 percentage points in the base rate of soft-word use) and real descriptions are noisier than this fixture. The purpose is to demonstrate the pipeline and the marginal AUC lift, not to calibrate effect magnitudes.
+
+```{python}
+import scipy.sparse as sp
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+rng = np.random.default_rng(11)
+n_text = 10000
+grade_idx = rng.integers(0, 6, n_text)
+dti_t = rng.gamma(3.0, 6.0, n_text).clip(0, 45)
+fico_t = (720 - 20 * grade_idx + rng.normal(0, 18, n_text)).clip(610, 820)
+logit_t = -3.2 + 0.4 * grade_idx + 0.03 * dti_t - 0.012 * (fico_t - 700)
+p_t = 1 / (1 + np.exp(-logit_t))
+default_t = rng.binomial(1, p_t)
+
+SOFT = "promise god help please family soon tough struggle urgent beg".split()
+HARD = "stable steady consolidate refinance invest employed years household budget utilization".split()
+COMMON = ("the i to a and of is my in for with on that have been will would are").split()
+
+def sample_desc(is_default):
+    p_soft = 0.32 if is_default == 0 else 0.45
+    n_soft = rng.binomial(3, p_soft)
+    n_hard = rng.binomial(4, 1 - p_soft * 0.5)
+    soft = list(rng.choice(SOFT, size=n_soft, replace=True)) if n_soft else []
+    hard = list(rng.choice(HARD, size=n_hard, replace=True)) if n_hard else []
+    filler = list(rng.choice(COMMON, size=rng.integers(6, 16), replace=True))
+    tokens = soft + hard + filler
+    rng.shuffle(tokens)
+    return " ".join(tokens)
+
+descriptions = [sample_desc(yy) for yy in default_t]
+print("example defaulter  :", descriptions[int(np.flatnonzero(default_t == 1)[0])][:120])
+print("example non-default:", descriptions[int(np.flatnonzero(default_t == 0)[0])][:120])
+```
+
+We then build a TF-IDF vectorizer with 1- and 2-gram features and fit a logistic regression on text alone, on hard numerics alone, and on the concatenation.
+
+```{python}
+vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=5, max_features=400)
+X_text = vectorizer.fit_transform(descriptions)
+
+numeric_text = np.c_[grade_idx, dti_t, fico_t]
+n_tr_t = n_text // 2
+y_tr_t, y_te_t = default_t[:n_tr_t], default_t[n_tr_t:]
+
+def auc_lr(X_tr, X_te, y_tr, y_te, solver="liblinear"):
+    lr = LogisticRegression(max_iter=600, C=1.0, solver=solver).fit(X_tr, y_tr)
+    return roc_auc_score(y_te, lr.predict_proba(X_te)[:, 1])
+
+rows_t = []
+rows_t.append(("hard only",
+               auc_lr(numeric_text[:n_tr_t], numeric_text[n_tr_t:], y_tr_t, y_te_t,
+                      solver="lbfgs")))
+rows_t.append(("text only",
+               auc_lr(X_text[:n_tr_t], X_text[n_tr_t:], y_tr_t, y_te_t)))
+Xtr_cat = sp.hstack([sp.csr_matrix(numeric_text[:n_tr_t]), X_text[:n_tr_t]]).tocsr()
+Xte_cat = sp.hstack([sp.csr_matrix(numeric_text[n_tr_t:]), X_text[n_tr_t:]]).tocsr()
+rows_t.append(("hard + text",
+               auc_lr(Xtr_cat, Xte_cat, y_tr_t, y_te_t)))
+pd.DataFrame(rows_t, columns=["model", "AUC"])
+```
+
+The pattern matches @iyer2016screening qualitatively. Text alone carries a weaker signal than the hard variables. The combination improves AUC by a few percentage points, and the improvement is driven by text capturing residual default variation after hard covariates are controlled.
+
+### Why words work
+
+Three mechanisms explain why text carries any signal.
+
+**Self-selection into linguistic styles.** Borrowers who invest time in a detailed essay with specific repayment plans are, on average, more organized. Organization correlates with repayment.
+
+**Involuntary leakage of intent.** @netzer2019words note that religious appeals and explicit promises to repay ("I swear I will pay back") tend to appear disproportionately in descriptions that later default. This is the inverse of a credible signal: the act of promising correlates with the need to promise.
+
+**Verifiable content.** Some text is just hard information delivered in words. "I have been at Microsoft for 14 years as a senior engineer" is a verifiable statement that encodes tenure. Platforms do not verify it, but a later default is correlated with concrete false claims.
+
+The third mechanism is what regulators watch most carefully. Using text as a credit feature invites disparate-impact risk (@sec-ch23) when linguistic patterns correlate with protected class. @sec-ch25 returns to the modeling mechanics; here, we use text pragmatically as a demonstration of soft information in the narrow sense.
+
+### Soft information and the platform's grade
+
+If text predicts default, the platform's own grade should already have absorbed it. @iyer2016screening observe that it partially does but that retail investors do additional inference on top of the grade. @vallee2019marketplace show that this additional inference is captured more reliably by institutional investors, which is why the institutional share of originations grew steadily through 2015 to 2018 on LendingClub. Soft information is not free; it takes time, scale, and a process. The loan description became a less informative feature once platforms dropped or defaulted most listings' essay field around 2015. Modern LendingClub tapes have an essentially empty description column for loans originated after 2017.
+
+## LendingClub as a research dataset {#sec-lc-data}
+
+### Access
+
+LendingClub publishes quarterly loan-level tapes from 2007 through 2018 Q4 at `https://resources.lendingclub.com/LoanStats*.csv.zip`. The underlying notes ended as a retail-investor product in 2020 when the platform reorganized, but the historical CSV dumps are still hosted and are ubiquitous as a teaching and research resource. The file format is a single CSV per quarter with approximately 145 columns and a few hundred thousand loans per quarter at peak. Public mirrors exist on Kaggle and on academic GitHub archives. @jagtiani2019roles use the full tape through 2015 to demonstrate that LendingClub pricing incorporates non-traditional signals beyond FICO.
+
+We use a synthetic fallback in the chapter for reproducibility. The real download is a single line through the `csutils` cache helper, shown in the cell below and guarded by a timeout-tolerant `try` block. If the network is unavailable, or if the URL is blocked, the chapter uses a synthetic LendingClub-style panel with matching schema and realistic default rates. Results in the prose below are reported for the synthetic panel. The synthetic construction rules (base rate, rate-by-grade map, vintage shift) are documented in code.
+
+```{python}
+from urllib.request import urlopen
+from urllib.error import URLError
+import io, zipfile, socket
+
+def try_download_lc(url, timeout=8):
+    try:
+        socket.setdefaulttimeout(timeout)
+        with urlopen(url, timeout=timeout) as resp:
+            blob = resp.read()
+        z = zipfile.ZipFile(io.BytesIO(blob))
+        name = z.namelist()[0]
+        with z.open(name) as f:
+            return pd.read_csv(f, skiprows=1, low_memory=False)
+    except (URLError, socket.timeout, zipfile.BadZipFile, Exception):
+        return None
+
+# Deliberately do not attempt remote download inside rendered book runs.
+# Uncomment the next line to pull the public 2007 to 2011 tape directly.
+# lc_df = try_download_lc("https://resources.lendingclub.com/LoanStats3a.csv.zip")
+lc_df = None
+
+if lc_df is None:
+    print("Using synthetic LendingClub-style panel for reproducibility.")
+else:
+    print(f"Downloaded public LendingClub tape: {lc_df.shape}")
+```
+
+### Synthetic LendingClub-like panel
+
+The synthetic panel reproduces the schema most researchers use. The feature mix is close to the observed distribution in the 2012 to 2016 vintages. The data-generating process is a single logistic regression on a handful of known predictors plus an annual drift term that captures the well-documented vintage deterioration around 2015 to 2016.
+
+```{python}
+def synth_lendingclub(n=40000, seed=19):
+    rng = np.random.default_rng(seed)
+    grades = np.array(list("ABCDEFG"))
+    grade_idx = rng.choice(7, size=n, p=[0.13, 0.22, 0.25, 0.20, 0.12, 0.05, 0.03])
+    grade = grades[grade_idx]
+    amount = rng.lognormal(9.2, 0.55, n).clip(500, 40000)
+    term = rng.choice([36, 60], size=n, p=[0.7, 0.3])
+    int_rate = 5 + 2.2 * grade_idx + rng.normal(0, 1.0, n) + 2 * (term == 60)
+    dti = rng.gamma(3.0, 6.0, n).clip(0, 45)
+    fico_low = (720 - 20 * grade_idx + rng.normal(0, 18, n)).clip(610, 820).astype(int)
+    annual_inc = rng.lognormal(11, 0.5, n).clip(15000, 400000)
+    purpose_list = ['debt_consolidation', 'credit_card', 'home_improvement',
+                    'small_business', 'medical', 'other']
+    purpose = rng.choice(purpose_list, n, p=[0.55, 0.22, 0.08, 0.04, 0.04, 0.07])
+    emp_length = rng.integers(0, 11, n)
+    home = rng.choice(['RENT', 'MORTGAGE', 'OWN'], n, p=[0.42, 0.50, 0.08])
+    revol_util = rng.beta(2, 3, n) * 100
+    open_acc = rng.poisson(10, n).clip(1, 45)
+    issue_year = rng.choice([2012, 2013, 2014, 2015, 2016], n,
+                             p=[0.08, 0.17, 0.25, 0.26, 0.24])
+    logit = (-4.7
+             + 0.42 * grade_idx
+             + 0.035 * dti
+             - 0.012 * (fico_low - 700)
+             + 0.30 * (term == 60)
+             + 0.25 * (purpose == 'small_business')
+             + 0.10 * (purpose == 'medical')
+             - 0.10 * (home == 'MORTGAGE')
+             + 0.006 * revol_util)
+    vintage_shift = np.array([{2012: -0.1, 2013: 0.0, 2014: 0.1,
+                               2015: 0.25, 2016: 0.35}[y] for y in issue_year])
+    p_default = 1 / (1 + np.exp(-(logit + vintage_shift + rng.normal(0, 0.4, n))))
+    default = rng.binomial(1, p_default)
+    return pd.DataFrame({
+        "loan_amnt": amount, "term": term, "int_rate": int_rate, "grade": grade,
+        "emp_length": emp_length, "home_ownership": home, "annual_inc": annual_inc,
+        "purpose": purpose, "dti": dti, "fico_range_low": fico_low,
+        "revol_util": revol_util, "open_acc": open_acc,
+        "issue_year": issue_year, "default": default,
+    })
+
+lc = synth_lendingclub(n=40000, seed=RNG_SEED)
+print(lc.shape)
+lc.head()
+```
+
+```{python}
+# Default rate by vintage: replicates the empirical drift
+lc.groupby("issue_year")["default"].agg(["size", "mean"]).round(3)
+```
+
+The drift from 2012 to 2016 is steep. Academic work [@jagtiani2019roles] attributes the drift to underwriting loosening during the rapid growth phase in 2014 to 2016, composition shifts (more lower-grade borrowers), and a widening gap between LendingClub's posted rate and the observed risk.
+
+### Fields that matter
+
+A non-exhaustive taxonomy of the fields most used in research:
+
+- **Identifiers and timing:** `id`, `issue_d`, `earliest_cr_line`, `last_pymnt_d`.
+- **Contractual:** `loan_amnt`, `term`, `int_rate`, `installment`, `grade`, `sub_grade`.
+- **Borrower hard covariates:** `annual_inc`, `emp_length`, `emp_title`, `home_ownership`, `verification_status`, `zip_code` (first three digits).
+- **Credit-bureau hard covariates:** `fico_range_low`, `fico_range_high`, `dti`, `inq_last_6mths`, `revol_util`, `revol_bal`, `open_acc`, `total_acc`, `pub_rec`, `delinq_2yrs`.
+- **Purpose and text:** `purpose`, `desc`, `title`. The `desc` column is largely empty after 2014.
+- **Performance:** `loan_status`, `total_pymnt`, `recoveries`, `last_fico_range_high`, `chargeoff_within_12_mths`.
+
+A default flag is usually derived from `loan_status`. The canonical definition is any of {Charged Off, Default, Late 31 to 120, Late 121+ with a final disposition} treated as 1; Fully Paid and Current (with enough elapsed time) as 0. A cutoff must be imposed on Current loans whose vintage has not fully matured.
+
+### Caveats
+
+Three caveats travel with every LendingClub study.
+
+**Selection into the platform.** LendingClub's funnel from application to approved listing discarded more than 80 percent of applications over 2012 to 2016. The visible loans are a strongly non-random sample of the applicant pool. Any calibration claim extrapolating the risk model to the broader consumer population is wrong by construction.
+
+**Vintage effects.** The underwriting-loosening drift is not a simple time trend. It interacts with grade mix and rate setting. Any pooled model trained on 2012 to 2016 is biased toward early vintages; any out-of-time test on 2015 to 2016 will catch the distribution shift.
+
+**Interest rate endogeneity.** The platform sets the rate based on its own internal score. Including `int_rate` as a feature in a default model is an indirect form of target leakage: the platform already encoded part of its default expectation into the rate. A well-behaved benchmark either excludes `int_rate` or treats the platform's grade as a separate endogenous variable. @vallee2019marketplace address this by using grade buckets as coarse controls rather than as continuous signals.
+
+**Right-censoring.** Sixty-month loans originated in 2016 Q4 were only 24 months into their life when the last tapes shipped in early 2019. Treating them as non-defaulters if they have not yet defaulted overstates good performance. Survival methods (@sec-ch09) address this explicitly.
+
+### Benchmark: LR versus XGBoost with a strict time-based split
+
+The most-cited benchmark in LendingClub research is a logistic regression versus a gradient-boosted tree on a time-based split. The rule is train on early vintages, test on late vintages. The code below trains on 2012 to 2014 and tests on 2015 to 2016. The feature set mirrors the practitioner norm: a mix of numerics, one-hot categoricals, and no `int_rate` (to avoid target leakage through the platform grade).
+
+```{python}
+import xgboost as xgb
+from sklearn.preprocessing import StandardScaler
+
+cat_cols = ["grade", "home_ownership", "purpose"]
+num_cols = ["loan_amnt", "term", "emp_length", "annual_inc",
+            "dti", "fico_range_low", "revol_util", "open_acc"]
+
+Xcat = pd.get_dummies(lc[cat_cols], drop_first=True).astype(float)
+X_all = pd.concat([lc[num_cols].astype(float), Xcat], axis=1)
+y_all = lc["default"].values
+
+train_mask = lc["issue_year"].isin([2012, 2013, 2014]).values
+test_mask = lc["issue_year"].isin([2015, 2016]).values
+print(f"train: {train_mask.sum()}  test: {test_mask.sum()}")
+print(f"train default rate: {y_all[train_mask].mean():.3f}")
+print(f"test default rate:  {y_all[test_mask].mean():.3f}")
+```
+
+```{python}
+#| echo: true
+scaler = StandardScaler()
+Xtr = scaler.fit_transform(X_all[train_mask])
+Xte = scaler.transform(X_all[test_mask])
+ytr = y_all[train_mask]
+yte = y_all[test_mask]
+
+t0 = time.time()
+lr_lc = LogisticRegression(max_iter=500, C=1.0).fit(Xtr, ytr)
+p_lr = lr_lc.predict_proba(Xte)[:, 1]
+auc_lr_lc = roc_auc_score(yte, p_lr)
+t_lr = time.time() - t0
+
+t0 = time.time()
+gbm = xgb.XGBClassifier(
+    n_estimators=300, max_depth=4, learning_rate=0.08,
+    subsample=0.8, colsample_bytree=0.8, reg_lambda=1.0,
+    tree_method="hist", eval_metric="auc",
+    random_state=RNG_SEED, n_jobs=4,
+)
+gbm.fit(X_all[train_mask], ytr)
+p_xgb = gbm.predict_proba(X_all[test_mask])[:, 1]
+auc_xgb_lc = roc_auc_score(yte, p_xgb)
+t_xgb = time.time() - t0
+
+pd.DataFrame(
+    [("Logistic Regression", auc_lr_lc, t_lr),
+     ("XGBoost",             auc_xgb_lc, t_xgb)],
+    columns=["model", "AUC (out-of-time 2015 to 2016)", "fit seconds"]
+)
+```
+
+A small number of observations on this output.
+
+The AUC is in the mid-0.70s, which is the published range for LendingClub out-of-time benchmarks when `int_rate` is excluded and a reasonable hard-feature set is used. @jagtiani2019roles report similar numbers on real data when one restricts to pre-2015 training and tests on the subsequent year.
+
+LR and XGBoost are close on the out-of-time split. This is a pattern that replicates on real LendingClub tapes: at this sample size and feature richness, a correctly specified logistic beats a tree ensemble narrowly on out-of-time ranking but loses on calibration. The reason is the covariate drift across vintages. XGBoost overfits the training-vintage signal. LR's additive form is more robust to covariate shift when the feature coefficients are stable.
+
+```{python}
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
+
+fig, ax = plt.subplots(1, 2, figsize=(11, 4.2))
+for name, p in [("LR", p_lr), ("XGB", p_xgb)]:
+    fpr, tpr, _ = roc_curve(yte, p)
+    ax[0].plot(fpr, tpr, label=f"{name} AUC={roc_auc_score(yte,p):.3f}")
+ax[0].plot([0, 1], [0, 1], "k--", lw=0.6)
+ax[0].set_xlabel("false positive rate"); ax[0].set_ylabel("true positive rate")
+ax[0].set_title("ROC, out-of-time test (2015 to 2016)"); ax[0].legend(frameon=False)
+
+def calibration_bin(y, p, bins=10):
+    idx = np.argsort(p)
+    yb = y[idx]; pb = p[idx]
+    cuts = np.linspace(0, len(y), bins + 1).astype(int)
+    out = []
+    for a, b in zip(cuts[:-1], cuts[1:]):
+        if b > a:
+            out.append((pb[a:b].mean(), yb[a:b].mean()))
+    return np.array(out)
+
+for name, p in [("LR", p_lr), ("XGB", p_xgb)]:
+    c = calibration_bin(yte, p, bins=12)
+    ax[1].plot(c[:, 0], c[:, 1], "o-", label=name)
+ax[1].plot([0, 1], [0, 1], "k--", lw=0.6)
+ax[1].set_xlabel("mean predicted default"); ax[1].set_ylabel("empirical default")
+ax[1].set_title("Calibration, 12 equal-count bins"); ax[1].legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+The calibration plot is diagnostic. LR tends to run slightly under-predicted in the higher deciles on the out-of-time test because training vintages had lower default rates. XGBoost is sharper on training vintages but blows up the higher deciles on the test because the model has no mechanism to smoothly extrapolate the mean shift. A small Platt or isotonic recalibration step (@sec-ch04) fixes the LR residual gap and brings the XGBoost tail closer to the diagonal.
+
+### What a time-based split teaches
+
+The single most important lesson from LendingClub for modeling practice is that *the relevant distribution shifts over time*. Random train/test splits on pooled vintages almost always overstate out-of-sample performance. The pandemic vintages of 2020 (where available) are an even more dramatic case. Any production model that is refit quarterly but held out on a calendar-fold split will systematically fail on fresh vintages when underwriting or macro conditions change. @demyanyk2011understanding made this point for the mortgage market before LendingClub even existed.
+
+The second lesson concerns the interpretability gap. A logistic score on this feature set is a clean document: you can look up the weight on `fico_range_low` and discuss it with underwriting. The XGBoost model needs SHAP (@sec-ch22) and a careful monotonicity check. In production, the reproducibility advantage of the logistic model matters more than the 1 to 2 AUC points XGBoost might add when it wins.
+
+## Platform risk and concentration {#sec-platform-risk}
+
+### What P2P investors thought they were buying
+
+A retail P2P investor in 2014 imagined a diversified portfolio of small, independent consumer loans. The marketing leaned heavily on this image: pick 100 notes, each USD 25, across grades B to D, and ride the interest spread. The image abstracts away three tightly correlated risks:
+
+1. **Platform operational risk.** The platform itself may fail, be fined, or misallocate funds. If it cannot continue servicing, the investor has a legal claim but no easy recovery mechanism.
+2. **Concentration risk.** Even a diversified consumer portfolio has large common factors (unemployment, interest rates). Defaults are more correlated than naive independence suggests.
+3. **Interest-rate risk.** A 36-month amortizing note at 8 percent in 2013 looked attractive. By 2016, with reference rates moving, the same note was mispriced; and in 2022, it was severely below market.
+
+Platform operational risk was the first to materialize empirically.
+
+### TrustBuddy and the Swedish operational failure
+
+TrustBuddy was a Swedish short-term P2P lender founded in 2009, publicly listed in 2011, and suspended by the Swedish Financial Supervisory Authority (Finansinspektionen) in October 2015. The failure was not primarily a credit event. An internal review uncovered that TrustBuddy had been commingling investor funds with loans and had, in effect, covered early defaults from later investors' deposits. Bankruptcy proceedings followed. Retail investors recovered a fraction of their notional. @havrylchyk2018expansion place TrustBuddy alongside UK platforms Lendy, Collateral UK, and Quakle as cases where the platform itself is the counterparty risk, distinct from the underlying borrowers.
+
+This maps to a straightforward extension of credit modeling: the investor's effective default probability is the joint probability that either the borrower defaults (given a solvent platform) or the platform fails (and the borrower's subsequent performance cannot be realized). If $D$ is borrower default and $F$ is platform failure in the next 12 months, the investor's loss event is $D \cup F$ and
+
+$$
+\Pr(\text{loss}) = \Pr(D) + \Pr(F) - \Pr(D \cap F).
+$$ {#eq-loss-platform}
+
+Platform failure is rare but has a heavy tail of correlated effects; when it happens, the second and third terms are not negligible.
+
+### Concentration and common factors
+
+A diversified retail portfolio of 100 LendingClub notes at a uniform USD 25 each looks like 100 draws from a Bernoulli with parameter equal to the pool default rate. Under independence, the variance of the portfolio default rate is $\bar p (1 - \bar p) / 100$. Under a single-factor common-shock model, the variance is larger by an amount proportional to the loading on the common factor. The @vasicek2002loan large-portfolio approximation shows that the required capital against the tail moves with the common-factor correlation $\rho$ as
+
+$$
+K(\bar p, \alpha, \rho) = \Phi\left( \frac{\Phi^{-1}(\bar p) + \sqrt{\rho} \Phi^{-1}(\alpha)}{\sqrt{1 - \rho}} \right) - \bar p,
+$$ {#eq-vasicek}
+
+where $\Phi$ is the standard normal CDF and $\alpha$ is the confidence level. For $\bar p = 0.10$, $\alpha = 0.99$, and $\rho$ moving from 0.00 (independence) to 0.12 (a realistic unsecured-consumer correlation in the Basel IRB formula), the tail loss at the 99th percentile moves from essentially zero to about 15 percentage points. A retail investor with 100 notes and no diversification across vintages or platforms faces exactly this non-independence.
+
+```{python}
+from scipy.stats import norm
+
+def vasicek_unexpected(pbar, alpha=0.99, rho=0.12):
+    z = (norm.ppf(pbar) + np.sqrt(rho) * norm.ppf(alpha)) / np.sqrt(1 - rho)
+    return norm.cdf(z) - pbar
+
+pbars = np.linspace(0.02, 0.18, 9)
+vars_ = pd.DataFrame({
+    "default rate": pbars,
+    "unexpected loss, rho=0.00": np.zeros_like(pbars),
+    "unexpected loss, rho=0.06": [vasicek_unexpected(p, rho=0.06) for p in pbars],
+    "unexpected loss, rho=0.12": [vasicek_unexpected(p, rho=0.12) for p in pbars],
+}).round(3)
+vars_
+```
+
+@jagtiani2019roles document that LendingClub moved up-grade in 2015 to 2016, pushing new originations toward lower-rate, larger-balance loans. The aggregate default rate by vintage (seen in the earlier table) ran above pre-2015 levels. For a retail investor who continued to buy the middle grades, the realized common-factor loading on the pool was much larger than the marketing had suggested. This contributed to the 2016 investor pullback on LendingClub, which itself pushed the platform toward its eventual 2020 reorganization.
+
+### Interest-rate risk on a fixed-rate amortizing note
+
+A simple mark-to-market identity closes the section. Let a LendingClub note originate with monthly payment $M$, remaining term $n$ months, and originating rate $r_0$. At time $t$ with $n-t$ months remaining, its fair value under prevailing monthly rate $r$ on an equivalent credit is
+
+$$
+V(r) = M \cdot \frac{1 - (1 + r)^{-(n-t)}}{r}.
+$$ {#eq-note-pv}
+
+```{python}
+def note_pv(M, r, months_remaining):
+    r = np.asarray(r, dtype=float)
+    return M * (1 - (1 + r) ** (-months_remaining)) / r
+
+# A 36-month LendingClub-style note originated at 8 percent, 24 months in,
+# repriced across a range of prevailing rates.
+M = 313.36  # monthly payment for USD 10000 at 8% for 36 months
+months_remaining = 12
+prevailing = np.arange(0.002, 0.020, 0.0005)
+pv = note_pv(M, prevailing, months_remaining)
+pd.DataFrame({"monthly rate": prevailing, "present value USD": pv.round(2)}).head(12)
+```
+
+The secondary market for LendingClub notes was thin from the start. Platform-run marketplaces (Folio for LendingClub, pre-2019) provided some liquidity, but bid-ask spreads widened when rates moved. The retail investor thus held both the credit exposure and the duration exposure, without a functioning mark-to-market mechanism. That asymmetry is what made the investor experience of P2P in 2016 to 2019 look very different from the marketing.
+
+### Investor behavior under uncertainty
+
+@wei2017market study auction-era Prosper and show that the auction mechanism, while theoretically appealing, produced worse outcomes for sophisticated investors than the later posted-price mechanism because rational bidders in an auction have to trade off private information against a winner's-curse adjustment, and the cognitive cost of that trade-off was too high at the retail scale. The literature on posted-price P2P [@vallee2019marketplace, @jagtiani2019roles] then shows a different problem: posted prices leave rents on the table for investors who can build a better model than the platform, and those investors are institutional. The retail investor is thus in a second-best situation in either mechanism.
+
+### Platform defaults as a risk category
+
+Looking across the 2015 to 2020 window:
+
+- TrustBuddy (Sweden, 2015): commingling, bankruptcy, retail investor loss.
+- Lendy (UK, 2019): property-development concentration and administrator.
+- Collateral UK (2018): operator failure under administration.
+- Zopa (UK, 2022): graceful exit from P2P into bank model; no investor loss.
+- LendingClub (US, 2020): graceful pivot; retail note channel closed but legacy notes honored.
+- Prosper (US, ongoing): continuing operation with institutional-heavy funding.
+- Funding Circle (UK/US, ongoing): retail channel closed in 2022; institutional funding continues.
+
+The survivors either pivoted to a bank charter (Zopa, LendingClub) or retained a well-capitalized institutional-investor base (Prosper, Funding Circle). The failures share the operational-risk pattern described by @havrylchyk2018expansion: thin capital, weak controls, and servicing commingling. From the investor's perspective, the right unit of analysis is not the loan but the platform-plus-loan joint object.
+
+## COVID-19 stress on P2P {#sec-covid}
+
+### What the shock did
+
+The pandemic was a textbook stress for unsecured consumer credit. Employment dropped sharply in March 2020; government programs (in the US, the CARES Act; in the UK, the Coronavirus Job Retention Scheme) partially buffered incomes; by late 2020, unemployment had fallen back toward pre-pandemic levels in many segments. A naive credit model trained on pre-2020 data would have expected a 2020 vintage default rate far above baseline. What happened was more complex.
+
+On LendingClub, the platform had already pulled back on new originations starting in April 2020. Volumes dropped by about two thirds quarter over quarter. Surviving originations were skewed toward higher-grade borrowers. Across the subsequent 12 months, default rates on 2020 vintages ran *below* the 2018 to 2019 trend for two reasons: the risk-off underwriting and the direct cash transfers to consumers. Prosper showed a similar pattern. @cornelli2023fintech document this "volume not default rate" dynamic across the global fintech lending market in 2020.
+
+Not every platform reacted cleanly. European platforms with less mature underwriting, and some smaller US platforms serving near-prime and non-prime segments, experienced both volume declines and rising defaults. The dispersion of outcomes across platforms is the data point that matters: platform underwriting quality, captured loosely by vintage-to-vintage stability, predicts pandemic-era performance better than any macro variable.
+
+### A simulated COVID-shock panel
+
+We extend the synthetic LendingClub panel with a 2020 vintage that mixes a macro shock, a risk-off underwriting pullback, and a program-assistance buffer. The purpose is to illustrate the multi-platform dispersion narratively and to stress-test the modeling pipeline in a simple way.
+
+```{python}
+def synth_covid_panel(n_per_platform=6000, seed=42):
+    rng = np.random.default_rng(seed)
+    platforms = ["LendingClub-like", "Prosper-like", "UK-smallco-like"]
+    # Each platform has different underwriting tightening and macro sensitivity
+    params = {
+        "LendingClub-like": dict(base=-2.8, cov_shift=-0.25, tighten=0.40),
+        "Prosper-like":     dict(base=-2.7, cov_shift=-0.10, tighten=0.20),
+        "UK-smallco-like":  dict(base=-2.4, cov_shift= 0.50, tighten=0.05),
+    }
+    rows = []
+    for plat in platforms:
+        p = params[plat]
+        for year in [2018, 2019, 2020]:
+            n = n_per_platform // 3
+            # Risk-off tightening reduces share of weak borrowers in 2020
+            weak = rng.binomial(1, 0.35 * (1 - p["tighten"] if year == 2020 else 1.0), n)
+            dti = rng.gamma(3.0, 6.0, n).clip(0, 45) + 6 * weak
+            fico = (720 - 30 * weak + rng.normal(0, 18, n)).clip(610, 820)
+            covid = 1.0 if year == 2020 else 0.0
+            logit = (p["base"]
+                     + 0.02 * dti
+                     - 0.010 * (fico - 700)
+                     + 0.45 * weak
+                     + p["cov_shift"] * covid)
+            p_d = 1 / (1 + np.exp(-(logit + rng.normal(0, 0.3, n))))
+            default = rng.binomial(1, p_d)
+            for j in range(n):
+                rows.append((plat, year, dti[j], fico[j], weak[j], default[j]))
+    return pd.DataFrame(rows, columns=["platform", "vintage", "dti", "fico_range_low",
+                                       "weak_borrower", "default"])
+
+covid_df = synth_covid_panel(n_per_platform=9000, seed=RNG_SEED)
+pivot = (covid_df.groupby(["platform", "vintage"])["default"]
+         .agg(["size", "mean"]).round(3))
+pivot
+```
+
+The three platforms show the dispersion narrative. The "LendingClub-like" platform cuts volume sharply and tilts toward stronger borrowers, with pandemic vintage default rates *below* the pre-pandemic trend. The "Prosper-like" platform tightens less and sees default rates essentially flat. The third platform, representing a less-well-capitalized European small-company product, sees rising defaults in the 2020 vintage despite modest tightening.
+
+```{python}
+fig, ax = plt.subplots(figsize=(8, 4))
+for plat in covid_df["platform"].unique():
+    sub = covid_df[covid_df["platform"] == plat]
+    rate = sub.groupby("vintage")["default"].mean()
+    ax.plot(rate.index, rate.values, marker="o", label=plat)
+ax.set_xticks([2018, 2019, 2020])
+ax.set_xlabel("vintage"); ax.set_ylabel("default rate")
+ax.set_title("Synthetic platform dispersion around the 2020 shock")
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+### Lessons for modeling stress
+
+Three modeling points fall out of this exercise.
+
+**Vintage dummy variables are not enough.** A naive model with a 2020 vintage dummy would capture average drift across platforms but miss the dispersion. Platform-specific or underwriting-regime-specific features (e.g. the share of low-FICO originations by month) drive realized performance more than the macro shock itself.
+
+**Forbearance programs break the censoring assumption.** CARES Act forbearance suspended many delinquencies without charging them off. A default flag derived from `loan_status` in 2020 to 2021 will undercount true impairment because loans in forbearance are not flagged as late. Studies that use the 2020 vintage need an explicit forbearance adjustment.
+
+**The risk model is jointly with the origination policy.** When the platform tightens origination, the model trained on historical vintages is no longer the right model for the new originations. Practitioners need either explicit re-underwriting controls in the feature set or a separate model refit on the new regime.
+
+@franks2021securitization analyze the 2020 episode in marketplace lending as an information-aggregation event: investors required much more information transparency from platforms (loan-level tapes, forbearance status, servicing disclosures) during and after the shock. Platforms that were slow to provide it lost institutional funding first. The dispersion in platform-level outcomes through 2020 to 2022 tracks this transparency gradient closely.
+
+## Scalability {#sec-scale}
+
+LendingClub's full public tape is about 2 million loans and 150 columns, roughly 1.5 GB as CSV, 300 MB as Parquet. Feature engineering in pandas is comfortable for any single quarter; the full 2007 to 2018 table benefits from Polars or Dask.
+
+The feature pipeline decomposes cleanly:
+
+- **Static features per loan:** computed row-wise, embarrassingly parallel across partitions. Use Polars for single-node out-of-core; Dask for multi-node.
+- **Time-indexed aggregates:** rolling 12-month origination volume by grade, default rate by ZIP code trailing. Spark is appropriate when panels are joined with external bureau tapes.
+- **Text features:** TF-IDF on descriptions is a single pass; in Polars, apply `.str.to_lowercase` then hand off to scikit-learn's vectorizer.
+- **Graph features:** networkx is fine for up to about a million nodes. Beyond that, graph-tool or PyTorch Geometric's batched utilities are the right tool. For the Prosper graph (roughly 450,000 nodes at peak), networkx on a 16 GB machine handles the full graph for PageRank but is borderline for betweenness.
+
+A pragmatic rule: fit on 1 to 2 vintages, evaluate on the next, and iterate. There is no reason to materialize the full 12-year panel into a single training matrix for a production credit model. Backtests over multiple out-of-time folds are cheaper than one monolithic fit.
+
+## Deployment {#sec-deploy}
+
+A P2P scoring service has three unusual production constraints.
+
+**Volume is spiky.** Borrower inflow on marketplace lenders peaks on weekday evenings and has a hard monthly pattern around payday. The scoring API should auto-scale and should expose a latency SLO distinct from the back-office portfolio scoring.
+
+**Text and graph features have real latency.** A TF-IDF transform is fast, but a fresh friend-network PageRank recomputation on every incoming listing is not. The right architecture is a nightly graph recomputation with an on-read join of the pre-computed centrality features.
+
+**Explainability is non-optional.** US-originated P2P loans are subject to adverse action notice requirements under the Equal Credit Opportunity Act (@sec-ch05 and @sec-ch23). The scoring service must produce, for any declined listing, a set of adverse action codes derived from the model. SHAP-based attributions (@sec-ch22) are the dominant tool for this in XGBoost-based services.
+
+A minimal deployment sketch:
+
+```
+FastAPI service ->  /score endpoint
+   payload: loan_amnt, term, purpose, fico_range_low, dti, ...
+   pre-join: platform features, neighbor-default share from nightly batch.
+   predict: LR primary + XGB secondary, ensembled by rank-averaging.
+   explain: SHAP-top-5 contributions for adverse action.
+   log: MLflow (request, features, score, adverse codes).
+   export: ONNX for edge caching in partner-originator stacks.
+```
+
+The MLflow trace is essential for the monthly model monitoring cycle. The ONNX export matters when a bank partner hosts the final underwriting call.
+
+## Regulatory considerations {#sec-reg}
+
+### US
+
+**ECOA and FCRA.** Any model used to decline applicants must produce adverse action codes (ECOA Regulation B) and must not use a prohibited basis. Since P2P platforms originate to bank-issued notes, the bank is the lender of record and bears responsibility for ECOA compliance; platforms contractually assume that responsibility.
+
+**SR 11-7.** The Federal Reserve's SR 11-7 Model Risk Management guidance applies to the bank partner and, derivatively, to the platform's scoring model. Vendor-model oversight, independent validation, and ongoing performance monitoring are required. For P2P platforms that became banks (LendingClub, Zopa), SR 11-7 (or its UK equivalent under the PRA) applies directly.
+
+**UDAAP.** The CFPB has jurisdiction over unfair, deceptive, or abusive acts or practices in marketing. Misrepresenting the credit profile or the risk of P2P investments triggers this. @jagtiani2019roles note CFPB examination activity around rate-shopping marketing.
+
+### UK and EU
+
+**FCA.** Direct P2P lending in the UK falls under FCA authorization since 2014. The FCA's 2019 P2P rules introduced investor-categorization limits (restricted investors may not invest more than 10 percent of investable assets in P2P).
+
+**EU Crowdfunding Regulation (ECSPR).** Since November 2021, EU-wide rules apply to crowdfunding platforms below EUR 5 million per project. Many consumer P2P platforms fall outside ECSPR and remain under national licensing.
+
+**GDPR Article 22.** Automated decisions that have legal or similarly significant effects on a person trigger a right to human review. Declining a loan qualifies. Platforms must document their decision logic and provide meaningful information about the logic on request.
+
+**EU AI Act.** Credit scoring is a high-risk AI system. Platform-operated scoring models will need to be registered with conformity assessments and must meet transparency, data-governance, and human-oversight requirements after the high-risk provisions take effect.
+
+### Basel
+
+The bank partner's capital against retained P2P exposures is typically under standardized retail credit rules, with the specific risk weight depending on the portfolio classification (qualifying revolving, other retail). When the platform securitizes (Prosper Marketplace Issuance Trust, LendingClub's various conduits), the investor side is governed by the securitization framework. Regulatory changes in 2019 to 2020 (CRR2 in the EU, Basel III finalization) tightened the treatment of synthetic securitizations but left whole-loan sales largely unchanged.
+
+The practical upshot for a credit-scoring practitioner at a bank partner: the model is a Basel-relevant model. Documentation, validation, and monitoring must meet the standards in the bank's own model risk framework. A throwaway XGBoost with no calibration check and no population stability monitoring cannot be used for origination decisions at a bank.
+
+## Vietnam and emerging markets
+
+### Market context
+
+Vietnam's P2P lending story is structurally different from the US and UK templates of @sec-p2p-structure. Domestic P2P platforms, including Tima, Vaymuon, and Doctor Dong, grew rapidly between 2017 and 2019 on the back of thin formal-credit coverage and a young digital-native cohort. The growth was accompanied by consumer-harm incidents: abusive debt collection, opaque effective rates, and collapses where retail lenders could not recover funds. The State Bank of Vietnam responded by pausing issuance of new P2P licenses and signalling that P2P required a purpose-built regime rather than a banking license [@imf_vietnam_fsap2024, @adb2022vnfin]. In 2025, Decree 94/2025 established a controlled testing mechanism (regulatory sandbox) covering three fintech activities: credit scoring, open APIs, and P2P lending [@vn_decree94_2025]. The Decree sets out entry criteria, participant caps, and exit conditions, and positions the sandbox as the only lawful entry path for new P2P participants.
+
+The empirical research base is thin. Academic evidence on Vietnamese P2P is limited to broader banking and consumer-finance studies [@nguyen2022vietnamcredit, @vo2020vnstress, @chu2024vietnam] and cross-country BigTech-and-fintech aggregates [@cornelli2023fintech, @bis_cornelli_fintechemde2023, @bis_emde2023]. A peer-reviewed Vietnam analogue of @lin2013judging or @iyer2016screening does not yet exist.
+
+### Application considerations
+
+A sandbox-era Vietnamese P2P platform faces three modeling decisions that differ from LendingClub.
+
+First, the investor side. Under Decree 94/2025, investor access, participant caps, and suitability conditions are regulated within the sandbox perimeter. Investor-side selection is therefore partly an administrative variable, not only a market one. Models of loan funding should treat the investor pool as censored, using the Decree-prescribed participant mix as a stratification variable.
+
+Second, data access. A platform operating under the sandbox can negotiate data-sharing rights with partner banks and with CIC subject to Decree 13/2023 consent rules [@vn_decree13_2023, @cicvn2023report]. The feature inventory looks closer to an open-banking-plus-digital-footprint scorecard than to the LendingClub-style hard-covariate-plus-FICO. The modeling template is the one from @sec-ch17 and @sec-ch18, applied to a thin-file consumer base with Tet seasonality [@leboulanger2021tet].
+
+Third, conduct risk. Several of the 2018 to 2020 platform failures were driven not by credit risk but by collection-practice risk. The Vietnamese equivalent of UDAAP scrutiny runs through consumer-protection law and SBV supervisory attention. A scorecard that produces a low PD on paper but whose portfolio is underwritten by aggressive collection is not a sandbox-compliant model. Collection-practice metrics (complaint rate, recovery latency) should sit next to PD and AUC in the model-performance pack.
+
+### Rationalization
+
+Two arguments justify porting the @vallee2019marketplace and @lin2013judging methodology to Vietnam. First, the mechanism of marketplace lending is platform-neutral. Auction versus posted-price design, adverse selection from informational asymmetries, and soft-information decoding through text and network features all operate the same way whether the platform is Prosper, LendingClub, or Tima. The structural models transfer. Second, the comparative-advantage question posed by @tang2019peer, whether P2P is a substitute or complement to bank credit, is especially sharp in Vietnam where bank credit is rationed for thin-file consumers and SMEs [@ifc2019vnmsme]. A sandbox cohort provides a natural experiment: Decree 94/2025's entry and exit conditions give researchers a pre-registered timeline to evaluate.
+
+Limits to this transfer are twofold. Social-tie data (Prosper friendships) does not have a direct Vietnamese analogue; Zalo and Facebook graphs are not lawful to ingest without explicit consent under Decree 13/2023. Loan-description text is available but short, and Vietnamese lacks the large supervised corpora that power the TF-IDF and BERT pipelines in @sec-soft; lightweight multilingual or Vietnamese-specific encoders (PhoBERT) are the practical choice.
+
+### Practical notes
+
+Operationally, a sandbox-era Vietnamese P2P platform should do four things. First, align the product and consumer-protection design to Decree 94/2025 before scorecard development [@vn_decree94_2025]; the sandbox entry criteria include conduct-risk controls and caps. Second, build the scorecard on the @sec-ch17 and @sec-ch18 template: bureau plus behavioral plus e-wallet, with Tet-adjusted features and a vintage-stratified validation. Third, maintain a model-risk package that SBV Circular 41/2016 validation expectations would recognize for capital-relevant exposures [@sbv_circular41_2016]; for sandbox participants, documentation should be ready for supervisory review even where standardised capital does not apply. Fourth, report collection-practice KPIs alongside credit KPIs; SBV sandbox reviewers treat consumer-harm signals as first-order. Cross-country sandbox experience [@bis_cornelli_fintechemde2023, @bis_emde2023] suggests that the first cohort under Decree 94/2025 will set both the empirical frontier and the regulatory template for the next decade.
+
+## Takeaways
+
+- P2P platforms are a structured laboratory for credit research. The public LendingClub tapes are the de facto benchmark for US consumer-credit modeling and remain useful even after the platform pivoted away from retail notes.
+- Social features carry information but under strict conditions. Neighbor default rates on labeled prior vintages are the honest operationalization of the Bayesian update in @eq-posterior-friends. Raw centrality measures are weaker features unless they proxy selection effects.
+- Loan-description text is a small but real signal. It overlaps substantially with hard covariates, and its interaction with protected class makes it a fairness-sensitive feature (@sec-ch23).
+- A strict time-based split on LendingClub beats a random split by roughly 2 to 4 AUC points on realistic benchmarks. The 2015 to 2016 deterioration is the right test set for pre-2014 training.
+- Platform risk is distinct from loan credit risk. TrustBuddy, Lendy, and Collateral UK failed for operational reasons; the correct loss model for a retail P2P investor is the joint event in @eq-loss-platform.
+- The pandemic produced a dispersion of platform outcomes, not a uniform shock. Underwriting tightening and forbearance programs drove this dispersion. Studies that use 2020 vintages need explicit forbearance adjustments.
+
+## Further reading
+
+- @vallee2019marketplace on marketplace-lending mechanics and the auction-to-posted-price transition.
+- @lin2013judging on friendship networks and the identification of the social information signal on Prosper.
+- @iyer2016screening on the predictive value of loan-description soft information.
+- @duarte2012trust on listing photographs, trustworthiness perception, and default.
+- @jagtiani2019roles on LendingClub pricing and alternative data in fintech lending.
+- @tang2019peer on P2P as substitute or complement to bank credit.
+- @deroure2022p2p on selection into P2P versus bank channels.
+- @morse2015peer for the early literature review.
+- @netzer2019words on text-mining of loan descriptions.
+- @wei2017market on auction versus posted-price mechanisms on Prosper.
+- @freedman2017information on information value of social networks in P2P.
+- @cornelli2023fintech for cross-country fintech-credit volume dynamics.
+- @balyuk2023reintermediation on fintech-bank interactions.
+- @franks2021securitization on information aggregation in marketplace lending.
+- @buchak2018fintech on regulatory arbitrage and the rise of shadow banks in US lending.

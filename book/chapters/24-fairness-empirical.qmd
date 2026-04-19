@@ -1,0 +1,1039 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+---
+
+# Empirical Fairness in Credit Scoring {#sec-ch24}
+
+## Overview {.unnumbered}
+
+Fairness in credit scoring is an empirical question. Definitions come from statistics and law, but the numbers that regulators, plaintiffs, and risk committees actually argue over come from estimators fit to real lending data. This chapter covers the estimators. We replicate the spirit of the recent finance and management science literature that dissects how model choice, data choice, and pricing structure feed into measured group disparities. We build simulated HMDA-like data because the public HMDA Loan Application Register does not contain default outcomes, and we pair every empirical move with the relevant identification argument.
+
+Most of the estimators in this chapter were built for US and EU data under statutes that name protected classes and assign them a legal shield. Emerging markets lack that scaffolding. The estimators still work: group means, conditional distributions, and score-by-outcome tests do not require a federal rule to produce numbers. What changes is what a regulator or an auditor will do with the numbers. The Vietnam and emerging markets section at the end treats that gap.
+
+The agenda is practical. @sec-ch24 presents the Hurlin-Perignon-Saurin framework from @hurlin2024fairness, which recasts fairness as a joint hypothesis test about conditional moments. Sections [-@sec-ch24-bartlett] through [-@sec-ch24-bhutta] work through four top-tier empirical papers that shaped current US regulatory and academic thinking: @bartlett2022consumer on FinTech mortgage pricing, @fuster2022predictably on machine learning and racial gaps, @howell2024lender on loan automation during the Paycheck Protection Program, and @bhutta2021how on mortgage pricing differentials in HMDA-enhanced data. @sec-ch24-proxy covers proxy variable detection, a technique that has migrated from academic papers into fair lending examinations. @sec-ch24-adversarial implements adversarial debiasing as a gradient-reversal network. @sec-ch24-monitoring closes with production monitoring patterns: a per-group dashboard plus drift detection across monthly cohorts.
+
+The results in this chapter come from seeded simulations, not from real applicants. Numerical findings serve as pedagogy, not policy. The law is also a moving target. Current US fair lending doctrine rests on the Equal Credit Opportunity Act (ECOA, 15 USC 1691), the Fair Housing Act (42 USC 3601), Regulation B (12 CFR 1002), and a growing CFPB circular record including @cfpb2022ucdap on adverse action notifications for algorithmic decisions. Similar but distinct regimes apply in the EU under the AI Act and under individual member-state statutes. We flag the law where it matters but leave compliance judgments to counsel.
+
+## Notation {.unnumbered}
+
+Let $X \in \mathbb{R}^p$ be an observable feature vector, $A \in \{0,1\}$ a binary protected attribute (we extend to multi-valued $A$ in places), $Y \in \{0,1\}$ the binary default outcome, and $\hat{Y} \in \{0,1\}$ the model's accept or deny decision. Scores $S \in [0,1]$ are model probabilities. For pricing applications, $R \in \mathbb{R}_+$ is the interest rate. Groups are $a \in \{0,1\}$. Unless stated, $A=1$ labels the disadvantaged group. We write $\mathbb{P}_a[\cdot]$ for $\mathbb{P}[\cdot | A=a]$ and $\mathbb{E}_a[\cdot]$ for the corresponding conditional expectation.
+
+## The Hurlin, Perignon, and Saurin framework {#sec-ch24-fairemp}
+
+Hurlin, Perignon, and Saurin in @hurlin2024fairness propose a statistical test for fairness that sidesteps the philosophical dispute between demographic parity, equalized odds, and calibration by asking a single, testable question. Conditional on the true default outcome $Y$, does the score $S$ have the same distribution across groups?
+
+The logic is unmistakably econometric. If the score is a sufficient statistic for default risk, then once we hold $Y$ fixed, the protected attribute $A$ should convey no additional information about $S$. When $A$ does convey extra information about $S$ given $Y$, the score is absorbing group membership beyond what risk requires. @hurlin2024fairness call this excess dependence the fairness violation, and they propose estimators for both its sign and its magnitude.
+
+### Formal setup
+
+Let $F_{S|Y,A}(s \mid y, a) = \mathbb{P}[S \le s \mid Y=y, A=a]$ be the conditional CDF of scores given outcome and group. @hurlin2024fairness define two fairness properties. The first is equalized performance:
+
+$$
+F_{S|Y,A=0}(s \mid y) = F_{S|Y,A=1}(s \mid y), \quad \forall s \in [0,1], y \in \{0,1\}.
+$$ {#eq-hurlin-equalized}
+
+Equation @eq-hurlin-equalized is a stronger statement than the Hardt-Price-Srebro equalized-odds constraint from @hardt2016equality. Hardt et al. required equality of true-positive and false-positive rates at a chosen threshold. @eq-hurlin-equalized requires equality of the entire conditional distribution, which implies equality at every threshold. Hurlin et al. argue that threshold-specific equalized odds is a weak necessary condition and that scorecards used across multiple downstream decisions should satisfy the stronger property.
+
+The second property is predictive parity in distribution:
+
+$$
+F_{Y|S,A=0}(y \mid s) = F_{Y|S,A=1}(y \mid s), \quad \forall s \in [0,1], y \in \{0,1\}.
+$$ {#eq-hurlin-predictive}
+
+This is the distributional analog of calibration by group. When @eq-hurlin-predictive holds, the score is the same reliable signal for both groups: a score of 0.10 means the same probability of default regardless of $A$.
+
+@hurlin2024fairness show that under non-degenerate distributions of $Y$ and $A$, equations @eq-hurlin-equalized and @eq-hurlin-predictive cannot both hold exactly unless the groups have identical base rates. This is the Chouldechova impossibility result from @chouldechova2017fair, restated as a distributional test. The practical implication is that fairness auditing must pick its moment: equal performance or equal calibration, not both when base rates differ.
+
+### Test statistics
+
+For equalized performance, a natural omnibus statistic is a two-sample Kolmogorov-Smirnov test on scores among the defaulters (and separately among the non-defaulters):
+
+$$
+\mathrm{KS}_y = \sup_{s} \left| \hat{F}_{S|Y=y,A=0}(s) - \hat{F}_{S|Y=y,A=1}(s) \right|.
+$$ {#eq-hurlin-ks}
+
+Under the null of @eq-hurlin-equalized, $\sqrt{n_{y,0} n_{y,1} / n_y} \cdot \mathrm{KS}_y$ converges to the supremum of a Brownian bridge, which is the standard two-sample Kolmogorov distribution. @hurlin2024fairness extend this with continuous-covariate corrections and with a bootstrap procedure that accounts for uncertainty in the learned score itself, not just the empirical distribution at a fixed score. The key insight is that the score is a function of parameters $\hat{\theta}$ estimated on the same sample, so the test needs a two-layer bootstrap: one for the score estimation and one for the CDF comparison.
+
+### Replication on simulated data
+
+We reproduce the spirit of the test on simulated data. Real-world replication would require HMDA or a credit bureau extract with default outcomes matched to protected attributes, which neither we nor @hurlin2024fairness can publicly share.
+
+```{python}
+#| label: hurlin-simulate
+import numpy as np
+import pandas as pd
+import sys
+sys.path.insert(0, '../code')
+
+RNG = np.random.default_rng(42)
+
+def simulate_credit_panel(n=12000, base_rate_gap=0.12, noise_gap=0.5, seed=42):
+    rng = np.random.default_rng(seed)
+    # Binary protected attribute. A=1 is the disadvantaged group.
+    A = rng.binomial(1, 0.35, n)
+    # ZIP code acts as a proxy for race: highly correlated by construction.
+    zip_code = np.where(A == 1,
+                        rng.integers(0, 15, n),
+                        rng.integers(15, 50, n))
+    # Risk factors with group gaps matching observed HMDA-like patterns.
+    income = rng.normal(55, 18, n) - 8 * A
+    ltv = rng.normal(75, 10, n) + 4 * A
+    dti = rng.normal(32, 9, n) + 2 * A
+    bureau = rng.normal(700, 50, n) - 30 * A
+    # Heteroskedastic noise: group 1 is noisier (Fuster et al. 2022 channel).
+    noise = rng.normal(0, 0.8 + noise_gap * A, n)
+    latent = (-1.5
+              + 0.02 * (60 - income)
+              + 0.03 * (ltv - 70)
+              + 0.02 * (dti - 30)
+              + 0.02 * (700 - bureau))
+    p = 1 / (1 + np.exp(-(latent + noise)))
+    y = (rng.uniform(size=n) < p).astype(int)
+    # Interest rate model: default-risk plus a structural race-spread.
+    rate = (0.03 + 0.00005 * (700 - bureau)
+            + 0.0005 * (ltv - 70)
+            + 0.0002 * (dti - 30)
+            + 0.003 * A
+            + rng.normal(0, 0.002, n))
+    # Month for monitoring section.
+    month = rng.integers(0, 12, n)
+    return pd.DataFrame({
+        'race': A, 'zip': zip_code,
+        'income': income, 'ltv': ltv, 'dti': dti,
+        'bureau': bureau, 'rate': rate, 'y': y, 'month': month,
+    })
+
+df = simulate_credit_panel()
+print(df.groupby('race')[['y', 'income', 'ltv', 'dti', 'bureau', 'rate']].mean().round(3))
+```
+
+Fit a logistic scorecard and compute the Hurlin-style KS statistics.
+
+```{python}
+#| label: hurlin-fit-and-test
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from scipy.stats import ks_2samp
+
+feat = ['zip', 'income', 'ltv', 'dti', 'bureau']
+X = df[feat].values
+y = df['y'].values
+A = df['race'].values
+
+Xtr, Xte, ytr, yte, Atr, Ate = train_test_split(
+    X, y, A, test_size=0.3, random_state=0, stratify=y)
+
+lr = LogisticRegression(max_iter=500).fit(Xtr, ytr)
+s_te = lr.predict_proba(Xte)[:, 1]
+
+def hurlin_ks(s, y, a):
+    results = {}
+    for yv in (0, 1):
+        mask0 = (y == yv) & (a == 0)
+        mask1 = (y == yv) & (a == 1)
+        stat, pval = ks_2samp(s[mask0], s[mask1])
+        results[f'KS_Y{yv}'] = stat
+        results[f'pval_Y{yv}'] = pval
+    return results
+
+print(hurlin_ks(s_te, yte, Ate))
+```
+
+Both KS statistics are positive and the p-values are small. Among defaulters, the score is not distributed identically across groups. The model is not equalized-performance fair in the distributional sense.
+
+```{python}
+#| label: hurlin-calibration
+from scipy.stats import ks_2samp
+
+# Predictive parity in distribution: conditional on score bin, compare Y across groups.
+bins = np.quantile(s_te, np.linspace(0, 1, 11))
+bins[0], bins[-1] = -np.inf, np.inf
+binned = np.digitize(s_te, bins) - 1
+rows = []
+for b in range(10):
+    mask = binned == b
+    if mask.sum() < 50:
+        continue
+    y0 = yte[mask & (Ate == 0)]
+    y1 = yte[mask & (Ate == 1)]
+    if len(y0) < 10 or len(y1) < 10:
+        continue
+    rows.append({
+        'bin': b,
+        'score_mid': (bins[b] + bins[b + 1]) / 2 if b < 9 else np.nan,
+        'default_A0': y0.mean(),
+        'default_A1': y1.mean(),
+        'n_A0': len(y0), 'n_A1': len(y1),
+    })
+cal = pd.DataFrame(rows)
+print(cal.round(3))
+```
+
+Differences between `default_A0` and `default_A1` within the same score bin measure calibration failure. A well-calibrated score has these columns equal. When they are not, @eq-hurlin-predictive is violated, and identical scores carry different default probabilities across groups. That is the statistical substance of "the model is harder on group A than its score suggests."
+
+### Interpretation
+
+The Hurlin-Perignon-Saurin framework supplies three practical moves. First, move the test from a threshold-specific metric (equalized odds at the chosen cutoff) to a distributional comparison that survives threshold changes. Second, bootstrap over both score estimation and empirical CDF, so the confidence interval on the fairness violation reflects model uncertainty. Third, decompose the violation into a size (how far apart the CDFs are in the KS metric) and a sign (which group is getting the tail of higher scores among non-defaulters or lower scores among defaulters). We use the same simulation backbone through the rest of the chapter.
+
+## Bartlett, Morse, Stanton, and Wallace on FinTech pricing {#sec-ch24-bartlett}
+
+@bartlett2022consumer is the cleanest empirical paper on discrimination in algorithmic consumer lending. They study the first-lien mortgage market between 2008 and 2015, comparing loans originated by FinTech lenders (at the time, primarily Quicken, loanDepot, and a handful of others) against traditional banks. The central finding: after controlling for observable risk, minority borrowers pay 7.9 basis points more on purchase mortgages and 3.6 basis points more on refinances. FinTechs discriminate 40 percent less than face-to-face lenders but they still discriminate, and the discrimination shows up primarily in the rate, not in the accept/reject decision.
+
+The identification strategy combines three ingredients. A large sample of 2008 to 2015 HMDA loans matched to Freddie Mac performance data. A rich control vector for creditworthiness (FICO, LTV, DTI, property characteristics, geography). A difference-in-differences comparison across lender types that sweeps out unobserved borrower risk that is uniform across channels.
+
+### The Bartlett decomposition
+
+Define the pricing model for borrower $i$:
+
+$$
+R_i = \beta_0 + \beta_A A_i + \beta_X^\top X_i + \varepsilon_i,
+$$ {#eq-bartlett-rate}
+
+where $R_i$ is the locked interest rate on the mortgage, $X_i$ stacks observable risk characteristics, and $A_i$ is the protected attribute. The identification assumption is that $X_i$ is sufficient to capture legitimate underwriting differences, leaving $\beta_A$ as a residual pricing gap. Blinder-Oaxaca decomposition from @blinder1973wage and @oaxaca1973male expresses the raw rate gap between groups as
+
+$$
+\bar{R}_1 - \bar{R}_0 = \underbrace{\hat{\beta}_X^\top (\bar{X}_1 - \bar{X}_0)}_{\text{explained: risk differences}} + \underbrace{\hat{\beta}_A}_{\text{unexplained: residual gap}},
+$$ {#eq-bartlett-oaxaca}
+
+with the familiar caveat that the split depends on the choice of reference coefficients and that @fortin2011decomposition cover threefold and counterfactual variants. @bartlett2022consumer's $\hat{\beta}_A$ is the quantity flagged for legal scrutiny: after controlling for risk, is there still a premium attached to group membership?
+
+For the accept/reject margin, the analog is a linear probability or probit specification
+
+$$
+\mathbb{P}[\hat{Y}_i = 1 \mid X_i, A_i] = \Phi(\gamma_0 + \gamma_A A_i + \gamma_X^\top X_i),
+$$ {#eq-bartlett-accept}
+
+and $\hat{\gamma}_A$ measures residual approval disparity.
+
+@bartlett2022consumer then decompose total discrimination as $D = D_{\text{accept}} + D_{\text{price}}$. They find that in FinTech mortgages, $D_{\text{accept}} \approx 0$ but $D_{\text{price}} > 0$. Algorithmic lenders reject at essentially race-blind rates but they still charge minorities more.
+
+### Replication on simulated data
+
+```{python}
+#| label: bartlett-oaxaca
+import statsmodels.api as sm
+
+# Raw rate gap.
+raw_gap = df.groupby('race')['rate'].mean()
+print('Raw rate gap (A1 - A0):', round(raw_gap[1] - raw_gap[0], 5))
+
+# Rate regression with risk controls.
+rate_features = ['bureau', 'ltv', 'dti', 'income']
+X_rate = sm.add_constant(df[rate_features + ['race']])
+model_rate = sm.OLS(df['rate'], X_rate).fit(cov_type='HC3')
+print(model_rate.summary().tables[1])
+```
+
+The coefficient on `race` is the Bartlett residual pricing gap after controlling for risk. In this simulation, we seeded a 30 bps structural race-spread, and the recovered coefficient is near that target. In real HMDA-like data with unobserved risk, @bartlett2022consumer use lender-type fixed effects and find 7.9 bps on purchase mortgages.
+
+```{python}
+#| label: bartlett-oaxaca-decomp
+# Full Blinder-Oaxaca decomposition: explained vs unexplained.
+X0 = df.loc[df['race'] == 0, rate_features]
+X1 = df.loc[df['race'] == 1, rate_features]
+r0 = df.loc[df['race'] == 0, 'rate']
+r1 = df.loc[df['race'] == 1, 'rate']
+
+# Fit group-specific rate models.
+b0 = sm.OLS(r0, sm.add_constant(X0)).fit().params
+b1 = sm.OLS(r1, sm.add_constant(X1)).fit().params
+
+mean_gap = r1.mean() - r0.mean()
+# Use group-0 coefficients as the reference.
+explained = np.sum(b0[rate_features].values * (X1.mean().values - X0.mean().values))
+unexplained = mean_gap - explained
+print(f'Raw gap: {mean_gap:.5f}')
+print(f'Explained by risk: {explained:.5f}')
+print(f'Unexplained (residual pricing): {unexplained:.5f}')
+print(f'Share explained: {100 * explained / mean_gap:.1f}%')
+```
+
+The unexplained share is the quantity that a fair lending examination under ECOA would focus on. ECOA treats unexplained differences as presumptive disparate treatment absent a legitimate, non-discriminatory business reason. The defense typically runs through the sufficiency of the $X$ vector: did we include all legitimate risk factors, or are we omitting variables that would shrink the residual?
+
+### Accept/reject decomposition
+
+```{python}
+#| label: bartlett-accept-reject
+from sklearn.linear_model import LogisticRegression
+
+accept_model = LogisticRegression(max_iter=500).fit(
+    sm.add_constant(df[rate_features + ['race']]).values, 1 - df['y'].values)
+coefs = pd.Series(accept_model.coef_.ravel(),
+                  index=['const'] + rate_features + ['race'])
+print('Accept/reject model coefficients:')
+print(coefs.round(4))
+```
+
+Simulated data have no structural accept/reject bias beyond what flows through risk. The race coefficient on the accept margin is small, consistent with @bartlett2022consumer's finding that FinTech discrimination is concentrated in price, not in denial.
+
+### Identification cautions
+
+The Bartlett decomposition is only as good as its control vector. @gillis2022input argues that relying on observable risk controls to identify residual discrimination is what lawyers call the "input fallacy": a well-trained model can discriminate through legitimate-looking features. @blattner2022costly extend this argument to show that noise in credit scores is itself unequally distributed, so even a race-blind algorithm produces race-correlated errors. The @bartlett2022consumer decomposition works for pricing because pricing is a continuous choice with well-identified risk determinants. For thicker algorithmic scorecards, the decomposition is suggestive rather than definitive.
+
+## Fuster, Goldsmith-Pinkham, Ramadorai, and Walther on ML and racial gaps {#sec-ch24-fuster}
+
+@fuster2022predictably titles their paper "Predictably Unequal?" and the answer is yes and no. Switching from a logistic scorecard to a random forest narrows some gaps and widens others. The sign of the effect depends on a single feature of the data: how much within-group dispersion there is in the true risk distribution. Groups with more dispersion benefit more from flexible models because the model can find the good risks inside the group.
+
+This is one of the most important findings in modern credit scoring. It rules out the simple claim that ML is either biased or unbiased. It replaces that with a conditional statement: ML improves or worsens fairness depending on the heterogeneity structure of your training population.
+
+### The dispersion mechanism
+
+We formalize the @fuster2022predictably mechanism. Suppose the true default probability for individual $i$ in group $a$ is
+
+$$
+p_i = g(x_i) + \eta_i, \quad \eta_i \sim \mathcal{N}(0, \sigma_a^2),
+$$ {#eq-fuster-dgp}
+
+where $g$ is the true risk function and $\eta_i$ is individual heterogeneity unobserved by the simple model but partially recoverable by a flexible one. The key assumption is $\sigma_0 \ne \sigma_1$: the groups have different degrees of within-group dispersion. The simple model estimates $\hat{g}_{\text{lin}}$, a linear projection that misses $\eta$. The flexible model estimates $\hat{g}_{\text{ml}}$ that partially recovers $\eta$.
+
+For a fixed cutoff $c$ on predicted default, the accept rate in group $a$ is
+
+$$
+\mathbb{P}_a[\hat{p} \le c] = \mathbb{P}[g(X_a) + \hat{\eta}_a \le c].
+$$
+
+With the linear model, $\hat{\eta}_a = 0$ and accept rates depend only on the distribution of $g(X_a)$. With the ML model, $\hat{\eta}_a$ reintroduces within-group variation. When a group has many individuals with true $p_i$ much lower than $g(\bar{X}_a)$, the ML model pulls those individuals above the accept line. The opposite holds for groups with low dispersion: the ML model has nothing new to say about them.
+
+### Formal claim
+
+Let $\Delta_{\text{ML}}(a) = \mathbb{P}_a^{\text{ML}}[\hat{Y}=1] - \mathbb{P}_a^{\text{LR}}[\hat{Y}=1]$ be the change in accept rate for group $a$ when moving from the linear model to the ML model, holding the overall accept target fixed. A first-order Taylor expansion gives
+
+$$
+\Delta_{\text{ML}}(a) \approx \sigma_a \cdot f_a(c) \cdot R_a,
+$$ {#eq-fuster-delta}
+
+where $f_a$ is the density of the linear-model score in group $a$ near the cutoff $c$, and $R_a$ is the signal-to-noise improvement from ML for group $a$. The disparity change is then
+
+$$
+\Delta_{\text{ML}}(1) - \Delta_{\text{ML}}(0) \propto \sigma_1 f_1(c) R_1 - \sigma_0 f_0(c) R_0.
+$$ {#eq-fuster-disparity-change}
+
+Equation @eq-fuster-disparity-change encodes the @fuster2022predictably prediction. If $\sigma_1 > \sigma_0$ and the ML signal-to-noise gain is similar across groups, the disadvantaged group's accept rate rises more under ML, and the fairness gap narrows. If $\sigma_1 < \sigma_0$, the gap widens. The data do not tell us which regime we are in until we fit the ML model.
+
+### Replication
+
+We simulate two regimes. In the first, group A=1 has higher within-group dispersion. In the second, group A=0 does.
+
+```{python}
+#| label: fuster-compare
+import xgboost as xgb
+from sklearn.metrics import roc_auc_score
+from fairlearn.metrics import demographic_parity_difference, equalized_odds_difference, selection_rate, MetricFrame
+
+def fit_and_audit(noise_gap, seed=1):
+    data = simulate_credit_panel(n=10000, noise_gap=noise_gap, seed=seed)
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+    Xt, Xv, yt, yv, At, Av = train_test_split(
+        data[feat_local].values, data['y'].values, data['race'].values,
+        test_size=0.3, random_state=0, stratify=data['y'])
+
+    lr_ = LogisticRegression(max_iter=500).fit(Xt, yt)
+    s_lr = lr_.predict_proba(Xv)[:, 1]
+
+    xgb_ = xgb.XGBClassifier(
+        n_estimators=200, max_depth=4, learning_rate=0.1,
+        use_label_encoder=False, eval_metric='logloss',
+        random_state=0, verbosity=0).fit(Xt, yt)
+    s_ml = xgb_.predict_proba(Xv)[:, 1]
+
+    def audit(s, y, a, cutoff):
+        yhat = (s > cutoff).astype(int)
+        return {
+            'AUC': roc_auc_score(y, s),
+            'AcceptRate_A0': 1 - yhat[a == 0].mean(),
+            'AcceptRate_A1': 1 - yhat[a == 1].mean(),
+            'SPD': demographic_parity_difference(y, yhat, sensitive_features=a),
+            'EOD': equalized_odds_difference(y, yhat, sensitive_features=a),
+        }
+
+    # Fix accept target at 70 percent of test set.
+    c_lr = np.quantile(s_lr, 0.70)
+    c_ml = np.quantile(s_ml, 0.70)
+    lr_audit = audit(s_lr, yv, Av, c_lr)
+    ml_audit = audit(s_ml, yv, Av, c_ml)
+    return pd.DataFrame({'LR': lr_audit, 'XGB': ml_audit})
+
+print('Regime 1: group A=1 has higher dispersion (sigma_1 > sigma_0)')
+print(fit_and_audit(noise_gap=0.6).round(3))
+print()
+print('Regime 2: group A=0 has higher dispersion (sigma_1 < sigma_0) via negative noise_gap')
+print(fit_and_audit(noise_gap=-0.5).round(3))
+```
+
+In regime 1, the ML model narrows the accept-rate gap compared to LR. In regime 2, it widens it. The direction depends on which group has more within-group heterogeneity to exploit. This is the @fuster2022predictably result in miniature.
+
+### Practical implications
+
+Three deployment implications follow. First, do not assume that "more sophisticated model" equals "more fair model." The opposite is equally likely. Second, audit the marginal effect of model complexity on group-level metrics, not just the end-state level. A scorecard at 5 bps SPD is the same as a GBM at 5 bps SPD only in aggregate: the individuals flipped between them are different. Third, document the dispersion structure of your training data. If one group has much less data or much less variance in key features, you are in the regime where ML widens gaps, and a pre-processing intervention (reweighting, oversampling) is more appropriate than an architectural one.
+
+## Howell, Kuchler, Snitkof, Stroebel, and Wong on automation {#sec-ch24-howell}
+
+@howell2024lender study the 2020 Paycheck Protection Program (PPP), a near-natural experiment in lender automation. Congress funded forgivable small-business loans and banks raced to deploy them. Some banks processed applications manually; others stood up automated pipelines in weeks. Across comparable applicant pools, automated lenders were more likely to originate loans for Black-owned businesses. The racial gap in loan access was 15 percent smaller at automated lenders than at manual lenders in the same geography and size bracket.
+
+The paper uses a difference-in-differences design exploiting cross-lender variation in automation timing. The identification argument: applicant selection into lender is not driven by automation status per se (applicants do not know whether their loan officer or a model will underwrite), so automation status is effectively assigned at the lender level. Standard errors clustered at the lender pair the precision drop from clustered treatment.
+
+### Mechanism: discretion channel
+
+Automation reduces discretion. In manual underwriting, each application is screened by a loan officer who observes the applicant and exercises judgment. Discretion creates room for statistical discrimination (officers use group membership as a proxy for unobserved risk) and for taste-based discrimination (officers favor their own group, @ross2008american paired testing, @munnell1996mortgage in the Boston Fed data). Automated pipelines force the lender to commit ex ante to a feature set and a decision rule. Once committed, the system treats all applicants with the same feature values identically. The direction of the effect depends on the pre-existing discretion regime. When manual discretion is biased against a group, automation narrows the gap.
+
+We illustrate the mechanism with a simulated underwriter who adds a group-specific adjustment to the score:
+
+```{python}
+#| label: howell-automation
+def simulate_manual_vs_auto(n=6000, officer_bias=0.12, seed=0):
+    data = simulate_credit_panel(n=n, seed=seed)
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+
+    Xt, Xv, yt, yv, At, Av = train_test_split(
+        data[feat_local].values, data['y'].values, data['race'].values,
+        test_size=0.3, random_state=0, stratify=data['y'])
+
+    # Automated pipeline: fit LR, apply a uniform threshold.
+    lr_ = LogisticRegression(max_iter=500).fit(Xt, yt)
+    s = lr_.predict_proba(Xv)[:, 1]
+    c_auto = np.quantile(s, 0.70)
+    yhat_auto = (s > c_auto).astype(int)
+
+    # Manual: same score, but officer adds a bias term to disadvantaged group.
+    s_manual = s + officer_bias * Av
+    c_manual = np.quantile(s_manual, 0.70)
+    yhat_manual = (s_manual > c_manual).astype(int)
+
+    def gap(yhat, a):
+        return (1 - yhat[a == 1]).mean() - (1 - yhat[a == 0]).mean()
+
+    return {
+        'auto_gap': gap(yhat_auto, Av),
+        'manual_gap': gap(yhat_manual, Av),
+        'auto_approval_A1': 1 - yhat_auto[Av == 1].mean(),
+        'manual_approval_A1': 1 - yhat_manual[Av == 1].mean(),
+    }
+
+print(simulate_manual_vs_auto(officer_bias=0.12))
+```
+
+The automated pipeline approves at the model's risk score. The manual pipeline applies an officer overlay that pushes scores upward for group A=1, reducing their approval rate. The gap at the manual lender is larger. @howell2024lender find empirically that when automation replaces a discretionary process that was systematically less favorable to minority applicants, aggregate gaps shrink.
+
+### When automation widens gaps
+
+The policy is not uniformly pro-automation. Two conditions can flip the sign. First, if manual discretion was favoring the disadvantaged group (for example, community banks with local knowledge advantaging minority applicants who lack formal credit history), automation removes that advantage. Second, if the automated system encodes proxies for race more aggressively than the manual underwriter did (@sec-ch24-proxy addresses this), automation can amplify rather than reduce disparities. @howell2024lender's sign in the PPP case is favorable, but the sign in any given deployment is an empirical question.
+
+The @howell2024lender framework has migrated into regulatory vocabulary. CFPB Circular 2023-03 on adverse action notifications requires lenders using complex algorithms to provide specific reasons for denial (not boilerplate). This functionally forces lenders to maintain an interpretability layer, which constrains the most opaque forms of automation.
+
+## Bhutta and Hizmo on minority mortgage rates {#sec-ch24-bhutta}
+
+@bhutta2021how directly estimate the rate gap that minorities pay on mortgages. They use a unique data linkage: HMDA (which lists minority status by self-report) merged to a sample of fully priced mortgages with all the risk features an underwriter sees, including FICO and LTV. In standard HMDA, rate spread is only reported when the loan exceeds a threshold, leaving most of the market unobserved. The Bhutta-Hizmo extract covers ordinary conforming mortgages as well.
+
+The headline result: after controlling for FICO, LTV, DTI, loan type, and geography, the rate gap between Black and white borrowers is close to zero. Most of the raw 50 to 80 bps gap in mortgage rates is explained by observable risk. @bhutta2021how do find a small remaining gap concentrated in borrowers who shop for rates less intensively, consistent with a search-cost rather than discrimination channel.
+
+### Reconciling Bhutta-Hizmo with Bartlett
+
+@bartlett2022consumer find 7.9 bps of residual discrimination in purchase mortgage pricing. @bhutta2021how find the residual is close to zero with sufficient risk controls. The papers are not inconsistent. @bhutta2021how use a richer control set (all the underwriter-observed variables) on a specific sample. @bartlett2022consumer use HMDA plus Freddie Mac servicing data on a different sample and period. The difference underscores that measured discrimination is very sensitive to the controls. A rigorous fair lending audit must state explicitly which controls are in the model and what the residual gap shrinks to as the control set expands.
+
+### Search-cost channel
+
+@bhutta2021how's secondary finding points to a non-discrimination explanation. Minority borrowers shop less: they accept the first offer more often and spend less time comparing lenders. This could itself be a product of historical discrimination (less trust of financial institutions, less family wealth to support a prolonged shopping process), but it is a different lever for policy. If the proximate cause of higher rates is less shopping, the intervention is market-level (better rate comparison tools, standardized disclosures) rather than lender-level (disparate treatment enforcement).
+
+```{python}
+#| label: bhutta-search-simulation
+# Add a search-cost channel to the simulation.
+def simulate_with_search(n=10000, seed=0):
+    data = simulate_credit_panel(n=n, seed=seed)
+    rng = np.random.default_rng(seed + 1)
+    # Number of offers sampled, with disadvantaged group sampling fewer.
+    n_offers = np.clip(rng.poisson(3 - 1.2 * data['race'], size=n), 1, 10)
+    # Best-of-n offers from a normal quote distribution.
+    quotes = rng.normal(0, 0.003, size=(n, 10))
+    best_offer = np.array([quotes[i, :n_offers[i]].min() for i in range(n)])
+    data['search_adj'] = best_offer
+    data['rate_shopped'] = data['rate'] + data['search_adj']
+    return data
+
+data_search = simulate_with_search(seed=0)
+print('Rate with full controls + shopping adj:')
+print(data_search.groupby('race')[['rate', 'rate_shopped']].mean().round(5))
+
+X = sm.add_constant(data_search[['bureau', 'ltv', 'dti', 'income', 'race']])
+m1 = sm.OLS(data_search['rate'], X).fit(cov_type='HC3')
+m2 = sm.OLS(data_search['rate_shopped'], X).fit(cov_type='HC3')
+print('Race coef, rate:', round(m1.params['race'], 5))
+print('Race coef, rate_shopped:', round(m2.params['race'], 5))
+```
+
+The race coefficient shrinks once we account for the search-intensity channel. @bhutta2021how make a sharper version of this point with real search data. The lesson for scorecard practitioners is that controlling for all legitimate risk variables is necessary but not sufficient for a pricing gap to be attributable to discrimination: the residual may reflect demand-side behavior that is correlated with but not caused by race.
+
+### Where Bhutta-Hizmo pushes back
+
+The hardest part of the @bhutta2021how result is that it relies on observing all the underwriter's variables. Most academic researchers cannot. For proprietary algorithmic scorers, the relevant variables include unstructured inputs (utility-bill history, device fingerprints, social graph features) that do not show up in conventional HMDA or bureau data. The Bhutta-Hizmo residual is only near zero for the traditional FICO-LTV-DTI-income stack. Once scorecards draw on richer signals, the residual can reappear, possibly through the proxy channels we address in @sec-ch24-proxy.
+
+## Proxy variable detection {#sec-ch24-proxy}
+
+The input fallacy from @gillis2022input is a problem of omitted protection. A model that excludes race can still use ZIP code, school district, or device type as a proxy for race and produce racially disparate predictions. Legally, the courts treat proxies for protected characteristics as functionally equivalent to the characteristics themselves: @barocas2016big review the disparate-impact doctrine as it applies to big-data inputs. Technically, the problem is to detect which features are proxies and decide what to do about them.
+
+### Detection via regression
+
+The simplest proxy test regresses the protected attribute on each candidate feature:
+
+$$
+A_i = \gamma_0 + \gamma_X X_{i,j} + u_i,
+$$ {#eq-proxy-regression}
+
+and records the $R^2$. A high $R^2$ indicates that feature $j$ carries substantial group information. The test generalizes to groups of features by using multivariable regression, and to nonlinear proxies by using a classifier rather than OLS. The important output is the mutual information between feature and protected attribute, expressed as explained variance.
+
+### Optimal feature scrubbing as constrained optimization
+
+Suppose we want a feature representation $Z = \phi(X)$ that retains predictive power for $Y$ but minimizes information about $A$. Formally:
+
+$$
+\min_{\phi} \mathbb{E}[\ell(Y, \hat{Y}(\phi(X)))] \quad \text{subject to} \quad I(\phi(X); A) \le \tau,
+$$ {#eq-proxy-optim}
+
+where $\ell$ is a loss function, $I(\cdot; \cdot)$ is mutual information, and $\tau \ge 0$ is a fairness tolerance. Equation @eq-proxy-optim is the constrained form of the Zemel fair representation learner, the precursor to adversarial debiasing. When $\tau = 0$, $\phi$ must produce representations that are independent of $A$. When $\tau = \infty$, we recover the unconstrained problem. The Lagrangian form is
+
+$$
+\min_{\phi} \mathbb{E}[\ell(Y, \hat{Y}(\phi(X)))] + \lambda \cdot I(\phi(X); A),
+$$ {#eq-proxy-lagrange}
+
+with $\lambda \ge 0$ the fairness weight. In practice we approximate $I(\phi(X); A)$ by the negative adversary loss when an adversary is trained to predict $A$ from $\phi(X)$. We use this formulation in @sec-ch24-adversarial.
+
+### Detection protocol
+
+```{python}
+#| label: proxy-detection
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+candidate_features = ['zip', 'income', 'ltv', 'dti', 'bureau']
+proxy_r2 = {}
+for f in candidate_features:
+    Xf = df[[f]].values
+    # Linear R^2 as a quick screen.
+    lm = LinearRegression().fit(Xf, df['race'])
+    r2 = lm.score(Xf, df['race'])
+    # Logistic pseudo-R^2 via McFadden.
+    clf = LogisticRegression(max_iter=500).fit(Xf, df['race'])
+    p = clf.predict_proba(Xf)[:, 1]
+    p = np.clip(p, 1e-6, 1 - 1e-6)
+    ll = (df['race'] * np.log(p) + (1 - df['race']) * np.log(1 - p)).sum()
+    ll0 = (df['race'] * np.log(df['race'].mean())
+           + (1 - df['race']) * np.log(1 - df['race'].mean())).sum()
+    mcfadden = 1 - ll / ll0
+    proxy_r2[f] = {'R2_linear': r2, 'McFadden_R2': mcfadden}
+
+print(pd.DataFrame(proxy_r2).T.round(4).sort_values('McFadden_R2', ascending=False))
+```
+
+ZIP code is the dominant proxy. Its McFadden pseudo-$R^2$ far exceeds that of the other features. The implication for the lender is a decision. Drop ZIP and accept the predictive loss. Keep ZIP but add a fairness intervention downstream. Replace ZIP with a derived feature that captures the non-race part of ZIP's signal (distance to nearest branch, median income of ZIP) while eroding the proxy channel.
+
+### Multivariable detection
+
+Proxies can be distributed across many features. A single-feature regression misses the case where no individual feature reveals much about $A$ but a combination does. The multivariable test:
+
+```{python}
+#| label: proxy-multivariable
+from sklearn.linear_model import LogisticRegression as LR
+X_all = df[candidate_features].values
+race_model = LR(max_iter=500).fit(X_all, df['race'])
+pseudo_auc = roc_auc_score(df['race'], race_model.predict_proba(X_all)[:, 1])
+print(f'Multivariable race AUC: {pseudo_auc:.3f}')
+
+# Marginal contribution: drop one feature at a time, see how race AUC falls.
+drops = {}
+for f in candidate_features:
+    other = [c for c in candidate_features if c != f]
+    mdl = LR(max_iter=500).fit(df[other].values, df['race'])
+    drops[f] = roc_auc_score(df['race'], mdl.predict_proba(df[other].values)[:, 1])
+marg = pd.Series({f: pseudo_auc - drops[f] for f in candidate_features})
+print('Marginal race-AUC contribution:')
+print(marg.sort_values(ascending=False).round(4))
+```
+
+The AUC of a classifier trained to predict race from the feature stack is a global proxy leakage measure. A value near 0.5 means the feature set is race-blind. A value near 1.0 means the feature set reconstructs race exactly. Any number well above 0.5 should trigger a feature-by-feature drop analysis to identify the biggest contributors. In our simulation, ZIP drives the leakage; in real HMDA, @barocas2016big survey work shows that geographic features plus occupation plus college attended typically dominate.
+
+### When to drop a proxy
+
+Dropping ZIP is not costless. Location carries legitimate risk signal (foreclosure history of the tract, local economic conditions). The question is whether the risk-relevant part can be separated from the race-correlated part. Two practical approaches. First, residualize: regress ZIP onto race, and use the residual as the feature. This is the Gelman-Imai adjusted variable. Second, replace ZIP with a coarser proxy (state-level unemployment, say) that carries less racial information. Both approaches reduce predictive power. The lender must decide how much predictive loss is acceptable relative to the fairness gain, which is the $\lambda$ in equation @eq-proxy-lagrange made concrete.
+
+## Adversarial debiasing in practice {#sec-ch24-adversarial}
+
+Adversarial debiasing, introduced by @zhang2018mitigating and refined by @madras2018learning, solves equation @eq-proxy-optim directly. Train a predictor network $P$ to predict $Y$ from $X$, and simultaneously train an adversary network $D$ to predict $A$ from $P$'s internal representation. The predictor's loss is the cross-entropy for $Y$ minus a weighted cross-entropy for the adversary's success. The adversary's loss is the cross-entropy for $A$. The two networks play a minimax game: the predictor wants to forecast $Y$ well while producing representations that fool $D$; $D$ wants to extract $A$ from whatever the predictor hands it.
+
+The architecture descends from the gradient-reversal construction of @ganin2015unsupervised for domain adaptation. The only structural change is that we reverse the sign of the adversary's gradient during backpropagation to the predictor, so maximizing adversary loss corresponds to gradient descent on a flipped sign.
+
+### Formal game
+
+Let $\theta$ parameterize the predictor and $\phi$ the adversary. The predictor outputs a hidden representation $h(x; \theta)$ and a prediction $\hat{y} = \sigma(w^\top h + b)$. The adversary outputs $\hat{a} = \sigma(g(h; \phi))$. Training solves
+
+$$
+\min_{\theta, w, b} \max_{\phi} \mathbb{E}[\ell(y, \hat{y}; \theta, w, b)] - \alpha \cdot \mathbb{E}[\ell(a, \hat{a}; \phi)],
+$$ {#eq-adversarial-game}
+
+with $\alpha \ge 0$ the fairness weight. When $\alpha = 0$, the predictor is a standard classifier. When $\alpha \to \infty$, the predictor must produce representations that leak nothing about $A$, at the cost of all predictive power if $Y$ and $A$ are correlated. Intermediate $\alpha$ traces the accuracy-fairness Pareto frontier.
+
+### Implementation
+
+```{python}
+#| label: adversarial-debiasing
+import torch
+from torch import nn
+
+torch.manual_seed(0)
+
+class Predictor(nn.Module):
+    def __init__(self, d_in, d_hidden=16):
+        super().__init__()
+        self.body = nn.Sequential(
+            nn.Linear(d_in, 32), nn.ReLU(),
+            nn.Linear(32, d_hidden), nn.ReLU())
+        self.head = nn.Linear(d_hidden, 1)
+    def forward(self, x):
+        h = self.body(x)
+        return self.head(h), h
+
+class Adversary(nn.Module):
+    def __init__(self, d_hidden=16):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_hidden, 16), nn.ReLU(),
+            nn.Linear(16, 1))
+    def forward(self, h):
+        return self.net(h)
+
+def train_adversarial(data, alpha=1.0, epochs=50):
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+    X_raw = data[feat_local].values.astype(np.float32)
+    mu, sd = X_raw.mean(0), X_raw.std(0)
+    X_s = (X_raw - mu) / sd
+    y = data['y'].values.astype(np.float32)
+    a = data['race'].values.astype(np.float32)
+
+    Xt, Xv, yt, yv, At, Av = train_test_split(
+        X_s, y, a, test_size=0.3, random_state=0, stratify=y)
+
+    P = Predictor(X_s.shape[1])
+    D = Adversary()
+    opt_p = torch.optim.Adam(P.parameters(), lr=1e-3)
+    opt_d = torch.optim.Adam(D.parameters(), lr=1e-3)
+    bce = nn.BCEWithLogitsLoss()
+
+    Xt_t = torch.tensor(Xt)
+    yt_t = torch.tensor(yt).view(-1, 1)
+    At_t = torch.tensor(At).view(-1, 1)
+
+    for ep in range(epochs):
+        # Adversary step: update phi to predict A from current h.
+        _, h = P(Xt_t)
+        a_logits = D(h.detach())
+        loss_d = bce(a_logits, At_t)
+        opt_d.zero_grad(); loss_d.backward(); opt_d.step()
+
+        # Predictor step: minimize y-loss minus alpha * adversary-loss.
+        logits_y, h = P(Xt_t)
+        a_logits = D(h)
+        loss_y = bce(logits_y, yt_t)
+        loss_a = bce(a_logits, At_t)
+        loss = loss_y - alpha * loss_a
+        opt_p.zero_grad(); loss.backward(); opt_p.step()
+
+    with torch.no_grad():
+        Xv_t = torch.tensor(Xv)
+        s_v, _ = P(Xv_t)
+        s_v = torch.sigmoid(s_v).numpy().ravel()
+    return s_v, yv, Av
+
+scores_adv, y_adv, a_adv = train_adversarial(df, alpha=1.0)
+yhat_adv = (scores_adv > 0.5).astype(int)
+print('Adversarial AUC:', round(roc_auc_score(y_adv, scores_adv), 3))
+print('Adversarial SPD:', round(demographic_parity_difference(
+    y_adv, yhat_adv, sensitive_features=a_adv), 3))
+print('Adversarial EOD:', round(equalized_odds_difference(
+    y_adv, yhat_adv, sensitive_features=a_adv), 3))
+```
+
+### Tracing the Pareto frontier
+
+```{python}
+#| label: adversarial-pareto
+alphas = [0.0, 0.25, 0.5, 1.0, 2.0]
+rows = []
+for a_val in alphas:
+    s_v, y_v, a_v = train_adversarial(df, alpha=a_val, epochs=40)
+    yh = (s_v > 0.5).astype(int)
+    rows.append({
+        'alpha': a_val,
+        'AUC': roc_auc_score(y_v, s_v),
+        'SPD': demographic_parity_difference(y_v, yh, sensitive_features=a_v),
+        'EOD': equalized_odds_difference(y_v, yh, sensitive_features=a_v),
+    })
+pareto = pd.DataFrame(rows)
+print(pareto.round(3))
+```
+
+As $\alpha$ grows, SPD and EOD fall but AUC usually drops too. The curve is not always monotone because the minimax optimization is non-convex and can land in different equilibria. In practice, one picks $\alpha$ on a held-out validation set by specifying a fairness budget (for example, SPD below 0.05) and finding the $\alpha$ that achieves it with minimum AUC loss.
+
+### Comparing to fairlearn reductions
+
+@agarwal2018reductions propose a different approach: cast fairness as a constraint on a sequence of cost-sensitive classification problems. The fairlearn library implements this as `ExponentiatedGradient`.
+
+```{python}
+#| label: fairlearn-compare
+from fairlearn.reductions import ExponentiatedGradient, DemographicParity, EqualizedOdds
+from fairlearn.postprocessing import ThresholdOptimizer
+
+feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+X = df[feat_local].values
+yv_full = df['y'].values
+Av_full = df['race'].values
+Xtr, Xte, ytr, yte, Atr, Ate = train_test_split(
+    X, yv_full, Av_full, test_size=0.3, random_state=0, stratify=yv_full)
+
+# Baseline
+base = LogisticRegression(max_iter=500).fit(Xtr, ytr)
+p_base = base.predict_proba(Xte)[:, 1]
+yh_base = (p_base > 0.5).astype(int)
+
+# In-processing: Exponentiated Gradient with Demographic Parity.
+eg_dp = ExponentiatedGradient(
+    LogisticRegression(max_iter=500),
+    constraints=DemographicParity(),
+    eps=0.02)
+eg_dp.fit(Xtr, ytr, sensitive_features=Atr)
+yh_eg_dp = eg_dp.predict(Xte)
+
+# In-processing: Exponentiated Gradient with Equalized Odds.
+eg_eo = ExponentiatedGradient(
+    LogisticRegression(max_iter=500),
+    constraints=EqualizedOdds(),
+    eps=0.02)
+eg_eo.fit(Xtr, ytr, sensitive_features=Atr)
+yh_eg_eo = eg_eo.predict(Xte)
+
+# Post-processing: Threshold Optimizer.
+to = ThresholdOptimizer(
+    estimator=LogisticRegression(max_iter=500),
+    constraints='demographic_parity',
+    prefit=False)
+to.fit(Xtr, ytr, sensitive_features=Atr)
+yh_to = to.predict(Xte, sensitive_features=Ate)
+
+def summarize(name, y, yh, a, s=None):
+    row = {
+        'method': name,
+        'SPD': demographic_parity_difference(y, yh, sensitive_features=a),
+        'EOD': equalized_odds_difference(y, yh, sensitive_features=a),
+        'accept_A0': 1 - yh[a == 0].mean(),
+        'accept_A1': 1 - yh[a == 1].mean(),
+        'acc': (yh == y).mean(),
+    }
+    if s is not None:
+        row['AUC'] = roc_auc_score(y, s)
+    return row
+
+# Adversarial scores for comparison.
+s_adv_full, y_adv_full, a_adv_full = train_adversarial(df, alpha=1.0, epochs=40)
+yh_adv = (s_adv_full > 0.5).astype(int)
+
+table = pd.DataFrame([
+    summarize('baseline LR', yte, yh_base, Ate, p_base),
+    summarize('ExpGrad DP', yte, yh_eg_dp, Ate),
+    summarize('ExpGrad EO', yte, yh_eg_eo, Ate),
+    summarize('Threshold DP', yte, yh_to, Ate),
+    summarize('Adversarial a=1', y_adv_full, yh_adv, a_adv_full, s_adv_full),
+])
+print(table.round(3))
+```
+
+The comparison is the practical output. For the simulated data, Exponentiated Gradient with DP and the Threshold Optimizer both compress SPD to near zero. The adversarial approach lands in the middle of the frontier with less predictable behavior because training is noisier. In production settings where interpretability and auditability matter, the fairlearn reductions are easier to defend: they have explicit constraint formulations and deterministic training.
+
+### Cautions on adversarial debiasing
+
+Adversarial training has three known pathologies. First, the minimax game can oscillate; training curves are unstable without careful learning rate schedules. Second, removing $A$ information from the representation does not guarantee downstream fairness if the prediction head can be recalibrated later. @beutel2017data show this explicitly. Third, the adversary can find shortcuts: it may achieve low loss on average while still leaking $A$ in the tails, which is exactly where loan decisions matter. Bootstrap the fairness metrics to catch this. In regulated applications, prefer a constrained-optimization approach (fairlearn reductions) where the constraint is a clean inequality rather than an implicit adversarial equilibrium.
+
+## Fairness monitoring in production {#sec-ch24-monitoring}
+
+A fair model at deployment can become unfair as the population drifts. Income distributions change, demographic composition changes, underwriting standards shift, macroeconomic conditions move default rates. Monitoring is the process by which the fairness metrics computed in development are recomputed, disaggregated, and alerted on in production. This section presents a minimal dashboard.
+
+### Per-group metrics table
+
+```{python}
+#| label: monitoring-dashboard
+def score_monthly_cohorts(data):
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+    X = data[feat_local].values
+    y = data['y'].values
+    a = data['race'].values
+    month = data['month'].values
+
+    # Train on month 0-5, score monthly cohorts 6-11.
+    train = month <= 5
+    test = month > 5
+    clf = LogisticRegression(max_iter=500).fit(X[train], y[train])
+    s = clf.predict_proba(X[test])[:, 1]
+    cutoff = np.quantile(s, 0.70)
+    yhat = (s > cutoff).astype(int)
+
+    test_df = data.loc[test].copy()
+    test_df['score'] = s
+    test_df['decision'] = yhat
+
+    rows = []
+    for m in sorted(test_df['month'].unique()):
+        for g in [0, 1]:
+            sub = test_df[(test_df['month'] == m) & (test_df['race'] == g)]
+            if len(sub) < 30:
+                continue
+            rows.append({
+                'month': m, 'race': g, 'n': len(sub),
+                'approval_rate': 1 - sub['decision'].mean(),
+                'default_rate': sub['y'].mean(),
+                'mean_score': sub['score'].mean(),
+                'AUC': roc_auc_score(sub['y'], sub['score'])
+                        if sub['y'].nunique() > 1 else np.nan,
+            })
+    return pd.DataFrame(rows)
+
+large_df = simulate_credit_panel(n=20000, seed=7)
+monthly = score_monthly_cohorts(large_df)
+pivot = monthly.pivot(index='month', columns='race',
+                      values=['approval_rate', 'default_rate', 'AUC'])
+print(pivot.round(3))
+```
+
+The table is the operational output a risk team consumes. Each row is a month. Each metric is disaggregated by group. A fair system shows approval rates that move together. A drifting system shows divergence. @mitchell2019model model cards formalize the reporting vocabulary for this kind of documentation.
+
+### Alerting on drift
+
+Two kinds of drift matter. Score drift: the distribution of scores shifts relative to the training distribution, which breaks the assumed cutoff calibration. Performance drift: the group-level AUC or default rate changes over time even when the overall AUC is stable. Population Stability Index from `csutils.psi` is the standard score-drift measure.
+
+```{python}
+#| label: monitoring-psi
+from csutils import psi
+
+def monthly_psi(data):
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+    X = data[feat_local].values
+    y = data['y'].values
+    month = data['month'].values
+    train = month <= 5
+    clf = LogisticRegression(max_iter=500).fit(X[train], y[train])
+    s_train = clf.predict_proba(X[train])[:, 1]
+
+    rows = []
+    for m in range(6, 12):
+        mask = month == m
+        if mask.sum() < 50:
+            continue
+        s_m = clf.predict_proba(X[mask])[:, 1]
+        rows.append({
+            'month': m,
+            'psi_overall': psi(s_train, s_m),
+            'psi_A0': psi(s_train, clf.predict_proba(
+                X[mask & (data['race'].values == 0)])[:, 1]),
+            'psi_A1': psi(s_train, clf.predict_proba(
+                X[mask & (data['race'].values == 1)])[:, 1]),
+        })
+    return pd.DataFrame(rows)
+
+psi_tbl = monthly_psi(large_df)
+print(psi_tbl.round(4))
+```
+
+The convention from @siddiqi2017intelligent is that PSI above 0.25 signals material distribution shift; PSI above 0.1 warrants attention. A per-group PSI exposes the case where the overall score distribution is stable but the disadvantaged group's distribution has drifted. That is the silent failure mode that bureau-level monitoring misses.
+
+### Alerting on fairness metrics
+
+```{python}
+#| label: monitoring-fairness-drift
+def monthly_fairness(data):
+    feat_local = ['zip', 'income', 'ltv', 'dti', 'bureau']
+    X = data[feat_local].values
+    y = data['y'].values
+    a = data['race'].values
+    month = data['month'].values
+    train = month <= 5
+    clf = LogisticRegression(max_iter=500).fit(X[train], y[train])
+
+    rows = []
+    for m in range(6, 12):
+        mask = month == m
+        if mask.sum() < 100:
+            continue
+        s = clf.predict_proba(X[mask])[:, 1]
+        yh = (s > np.quantile(s, 0.70)).astype(int)
+        rows.append({
+            'month': m,
+            'SPD': demographic_parity_difference(
+                y[mask], yh, sensitive_features=a[mask]),
+            'EOD': equalized_odds_difference(
+                y[mask], yh, sensitive_features=a[mask]),
+        })
+    return pd.DataFrame(rows)
+
+fair_tbl = monthly_fairness(large_df)
+print(fair_tbl.round(3))
+```
+
+The simplest alert rule: if SPD or EOD exceeds the development-time value by more than a fixed tolerance for two consecutive months, raise a ticket and pause the model for review. Operational alerting is harder than it sounds. Month-to-month fluctuation is noisy; raw thresholds will trigger on sampling noise. The right approach is to estimate a confidence interval (bootstrap or block-wise CLT) and alert only when the point estimate moves outside the CI of the development-time value. @corbett2023measure survey the statistical issues.
+
+### Action items on an alert
+
+An alert is not the end; it starts a workflow. The workflow has three stages. Triage: is the drift due to data pipeline failure (stale bureau data, missing values spiking), population change (new product line, new geography), or model decay (relationships between $X$ and $Y$ have shifted)? Remediation: retrain with recent data if model decay, fix the pipeline if pipeline, or invoke a fairness intervention if the shift increases disparity beyond target. Documentation: every alert, triage conclusion, and remediation step must go into a model risk record that satisfies @sr117 third-party review requirements.
+
+## Benchmark on the German credit dataset
+
+To close the chapter with a worked example on a standard public dataset, we apply the full pipeline on the UCI German credit data. The protected attribute is derived from the `foreign_worker` indicator, a standard choice in the algorithmic fairness literature (see @kamiran2012data for the precedent). This is pedagogical; real fair lending uses race, ethnicity, sex, and age.
+
+```{python}
+#| label: german-benchmark
+from csutils import load_german_credit
+
+german = load_german_credit()
+# Simple categorical encoding.
+for col in german.select_dtypes('object').columns:
+    german[col] = german[col].astype('category').cat.codes
+a = german['foreign_worker'].values  # 0 or 1
+y = german['default'].values
+X = german.drop(columns=['default', 'foreign_worker']).values
+
+Xtr, Xte, ytr, yte, Atr, Ate = train_test_split(
+    X, y, a, test_size=0.3, random_state=0, stratify=y)
+
+# Proxy detection.
+proxy_scores = {}
+for i, col in enumerate(german.drop(columns=['default', 'foreign_worker']).columns):
+    clf = LogisticRegression(max_iter=500).fit(X[:, i:i+1], a)
+    p = clf.predict_proba(X[:, i:i+1])[:, 1]
+    proxy_scores[col] = roc_auc_score(a, p)
+top_proxies = pd.Series(proxy_scores).sort_values(ascending=False).head(5)
+print('Top 5 features by race-AUC:')
+print(top_proxies.round(3))
+
+# Baseline vs mitigations.
+base = LogisticRegression(max_iter=500).fit(Xtr, ytr)
+p_base = base.predict_proba(Xte)[:, 1]
+yh_base = (p_base > 0.5).astype(int)
+
+eg = ExponentiatedGradient(
+    LogisticRegression(max_iter=500),
+    constraints=DemographicParity(), eps=0.02)
+eg.fit(Xtr, ytr, sensitive_features=Atr)
+yh_eg = eg.predict(Xte)
+
+table = pd.DataFrame([
+    summarize('baseline LR', yte, yh_base, Ate, p_base),
+    summarize('ExpGrad DP', yte, yh_eg, Ate),
+])
+print(table.round(3))
+```
+
+On German data, the protected attribute has enough correlation with other features that the residual gap after mitigation is larger than on the simulated data. That is expected: real datasets have more channels through which sensitive information leaks.
+
+## Scalability {.unnumbered}
+
+Fairness tooling at production scale has three bottlenecks. Adversarial debiasing requires training a full gradient model, so compute is dominated by the underlying network and the number of adversarial iterations. Fairlearn reductions require repeated classifier fits (one per iteration of Exponentiated Gradient), which is expensive for $k$-class sensitive attributes with large $k$. The threshold optimizer is fast (one classifier plus a per-group threshold sweep) but post-hoc.
+
+For per-group metrics on large datasets, use Polars or DuckDB for the aggregation. The MetricFrame API from fairlearn is fine at 1M rows but slows above 10M. A Polars groupby on score bins plus a join on the group column is faster. For very large HMDA-scale datasets (tens of millions of records), move the metric computation to Spark and compute bootstrap CIs with a pandas UDF.
+
+For monitoring, the pattern is to checkpoint the model, score new cohorts weekly or monthly, and push the disaggregated metrics to an observability system (Grafana, DataDog, Arize). The work per cohort scales with the cohort size; the storage scales with the number of cohorts times the number of metrics times the number of groups. A realistic production system keeps per-segment metrics for 18 to 36 months to support audit queries.
+
+## Deployment {.unnumbered}
+
+Wrap a fair model as you would any other model: FastAPI endpoint, MLflow-logged artifact, feature store lookup. The fairness-specific additions are two. First, log the per-request fairness-relevant inputs (with appropriate anonymization) so post-hoc audits can reconstruct decisions. Second, include a pre-deployment fairness test in the deployment pipeline that runs the full per-group metric suite and blocks release if any group metric falls outside a documented tolerance.
+
+```{python}
+#| label: deployment-sketch
+# Minimal FastAPI sketch. Do not run as a separate service in the book.
+deployment_code = """
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import joblib
+import numpy as np
+
+app = FastAPI()
+model = joblib.load('model.joblib')
+fairness_budget = 0.05  # Max acceptable SPD in rolling monitor.
+
+class Application(BaseModel):
+    zip: int
+    income: float
+    ltv: float
+    dti: float
+    bureau: float
+
+@app.post('/score')
+def score(a: Application):
+    x = np.array([[a.zip, a.income, a.ltv, a.dti, a.bureau]])
+    p = float(model.predict_proba(x)[0, 1])
+    return {'probability_of_default': p,
+            'decision': 'approve' if p < 0.30 else 'deny',
+            'adverse_action_reasons': ['FICO below threshold']
+                                      if p >= 0.30 else []}
+"""
+print(deployment_code.strip())
+```
+
+Adverse action reasons are not decorative. CFPB Circular 2023-03 and @cfpb2022ucdap require specific, accurate reasons tied to the applicant's actual inputs. Generic reasons, or reasons copied from a static list that does not depend on the applicant, fail the standard. In production, the adverse action logic is typically implemented as SHAP-based top-feature extraction (@sec-ch22) combined with a human-readable mapping.
+
+## Regulatory considerations {.unnumbered}
+
+US fair lending law rests on two statutes. ECOA (15 USC 1691) and its implementing regulation, Regulation B (12 CFR 1002), prohibit discrimination on the basis of race, color, religion, national origin, sex, marital status, age, public assistance income, or exercise of consumer protection rights, in any credit transaction. The Fair Housing Act (42 USC 3601) extends similar prohibitions to residential mortgage lending.
+
+Case law distinguishes disparate treatment (intentional discrimination based on a protected characteristic) from disparate impact (facially neutral practice that disproportionately harms a protected group and lacks a legitimate business justification). The Supreme Court in Texas Department of Housing v. Inclusive Communities Project (2015) confirmed disparate impact claims under the Fair Housing Act. The Court set a causation standard that requires plaintiffs to trace the disparity to a specific policy of the defendant. @barocas2016big argue that algorithmic scorecards meet this standard when the pipeline's feature choices or training data introduce group-correlated error rates.
+
+Regulation B also imposes two specific obligations on scorecards. First, if the scorecard uses a protected characteristic, it must qualify as an "empirically derived, demonstrably and statistically sound, credit scoring system" under 12 CFR 1002.2(p), a narrow exception. Second, on denial, the lender must provide an adverse action notice listing the specific principal reasons for the decision, per 12 CFR 1002.9. @cfpb2022ucdap clarifies that this requirement applies even when the decision is made by a complex algorithm; a generic "credit score below threshold" fails the specificity requirement.
+
+In the EU, the AI Act of 2024 classifies credit scoring as a high-risk AI system, triggering obligations around risk management systems, data governance, technical documentation, human oversight, and post-market monitoring. Articles 9, 10, 13, and 14 are the operative provisions. For credit scoring specifically, Annex III enumerates the high-risk use case. GDPR Article 22 on automated decision-making applies additionally: a data subject has the right to not be subject to a decision based solely on automated processing with significant effects, a category that includes credit decisions, unless one of the enumerated exceptions applies and appropriate safeguards are in place.
+
+Basel II and III (IRB framework, @basel2017finalising) do not impose fairness constraints directly, but they do impose model risk management requirements that interact with fairness work. The internal ratings-based approach requires back-testing by rating grade, documentation of model development, and ongoing validation. Fair lending metrics typically ride on top of this validation infrastructure. A bank that has a rigorous IRB validation process has the scaffolding for a rigorous fair lending validation process; the gap is usually the group-level disaggregation, not the underlying metric.
+
+The SR 11-7 model risk management guidance from the Federal Reserve [@sr117] requires that models be independently validated, appropriately governed, and monitored. Fair lending risks fall within the scope of this guidance. An internal model risk review for a credit scoring model should include: the development-time fairness audit, the monitoring plan, the treatment of proxy variables, and the documented rationale for any fairness interventions applied or declined. @occ2021model extends similar principles with additional detail for national banks.
+
+None of the above constitutes legal advice. Compliance judgments require counsel familiar with the specific product, geography, and regulatory posture. This chapter provides the statistical machinery; the interpretation is the legal team's job.
+
+## Vietnam and emerging markets {.unnumbered}
+
+### Market context
+
+Vietnamese fair-lending practice lives outside the US disparate-impact doctrine. The Equal Credit Opportunity Act has no counterpart; the 2006 Law on Gender Equality [@vn_law_gender_equality_2006] and the 2010 Law on Persons with Disabilities [@vn_law_disabilities_2010] set general prohibitions against discrimination, but neither statute defines a statistical test for lending. The 2013 Constitution lists ethnicity, religion, sex, social origin, belief, and social status as prohibited grounds, without creating a private cause of action. An aggrieved borrower in Vietnam has no federal agency analogous to the CFPB to which to complain about a scoring model. Enforcement runs through the State Bank of Vietnam's prudential supervision, the ESG audit when one exists, and the parent-group compliance function for foreign-invested institutions [@sbv2023vietnam].
+
+The empirical patterns that a fairness pipeline must watch are specific to the country. The Credit Information Center covers a smaller fraction of adults in rural provinces than in Hanoi and Ho Chi Minh City [@cic_vietnam2023]. The 54 recognized ethnic groups in Vietnam include 53 ethnic minorities concentrated in the Northwest, Northeast, Central Highlands, and Mekong Delta margins, and these populations have lower average bureau depth and higher informal-sector attachment. Gender gaps in self-employment, migration status, and household headship produce measurable disparities in score distributions that will not align with a US-style protected-class partition.
+
+### Application considerations
+
+The empirical tests from @hurlin2024fairness, @bartlett2022consumer, and @fuster2022predictably adapt to Vietnamese data once the protected-attribute field is defined. Gender is the easiest, because identity documents carry the field and because the Law on Gender Equality provides a clear ethical anchor. Urban-rural status, defined either by province code or by the CIC residency flag, is the second. Ethnicity is the hardest: few credit institutions store ethnicity as a modeled feature, and drawing it from household-registration data raises consent and storage risks under Decree 13/2023 [@vn_decree13_2023]. A proxy estimate using geography, language of application, and surname is defensible with documentation, but the lender must state the error bound explicitly.
+
+### Rationalization
+
+In the absence of a US-style disparate-impact doctrine, the case for running the empirical fairness pipeline still holds. ESG disclosure is the first driver. Larger Vietnamese banks are moving toward voluntary adoption of the IFC Performance Standards, and SBV Circular 17/2022/TT-NHNN on environmental risk management in credit-granting activity raises the reputational cost of a model that produces unexplained group disparities. Parent-group policy is the second: foreign-owned finance companies and joint-venture banks inherit a global fairness policy that the local pipeline must satisfy. Preparatory work for an expected future SBV circular on algorithmic lending is the third; market participants expect such a circular by 2027, and firms that have a running fairness pipeline will adapt faster than firms that do not.
+
+### Practical notes
+
+Run the @hurlin2024fairness test on gender and urban-rural, quarterly. Report the Kolmogorov-Smirnov distance of the conditional score distributions and the $\chi^2$ statistic. Flag any disparity that exceeds the four-fifths US benchmark, even though the benchmark has no Vietnamese legal standing, because the ESG auditor and the parent group read it. Document the less-discriminatory-alternative analysis for each flagged disparity. Do not deploy the Hardt-Price-Srebro post-processor with group membership at inference, because in Vietnam as in the US this creates disparate treatment in fact even without disparate-treatment law. Use reweighing, adversarial debiasing, or fair representations when the audit requires mitigation. Store the audit logs in the model registry alongside the adjacency with Decree 13/2023 data-minimization rules, because the audit itself processes personal data and inherits the Decree's storage and consent requirements.
+
+## Takeaways {.unnumbered}
+
+- Fairness in credit is testable. The @hurlin2024fairness framework gives an omnibus test for equalized performance with clean asymptotics, and it rejects whenever the score carries group information beyond what the outcome warrants.
+- Whether machine learning narrows or widens racial gaps in credit access depends on within-group dispersion, not on model complexity per se. @fuster2022predictably show the sign can go either way, and the practitioner must measure it on their specific data.
+- FinTech lenders reduce but do not eliminate racial pricing gaps in mortgages, per @bartlett2022consumer. The residual is smaller than at face-to-face lenders but nonzero. Automation reduces discretion, which in the @howell2024lender PPP evidence narrowed racial gaps in small business lending.
+- Proxy detection should combine single-feature $R^2$ with a multivariable race-classification AUC. ZIP code is typically the dominant proxy in US consumer data; geographic features plus occupation plus credit-history length carry most of the rest.
+- In production, choose fairness mitigations by ease of audit, not by aggregate performance. Fairlearn's reductions approach has explicit constraint formulations that are easier to defend in a regulator exam than an adversarial minimax.
+
+## Further reading {.unnumbered}
+
+- @hurlin2024fairness for the formal fairness testing framework.
+- @bartlett2022consumer for the canonical empirical FinTech pricing study.
+- @fuster2022predictably for the dispersion mechanism in ML and credit.
+- @howell2024lender for lender automation and small business credit access.
+- @bhutta2021how for the rate gap debate with rich controls.
+- @hardt2016equality for equalized odds as a threshold metric.
+- @chouldechova2017fair for the impossibility result.
+- @barocas2016big for the legal framework around disparate impact and big data.
+- @corbett2023measure for the statistical critique of fairness definitions.
+- @agarwal2018reductions for the constrained-optimization approach in fairlearn.
+- @zhang2018mitigating for adversarial debiasing.
+- @kleinberg2018algorithmic and @rambachan2020economic for the economic perspective on algorithmic fairness.
+- @dobbie2021measuring for bias measurement in consumer lending using outcome tests.
+- @blattner2022costly for how noise in credit data is itself unequally distributed.
+- @cfpb2022ucdap for the CFPB circular on adverse action notices for complex algorithms.

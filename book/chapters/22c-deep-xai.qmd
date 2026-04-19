@@ -1,0 +1,566 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+bibliography: [../references.bib, ../refs/ch-22.bib]
+---
+
+# Deep Model Explainability: Gradients, Transformers, Images {#sec-ch22c}
+
+## Overview {.unnumbered}
+
+Credit decisions increasingly depend on deep models that read applicant narratives, classify identity documents, score satellite imagery of collateral, or pass structured features through multilayer perceptrons with categorical embeddings. TreeSHAP, the workhorse of @sec-ch22, exploits tree structure and does not apply to any of these. Kernel SHAP applies in principle but is computationally prohibitive for inputs with hundreds of thousands of pixels or thousands of sub-word tokens.
+
+The practical consequence is a split toolbox. For tabular gradient-boosted models, TreeSHAP is canonical. For convolutional networks, transformer models, and deep tabular models, gradient-based attributions (Integrated Gradients, DeepSHAP, GradientSHAP, SmoothGrad, Grad-CAM), perturbation methods (LIME, Occlusion, RISE), and attention-based methods (attention rollout, Chefer) are the state of the art. All three families approximate the same Shapley-value game but trade different axioms against different compute budgets.
+
+This chapter derives the canonical methods, implements each from scratch in PyTorch with numerical checks against the reference libraries (Captum, shap, lime), and applies them to three credit-relevant tasks: a deep tabular default model on the Taiwan dataset, a text-based narrative classifier derived from LendingClub loan descriptions, and an image-based collateral-quality classifier on a synthetic satellite-style task that ships with the book. A concluding section ties the methods back to adverse-action notice generation under ECOA Regulation B and to the EU AI Act Article 13 transparency obligations for high-risk credit systems.
+
+## Notation and the gradient-attribution game {#sec-ch22c-setup}
+
+Let $f: \mathbb{R}^d \to \mathbb{R}$ be a differentiable model with input $x$ and scalar output (a logit or probability). Write $\nabla_x f(x) \in \mathbb{R}^d$ for its gradient at $x$ and choose a *baseline* $x'\in\mathbb{R}^d$ that represents "missing information" (all zeros for pixel inputs, the `[MASK]` token embedding for text, the feature mean or training-set median for tabular data). A gradient attribution is a function $A(x,x',f) \in \mathbb{R}^d$ that assigns real-valued credit to each of the $d$ input features.
+
+The field has settled on five axioms [@sundararajan2017axiomatic] that any well-behaved $A$ should satisfy:
+
+- **Completeness.** $\sum_{j=1}^d A_j(x,x',f) = f(x) - f(x')$. All attribution mass adds up to the prediction shift.
+- **Sensitivity(a).** If $x$ and $x'$ differ only in feature $j$ and $f(x)\neq f(x')$, then $A_j \neq 0$.
+- **Sensitivity(b) / implementation invariance.** If two networks compute identical functions, they yield identical $A$.
+- **Linearity.** $A(x,x',\alpha f + \beta g) = \alpha A(x,x',f) + \beta A(x,x',g)$.
+- **Symmetry-preserving.** If $f$ is symmetric in features $(j,k)$ and $x_j = x_k$, $x'_j = x'_k$, then $A_j = A_k$.
+
+These axioms mirror the Shapley axioms (@sec-ch22) but substitute the baseline $x'$ for the marginalization over coalitions. The mapping is exact: Integrated Gradients, derived below, is the unique path-integral attribution that satisfies all five, and when $f$ is a deep ReLU network at a point where no activations lie on the baseline's ray, IG equals the Aumann-Shapley value of the cooperative game played by the features [@sundararajan2017axiomatic].
+
+## Integrated Gradients {#sec-ch22c-ig}
+
+Fix a baseline $x'$ and the straight-line path $\gamma(t) = x' + t(x - x')$ for $t \in [0,1]$. Integrated Gradients assigns to feature $j$
+
+$$
+\mathrm{IG}_j(x,x',f) = (x_j - x'_j) \int_0^1 \frac{\partial f(\gamma(t))}{\partial x_j} \,dt.
+$$ {#eq-ig}
+
+The integrand is the gradient along the interpolation, scaled by the feature shift. Completeness follows from the gradient theorem:
+
+$$
+\sum_{j=1}^d \mathrm{IG}_j = \int_0^1 \nabla f(\gamma(t)) \cdot (x - x') \,dt = f(x) - f(x').
+$$ {#eq-ig-completeness}
+
+In practice we approximate the integral with a Riemann sum over $m$ steps:
+
+$$
+\widehat{\mathrm{IG}}_j = (x_j - x'_j) \cdot \frac{1}{m} \sum_{k=1}^{m} \frac{\partial f(x' + (k/m)(x - x'))}{\partial x_j}.
+$$ {#eq-ig-hat}
+
+Completeness fails by an $O(1/m)$ discretization error. A standard diagnostic is the *sanity check*: compute $\sum_j \widehat{\mathrm{IG}}_j$ and compare to $f(x) - f(x')$; if the relative gap exceeds a few percent, increase $m$.
+
+### Baseline choice and its consequences
+
+The baseline is the single most consequential hyperparameter in gradient attribution, not the step count. A black image, a zero vector, and a blurred version of $x$ yield materially different attributions because "missing" is not a natural concept for a neural network input. @sundararajan2017axiomatic recommend using the input distribution under which the user would want the null prediction: zero pixels for natural images (since occluded regions are informative), the mean of the training embedding distribution for text or tabular data.
+
+A safer alternative is *expected Integrated Gradients* (the IG variant in GradientSHAP), which integrates over a distribution of baselines drawn from the training set:
+
+$$
+\mathrm{EIG}_j(x,f) = \mathbb{E}_{x'\sim\mathcal{D}}\left[(x_j - x'_j)\int_0^1 \frac{\partial f(\gamma(t))}{\partial x_j} \,dt \right].
+$$ {#eq-eig}
+
+Credit applications almost always prefer the training-distribution baseline. The "applicant with no information" does not mean the zero vector (which might encode a zero credit limit, an actively bad signal); it means a typical applicant, whose features are independent draws from the training marginal. Adverse-action notice generation (@sec-ch21) relies on this choice: the "principal reasons the adverse action was taken" are the features whose shift from typical pushed the score above the cutoff, not the features whose shift from zero pushed the score above the cutoff.
+
+### A from-scratch implementation
+
+The following block implements IG from first principles and checks it against Captum on a deep tabular model trained on the Taiwan default dataset.
+
+```{python}
+import sys
+sys.path.insert(0, '../code')
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from csutils import load_taiwan_default
+
+SEED = 0
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+
+df = load_taiwan_default()
+y = df['default'].values.astype(np.float32)
+X = df.drop(columns=['id', 'default']).values.astype(np.float32)
+
+mu, sd = X.mean(axis=0), X.std(axis=0) + 1e-8
+Xs = (X - mu) / sd
+
+idx = np.random.permutation(len(Xs))
+split = int(0.8 * len(Xs))
+Xtr, Xte = Xs[idx[:split]], Xs[idx[split:]]
+ytr, yte = y[idx[:split]], y[idx[split:]]
+
+class TabNet(nn.Module):
+    def __init__(self, d_in, d_hidden=64):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_in, d_hidden), nn.GELU(),
+            nn.Linear(d_hidden, d_hidden), nn.GELU(),
+            nn.Linear(d_hidden, 1)
+        )
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
+
+model = TabNet(Xs.shape[1])
+opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+loss_fn = nn.BCEWithLogitsLoss()
+
+Xtr_t = torch.from_numpy(Xtr)
+ytr_t = torch.from_numpy(ytr)
+for epoch in range(12):
+    perm = torch.randperm(len(Xtr_t))
+    for i in range(0, len(Xtr_t), 1024):
+        batch = perm[i:i+1024]
+        opt.zero_grad()
+        loss = loss_fn(model(Xtr_t[batch]), ytr_t[batch])
+        loss.backward()
+        opt.step()
+model.eval()
+
+with torch.no_grad():
+    auc = ((model(torch.from_numpy(Xte)).numpy() > 0) == yte).mean()
+print(f"test accuracy: {auc:.3f}")
+```
+
+```{python}
+def integrated_gradients(model, x, baseline, steps=64):
+    x = torch.as_tensor(x, dtype=torch.float32)
+    baseline = torch.as_tensor(baseline, dtype=torch.float32)
+    alphas = torch.linspace(1.0/steps, 1.0, steps).view(-1, 1)
+    path = baseline.unsqueeze(0) + alphas * (x - baseline).unsqueeze(0)
+    path.requires_grad_(True)
+    out = model(path)
+    grads = torch.autograd.grad(out.sum(), path)[0]
+    avg_grad = grads.mean(dim=0)
+    return ((x - baseline) * avg_grad).detach().numpy()
+
+baseline = torch.from_numpy(Xtr.mean(axis=0))
+x_star = torch.from_numpy(Xte[0])
+ig = integrated_gradients(model, x_star, baseline, steps=128)
+with torch.no_grad():
+    gap = model(x_star.unsqueeze(0)).item() - model(baseline.unsqueeze(0)).item()
+print(f"sum(IG) = {ig.sum():+.4f}   f(x) - f(x') = {gap:+.4f}   relative error = {abs(ig.sum()-gap)/abs(gap):.2%}")
+```
+
+Completeness should hold to roughly $m^{-1}$ accuracy (below 1% here).
+
+```{python}
+try:
+    from captum.attr import IntegratedGradients
+    ig_captum = IntegratedGradients(model)
+    attr = ig_captum.attribute(x_star.unsqueeze(0), baselines=baseline.unsqueeze(0), n_steps=128).squeeze(0).detach().numpy()
+    max_diff = np.max(np.abs(ig - attr))
+    print(f"max|IG_ours - IG_captum| = {max_diff:.2e}")
+except ImportError:
+    print("captum not available; skipping cross-check")
+```
+
+The two should agree to within floating-point tolerance on a per-feature basis.
+
+### Global summaries and reason codes
+
+Individual IG vectors support adverse-action reason codes exactly as TreeSHAP does: rank $|\widehat{\mathrm{IG}}_j|$ within an applicant, then translate the top-$k$ features through a mapping table. Globally, average $|\widehat{\mathrm{IG}}_j|$ over a validation batch yields a feature-importance ranking that regulators can cross-check against the training data dictionary.
+
+```{python}
+B = 256
+X_batch = torch.from_numpy(Xte[:B])
+base_b = baseline.unsqueeze(0).expand_as(X_batch)
+alphas = torch.linspace(1.0/64, 1.0, 64).view(-1, 1, 1)
+path = base_b.unsqueeze(0) + alphas * (X_batch - base_b).unsqueeze(0)
+path.requires_grad_(True)
+out = model(path.reshape(-1, X_batch.shape[-1])).reshape(64, B)
+grads = torch.autograd.grad(out.sum(), path)[0]
+avg_grad = grads.mean(dim=0)
+ig_batch = ((X_batch - base_b) * avg_grad).detach().numpy()
+
+feat_names = df.drop(columns=['id','default']).columns.tolist()
+global_imp = pd.Series(np.abs(ig_batch).mean(axis=0), index=feat_names).sort_values(ascending=False)
+print(global_imp.head(10))
+```
+
+## DeepLIFT and DeepSHAP {#sec-ch22c-deepshap}
+
+Integrated Gradients requires $m$ forward-backward passes. For production scoring this is acceptable at tens of milliseconds per applicant, but for recurrent monitoring dashboards that re-explain every scored batch nightly, faster methods earn their keep. @shrikumar2017learning introduced DeepLIFT, a backpropagation rule that assigns attributions in a single backward pass by using the *difference from a reference activation* instead of the raw gradient.
+
+For a layer computing $y = g(Wx + b)$, DeepLIFT defines $\Delta x = x - x'$ and $\Delta y = y - y'$, and propagates contributions using the "Rescale" rule
+
+$$
+C_{x_j \to y_i} = \frac{\Delta y_i}{\Delta z_i} W_{ij} \Delta x_j,
+$$ {#eq-deeplift-rescale}
+
+where $z = Wx + b$. At the model level, the per-feature attribution is the sum over paths. @shrikumar2017learning prove that DeepLIFT satisfies completeness: $\sum_j C_{x_j \to f} = f(x) - f(x')$.
+
+DeepSHAP [@lundberg2017unified] extends DeepLIFT by averaging over a distribution of baselines and interpreting the result as a connected-set Shapley attribution. When the distribution is a point mass it reduces to DeepLIFT; when it is the training distribution it approximates the true Shapley value as the number of baseline samples grows.
+
+```{python}
+try:
+    import shap
+    expl = shap.DeepExplainer(model, torch.from_numpy(Xtr[:200]))
+    sv = expl.shap_values(torch.from_numpy(Xte[:16]))
+    sv_arr = sv[0] if isinstance(sv, list) else sv
+    print(f"DeepSHAP attribution shape: {sv_arr.shape}")
+    print(f"mean |phi| per feature (top 5): {pd.Series(np.abs(sv_arr).mean(axis=0), index=feat_names).sort_values(ascending=False).head()}")
+except Exception as e:
+    print(f"DeepExplainer skipped: {e}")
+```
+
+In production credit pipelines DeepSHAP is often the right default for deep tabular models: it is roughly $m$ times faster than IG for equal baseline count, it exposes a `shap_values` API consistent with TreeSHAP, and it enables the same reason-code pipeline.
+
+## GradientSHAP and SmoothGrad {#sec-ch22c-gradshap}
+
+GradientSHAP [@lundberg2017unified] can be read as a Monte Carlo estimate of expected Integrated Gradients. Draw baseline $x'$ from the training distribution and interpolation coefficient $\alpha \sim \mathrm{Uniform}(0,1)$. Then
+
+$$
+\mathrm{GS}_j(x, f) = \mathbb{E}_{\alpha, x'}\Big[(x_j - x'_j) \cdot \partial_j f\big(x' + \alpha(x - x')\big)\Big].
+$$ {#eq-gradshap}
+
+A single forward-backward per $(x',\alpha)$ suffices; $N=25$ draws typically give tolerable variance. The appeal for credit scoring is the implicit marginalization over the training distribution, which matches the "typical applicant" baseline semantics required for adverse-action reasons.
+
+SmoothGrad [@smilkov2017smoothgrad] addresses a different failure mode: saliency maps for ReLU networks are visually noisy because the gradient jumps across ReLU boundaries. SmoothGrad defines
+
+$$
+\widetilde{\nabla} f(x) = \frac{1}{N} \sum_{k=1}^{N} \nabla f(x + \varepsilon_k), \qquad \varepsilon_k \sim \mathcal{N}(0, \sigma^2 I).
+$$ {#eq-smoothgrad}
+
+For credit scoring with tabular inputs, SmoothGrad is rarely used directly but its idea (average a noisy gradient) is a cheap regularizer that makes reason codes stable under tiny perturbations of inputs, a property validators test for in SR 11-7 effective-challenge exercises.
+
+```{python}
+def smoothgrad(model, x, sigma=0.1, n=50):
+    x = torch.as_tensor(x, dtype=torch.float32)
+    grads = []
+    for _ in range(n):
+        xp = (x + sigma * torch.randn_like(x)).requires_grad_(True)
+        out = model(xp.unsqueeze(0))
+        g = torch.autograd.grad(out.sum(), xp)[0]
+        grads.append(g.detach().numpy())
+    return np.mean(grads, axis=0)
+
+sg = smoothgrad(model, Xte[0], sigma=0.15, n=100)
+print(f"SmoothGrad top-5 features: {pd.Series(np.abs(sg), index=feat_names).nlargest(5).index.tolist()}")
+```
+
+## LIME: local surrogates for any black box {#sec-ch22c-lime}
+
+LIME [@ribeiro2016why] is the original *model-agnostic* local explanation. It fits an interpretable surrogate $g \in G$ (typically sparse linear) on perturbations of $x$, weighted by proximity $\pi_x$ in a representation space. Formally,
+
+$$
+\xi(x) = \arg\min_{g \in G} \mathcal{L}\big(f, g, \pi_x\big) + \Omega(g),
+$$ {#eq-lime}
+
+where $\Omega$ penalizes complexity and $\mathcal{L}$ is typically weighted squared loss on $\{(\tilde z_i, f(\tilde z_i))\}$ for perturbations $\tilde z_i$ drawn from a neighborhood of $x$. The LIME authors' default is $G = \{$ sparse linear models with at most $K$ features $\}$, selected via LASSO or forward selection.
+
+For tabular data the perturbation distribution is sampled from training marginals; for text it is word-deletion masks over the tokens of $x$; for images it is segment-deletion masks over superpixels. The proximity kernel is typically $\pi_x(z) = \exp(-D(x,z)^2 / \sigma^2)$ with $D$ a cosine distance over the surrogate feature space.
+
+### Why LIME loses to SHAP for tabular credit data
+
+Kernel SHAP [@lundberg2017unified] is a special case of LIME with a specific kernel weight $\pi_x$ and loss $\mathcal{L}$ chosen so that the surrogate coefficients are exactly the Shapley values. Under this kernel, the surrogate inherits Shapley axioms (efficiency, symmetry, null player, linearity). LIME's default kernel does not, so attributions lack efficiency and are not comparable across applicants. For credit scoring, where reason codes feed legal notices, this asymmetry is disqualifying for tabular models.
+
+LIME's comparative advantage is *text* and *image* inputs, where segment-based perturbations are semantically coherent and Kernel SHAP's combinatorial enumeration is infeasible. The next two sections apply LIME to those modalities.
+
+### LIME for text: narrative-based default signal
+
+Many FinTech lenders score free-text loan purpose statements. The task is to classify whether the narrative style correlates with default. We use a small transformer from Hugging Face and apply LIME over word-level masks.
+
+```{python}
+try:
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    from lime.lime_text import LimeTextExplainer
+    tok = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+    txt_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+    txt_model.eval()
+
+    narrative = "I need this loan to consolidate medical bills after a hospital stay. I have stable income."
+    def predict_proba(texts):
+        enc = tok(list(texts), return_tensors='pt', truncation=True, padding=True, max_length=64)
+        with torch.no_grad():
+            logits = txt_model(**enc).logits
+        return torch.softmax(logits, dim=-1).numpy()
+
+    explainer = LimeTextExplainer(class_names=['neg', 'pos'], random_state=SEED)
+    exp = explainer.explain_instance(narrative, predict_proba, num_features=8, num_samples=200)
+    print(exp.as_list(label=1))
+except Exception as e:
+    print(f"LIME text demo skipped: {e}")
+```
+
+The production pattern is identical: fine-tune a classifier on a labeled narrative corpus, apply LIME for applicant-facing explanations, and cache the top-$k$ word weights for regulatory audit logs. One caveat from @slack2020fooling applies: LIME explanations for text can be adversarially manipulated by a model trained to detect when it is being probed. Deploy LIME with the same sanity checks as SHAP: log the perturbation sample and re-run periodically with different kernels.
+
+### LIME for image: collateral quality
+
+For auto-secured or small-business lending with physical collateral, an originator might classify image quality or even estimate asset state from a photograph. LIME with superpixel segments (SLIC by default) produces human-legible region-level attributions.
+
+```{python}
+try:
+    import numpy as np
+    from lime.lime_image import LimeImageExplainer
+    from skimage.segmentation import slic
+    from skimage.color import gray2rgb
+    rng = np.random.default_rng(SEED)
+    h = w = 28
+    img = rng.uniform(0.2, 0.8, size=(h, w)).astype(np.float32)
+    img[8:20, 8:20] = 0.05  # dark "defect"
+
+    def img_predict(images):
+        arr = np.asarray(images).astype(np.float32)
+        if arr.ndim == 4:
+            gray = arr.mean(axis=-1)
+        else:
+            gray = arr
+        dark_frac = (gray < 0.2).mean(axis=(1,2))
+        p_bad = np.clip(dark_frac * 4.0, 0, 1)
+        return np.stack([1 - p_bad, p_bad], axis=-1)
+
+    rgb = gray2rgb(img)
+    explainer = LimeImageExplainer(random_state=SEED)
+    exp = explainer.explain_instance(rgb, img_predict, top_labels=1, num_samples=200, segmentation_fn=lambda im: slic(im, n_segments=16, compactness=10))
+    temp, mask = exp.get_image_and_mask(exp.top_labels[0], positive_only=True, num_features=3)
+    print(f"LIME selected {mask.sum()} pixels as top-3 positive superpixels")
+except Exception as e:
+    print(f"LIME image demo skipped: {e}")
+```
+
+The binding outputs are the superpixel weights, not the pixels. A validator reads "regions 3, 7, 11 drove the low-quality classification," which a field agent can inspect manually and challenge.
+
+## Grad-CAM: class activation via gradients {#sec-ch22c-gradcam}
+
+Grad-CAM [@selvaraju2017grad] is the dominant saliency method for convolutional networks. Given a target class $c$ and the activations $A^k \in \mathbb{R}^{h \times w}$ of a chosen convolutional layer (typically the last before global pooling), Grad-CAM weights each channel by
+
+$$
+\alpha^c_k = \frac{1}{hw} \sum_{i,j} \frac{\partial y^c}{\partial A^k_{ij}},
+$$ {#eq-gradcam-weights}
+
+and forms the class activation map
+
+$$
+L^c_{\mathrm{Grad\text{-}CAM}} = \mathrm{ReLU}\left(\sum_k \alpha^c_k A^k\right).
+$$ {#eq-gradcam-map}
+
+The ReLU enforces "positive evidence only" semantics; for credit applications we usually also want negative evidence, so Grad-CAM++ and HiResCAM variants drop the ReLU or replace it with its unclipped form. Grad-CAM inherits *implementation invariance* from being a gradient method and inherits interpretability from the coarse convolutional spatial resolution (14x14 or 7x7 in standard ResNet stacks, which upsamples to the input).
+
+For a credit-adjacent use case consider a vision model that flags identity-document forgeries during onboarding. A Grad-CAM heatmap localizes which document regions drove the forgery score. The operations team routes flagged documents to human review with the heatmap attached.
+
+```{python}
+try:
+    class TinyCNN(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv1 = nn.Conv2d(1, 8, 3, padding=1)
+            self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
+            self.pool = nn.AdaptiveAvgPool2d(1)
+            self.fc = nn.Linear(16, 2)
+        def forward(self, x):
+            x = torch.relu(self.conv1(x))
+            self.feat = torch.relu(self.conv2(x))
+            h = self.pool(self.feat).flatten(1)
+            return self.fc(h)
+
+    rng = np.random.default_rng(SEED)
+    N = 256
+    h = w = 16
+    Ximg = rng.uniform(0.2, 0.8, size=(N, 1, h, w)).astype(np.float32)
+    yimg = np.zeros(N, dtype=np.int64)
+    for i in range(N):
+        if rng.random() < 0.5:
+            r0, c0 = rng.integers(0, h-5, size=2)
+            Ximg[i, 0, r0:r0+5, c0:c0+5] = 0.05
+            yimg[i] = 1
+
+    cnn = TinyCNN()
+    opt = torch.optim.AdamW(cnn.parameters(), lr=3e-3)
+    Xt = torch.from_numpy(Ximg); yt = torch.from_numpy(yimg)
+    for epoch in range(6):
+        opt.zero_grad()
+        loss = nn.functional.cross_entropy(cnn(Xt), yt)
+        loss.backward(); opt.step()
+
+    cnn.eval()
+    x = Xt[0:1]
+    x.requires_grad_(True)
+    logits = cnn(x)
+    score = logits[0, yt[0].item()]
+    grads = torch.autograd.grad(score, cnn.feat)[0]
+    alpha = grads.mean(dim=(2,3), keepdim=True)
+    cam = torch.relu((alpha * cnn.feat).sum(dim=1, keepdim=True)).squeeze().detach().numpy()
+    print(f"Grad-CAM map shape: {cam.shape}, range [{cam.min():.3f}, {cam.max():.3f}]")
+except Exception as e:
+    print(f"Grad-CAM demo skipped: {e}")
+```
+
+## Occlusion and RISE {#sec-ch22c-perturb}
+
+The simplest saliency method is systematic occlusion [@zeiler2014visualizing]: slide a patch across the input, replace the patch with the baseline, and record the change in $f$. Occlusion attributions are trivially interpretable (they measure exactly "what happens if this region is hidden?") and require no gradients. The cost is $O(hw / s^2)$ forward passes for a stride-$s$ scan, which can be prohibitive at high resolution.
+
+RISE [@petsiuk2018rise] generalizes this to randomized binary masks. For $N$ masks $M_k \sim \mathrm{Bernoulli}(p)$ independently per pixel, RISE assigns
+
+$$
+S_{\mathrm{RISE}}(i,j) = \frac{1}{\mathbb{E}[M] N} \sum_{k=1}^N f(x \odot M_k) \cdot M_k(i,j).
+$$ {#eq-rise}
+
+The RISE attribution at pixel $(i,j)$ is the expectation of the model output conditional on the mask keeping $(i,j)$. The only requirement on $f$ is black-box query access, so RISE applies to Vision-Transformer pipelines where Grad-CAM is awkward.
+
+```{python}
+try:
+    def rise_saliency(model, x, n_masks=200, grid=4, p=0.5):
+        with torch.no_grad():
+            x_t = torch.as_tensor(x, dtype=torch.float32)
+            if x_t.ndim == 3:
+                x_t = x_t.unsqueeze(0)
+            _, C, H, W = x_t.shape
+            sal = np.zeros((H, W), dtype=np.float32)
+            rng_loc = np.random.default_rng(SEED)
+            for _ in range(n_masks):
+                mask_small = rng_loc.binomial(1, p, size=(grid, grid)).astype(np.float32)
+                mask_up = np.kron(mask_small, np.ones((H // grid + 1, W // grid + 1)))[:H, :W]
+                m_t = torch.from_numpy(mask_up).view(1, 1, H, W)
+                out = model(x_t * m_t)
+                score = torch.softmax(out, dim=-1)[0, 1].item()
+                sal += score * mask_up
+            return sal / (n_masks * p)
+    sal = rise_saliency(cnn, Xt[0], n_masks=100, grid=4, p=0.5)
+    print(f"RISE saliency shape {sal.shape}, argmax at pixel {np.unravel_index(sal.argmax(), sal.shape)}")
+except Exception as e:
+    print(f"RISE demo skipped: {e}")
+```
+
+## Attention rollout and transformer attribution {#sec-ch22c-transformer}
+
+A transformer applies $L$ layers of multi-head attention. Each head $h$ at layer $\ell$ computes an attention matrix $A^{\ell,h} \in \mathbb{R}^{T \times T}$ where row $t$ is a distribution over the $T$ tokens. @abnar2020quantifying noted that raw single-layer attention is not a faithful explanation because attention composes non-trivially across layers. They proposed *attention rollout*: combine the layer matrices by recursively multiplying the residual-corrected attention
+
+$$
+\tilde A^{\ell} = \frac{1}{2}\big(\bar A^{\ell} + I\big), \qquad \bar A^{\ell} = \frac{1}{H}\sum_h A^{\ell,h},
+$$ {#eq-rollout-layer}
+
+and then
+
+$$
+R^{\ell} = \tilde A^{\ell} R^{\ell-1}, \qquad R^{0} = I.
+$$ {#eq-rollout}
+
+The row $R^L_{[\mathrm{CLS}]}$ is a distribution over input tokens interpretable as "how much information from each input token reached the CLS embedding." This is the standard off-the-shelf transformer saliency and ships in many interpretability libraries.
+
+@chefer2021transformer refined rollout by combining it with gradient information. The Chefer method propagates relevance through self-attention, LayerNorm, and residual connections using a DeepLIFT-style difference rule, then uses rollout only for composition across layers. Empirically it tracks ground-truth evidence localization better than attention rollout on standard NLP and CV benchmarks.
+
+```{python}
+try:
+    from transformers import AutoTokenizer, AutoModel
+    tok2 = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+    bert = AutoModel.from_pretrained("distilbert-base-uncased", output_attentions=True)
+    bert.eval()
+
+    narrative = "I will use this loan to pay off credit-card debt with high interest rates."
+    enc = tok2(narrative, return_tensors='pt')
+    with torch.no_grad():
+        out = bert(**enc, output_attentions=True)
+    atts = torch.stack(out.attentions).squeeze(1)  # (L, H, T, T)
+    L, H, T, _ = atts.shape
+    A = atts.mean(dim=1)
+    I = torch.eye(T).unsqueeze(0).expand(L, T, T)
+    A_tilde = 0.5 * (A + I)
+    R = A_tilde[0]
+    for l in range(1, L):
+        R = A_tilde[l] @ R
+    cls_scores = R[0].numpy()
+    tokens = tok2.convert_ids_to_tokens(enc['input_ids'][0])
+    top = sorted(zip(tokens, cls_scores), key=lambda x: -x[1])[:8]
+    print(f"rollout top tokens: {top}")
+except Exception as e:
+    print(f"attention rollout demo skipped: {e}")
+```
+
+### shap PartitionExplainer for transformers
+
+The `shap` library ships a `PartitionExplainer` that evaluates hierarchical Shapley values on the token tree implied by a text's syntactic segmentation. It is orders of magnitude faster than KernelSHAP on tokenized inputs because it exploits the tree structure of the partition, producing Owen values [@covert2021explaining] rather than full Shapley values. For long narratives this is the only feasible exact-axiom method.
+
+```{python}
+try:
+    import shap
+    def hf_predict(texts):
+        enc = tok(list(texts), return_tensors='pt', truncation=True, padding=True, max_length=64)
+        with torch.no_grad():
+            return torch.softmax(txt_model(**enc).logits, dim=-1).numpy()
+    masker = shap.maskers.Text(tok)
+    explainer = shap.Explainer(hf_predict, masker, output_names=['neg','pos'])
+    sv = explainer(["I will use this loan to consolidate medical debt after an ER visit."])
+    print(sv[0, :, 1])
+except Exception as e:
+    print(f"PartitionExplainer demo skipped: {e}")
+```
+
+The resulting attribution is *additive over tokens*: summing the per-token Owen values recovers the model's predicted probability shift from the all-masked baseline. This property is what enables plugging PartitionExplainer into a credit narrative pipeline: the adverse-action reason code becomes the top-$k$ token attributions aggregated to semantic phrase boundaries.
+
+## Mechanistic interpretability: circuits and features {#sec-ch22c-mechinterp}
+
+Attribution methods answer "which input feature mattered?" Mechanistic interpretability asks "what algorithm is the model running internally?" and aims to reverse-engineer the computation rather than assign credit. The subfield exploded after @elhage2021mathematical framed transformer computation as a sum of interpretable circuits composed of attention-head patterns and MLP neuron activations.
+
+For credit scoring this line of work is still nascent but two results already matter. First, @bricken2023towards show that sparse dictionary learning over transformer activations recovers monosemantic features (single concepts per unit). Applied to a credit narrative classifier, this would identify internal units that fire on specific concepts ("job loss," "medical emergency," "business investment"), giving a second axis of auditability beyond input attributions. Second, any systemic internal bias (say, a circuit that encodes ZIP-code priors through the narrative) is detectable mechanistically even when SHAP-style attributions show nothing suspicious, because the internal feature basis exposes the computation directly.
+
+The cost is high: mechanistic analysis currently requires per-model investigation, custom tooling (`nnsight`, `TransformerLens`), and manual hypothesis testing. For a regulated production credit model, the realistic deployment today is model cards that declare *whether* mechanistic audits have been run, what was found, and what standing rollback procedures exist if adversarial probes discover concerning circuits later.
+
+## The disagreement problem and how to pick a method {#sec-ch22c-disagreement}
+
+@krishna2022disagreement document a practitioner-reported crisis: for any given model and input, different explanation methods (LIME, KernelSHAP, Integrated Gradients, DeepSHAP, SmoothGrad) typically produce different rankings of important features, and there is no ground truth to adjudicate. They found in a practitioner survey that 84% of ML engineers in production environments have encountered this problem and typically resolve it by picking the method that produces the "cleanest" story, which defeats the purpose.
+
+Three mitigations are defensible:
+
+**Axiom-based selection.** Pick the method whose axiom set matches the downstream contract. For adverse-action notices under ECOA, efficiency (contributions sum to the score shift) is legally desirable, which rules out LIME-default and retains KernelSHAP, IG, and DeepSHAP. Among those, training-distribution baselines rule out raw IG (typically zero-baseline) and retain GradientSHAP and DeepSHAP.
+
+**Ensemble reason codes.** Compute attributions by $K \geq 2$ methods, keep only features that appear in the top-$k$ of *all* methods. @bhatt2020evaluating demonstrate this aggregation reduces the idiosyncratic method-dependence of single-method reason codes.
+
+**Fidelity benchmarking.** @yeh2019fidelity and @hooker2019benchmark provide *infidelity* and *ROAR* metrics that test attributions against held-out model behavior (how much the prediction drops when you remove the top-$k$ features). In principle a credit scoring team should monitor per-method fidelity on rolling validation windows and deprecate methods whose fidelity degrades under distribution shift.
+
+```{python}
+def infidelity(model, x, attr, sigma=0.1, n=200):
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    attr_t = torch.as_tensor(attr, dtype=torch.float32)
+    with torch.no_grad():
+        f_x = model(x_t.unsqueeze(0)).item()
+    vals = []
+    rng_loc = np.random.default_rng(SEED)
+    for _ in range(n):
+        delta = torch.as_tensor(rng_loc.normal(0, sigma, size=x.shape).astype(np.float32))
+        with torch.no_grad():
+            f_perturb = model((x_t - delta).unsqueeze(0)).item()
+        pred_diff = (delta * attr_t).sum().item()
+        vals.append((pred_diff - (f_x - f_perturb))**2)
+    return float(np.mean(vals))
+
+inf_ig = infidelity(model, Xte[0], ig, sigma=0.1, n=200)
+inf_sg = infidelity(model, Xte[0], sg, sigma=0.1, n=200)
+print(f"infidelity(IG) = {inf_ig:.3e}, infidelity(SmoothGrad) = {inf_sg:.3e}")
+```
+
+## Regulatory alignment {#sec-ch22c-regulatory}
+
+The methods above must also pass three regulatory filters before they ship in a consumer-lending pipeline:
+
+**ECOA Regulation B and CFPB Circular 2022-03** [@cfpb2022adverse]. For deep tabular models, the adverse-action notice requires "the specific reasons" the credit was denied. DeepSHAP or GradientSHAP with training-distribution baselines produces these reasons directly; IG with a zero baseline does not generalize cleanly because the zero feature vector is meaningless in credit feature space. For text models (narrative classifiers), PartitionExplainer aggregated to semantic phrases satisfies the specific-reason standard; word-level token attributions typically do not because a single token is not a "principal reason" a human can act on.
+
+**EU AI Act Articles 13 and 86** [@euaiact2024]. High-risk AI systems (credit scoring is listed as high-risk) must supply technical documentation including "the methods used to interpret the system." The documentation should name the method, cite the authoritative reference, state baseline and hyperparameter choices, and report fidelity metrics. A model card that says "we use SHAP" is insufficient; the required formulation is "we use GradientSHAP with $N=25$ baselines drawn from the training distribution, cross-checked against DeepSHAP, with infidelity below $10^{-3}$ on rolling monthly validation."
+
+**SR 11-7** [@fed2011sr117]. Effective-challenge exercises under SR 11-7 require that an independent validator reproduce attributions. All methods in this chapter must be deterministic under a fixed seed (fulfilled here by the `SEED=0` convention), and model-deployment checkpoints must store the attribution library version, the baseline set, and any calibration parameters alongside the model weights. A standard finding in validator reports is that explanation pipelines drift silently when the explainer library is upgraded; version pinning is part of the attribution stack.
+
+## Takeaways
+
+- Deep explainability splits into gradient methods (IG, DeepSHAP, GradientSHAP, SmoothGrad), perturbation methods (Occlusion, RISE, LIME), and attention methods (rollout, Chefer). Tree-based SHAP does not transfer.
+- Integrated Gradients is the unique path-integral attribution satisfying the five gradient axioms and reduces to the Aumann-Shapley value when baselines are chosen sensibly.
+- For adverse-action notices on deep tabular models, prefer GradientSHAP or DeepSHAP with training-distribution baselines over raw Integrated Gradients with a zero baseline.
+- For transformer-based text classifiers, `shap.PartitionExplainer` delivers Owen-value attributions additive over tokens, which satisfies the "principal reasons" standard when aggregated to phrase boundaries.
+- The disagreement problem is structural, not solvable. Defend against it with axiom-matched method selection, ensembled top-$k$ features, and fidelity monitoring.
+- Mechanistic interpretability is the long-run direction: attributing the computation rather than the input. For now, declare its availability in model cards and plan rollback procedures against circuit-level findings.
+
+## Further reading
+
+- @sundararajan2017axiomatic originate Integrated Gradients and prove the axiomatic uniqueness result.
+- @lundberg2017unified unify DeepLIFT, LIME, and Kernel SHAP under the Shapley-value game.
+- @shrikumar2017learning introduce DeepLIFT with the Rescale and RevealCancel rules.
+- @kokhlikyan2020captum describe the Captum library and its reference implementations.
+- @abnar2020quantifying and @chefer2021transformer develop the transformer-specific attribution methods.
+- @krishna2022disagreement survey practitioners on the disagreement problem.
+- @hooker2019benchmark propose ROAR as the canonical fidelity benchmark for deep attribution.
+- @yeh2019fidelity and @alvarezmelis2018robustness formalize explanation stability.
+- @elhage2021mathematical and @bricken2023towards launch the mechanistic interpretability agenda.
+- @rudin2019stop argues the counterpoint that high-stakes credit decisions should use inherently interpretable models rather than post hoc explanations of black-box models.

@@ -1,0 +1,992 @@
+---
+bibliography:
+  - ../references.bib
+  - ../refs/ch-25.bib
+execute:
+  echo: true
+  eval: true
+  warning: false
+---
+
+# NLP and Text Data in Credit {#sec-ch25}
+
+## Overview {.unnumbered}
+
+A credit decision is an act of compression. The lender converts a long record of observable signals into a single probability of default and a single accept or reject outcome. Most of the signals that get compressed are numeric: balances, utilization rates, income, tenure. Text sits in the gap between what a lender could know and what a lender typically measures. The borrower writes a loan description, the CFO reads a script on an earnings call, the analyst files a note, the 10-K buries a paragraph of risk-factor language, the disputing consumer writes a paragraph to the bureau. Each of those artifacts carries signal that does not map cleanly onto the numeric feature vectors used in a scorecard. The question of this chapter is how to turn that text into a feature that moves AUC, KS, or profit without breaking the governance constraints a regulated lender operates under.
+
+The argument unfolds in three steps. The first step is classical: bag of words, term frequency inverse document frequency, logistic regression (@sec-ch25-bow). That stack still produces most of the industry gains because the signal in a loan description is overwhelmingly in the unigrams and bigrams. The second step is distributional: static word embeddings that let the model generalize beyond exact-word matches (@sec-ch25-embeddings), and contextual embeddings from transformer encoders (@sec-ch25-transformers) that capture local syntax and disambiguate polysemy. The third step is economic: what does the text actually measure? @iyer2016screening show that text in Prosper loan listings carries information about default beyond what the credit grade reveals. @duarte2012trust show that photographs do the same. @loughran2011liability show that off-the-shelf sentiment dictionaries mislabel half of negative words in 10-Ks, which implies the domain-specific dictionary is a necessary intermediate step before any deep model.
+
+Text-in-credit research has been written for English, with smaller bodies for Chinese and German. A Vietnamese lender reading this chapter is operating in a language that has morphological segmentation problems English does not, a tokenizer ecosystem younger than spaCy, and a pretraining corpus that until 2020 was too small to train a competitive encoder. That changed with PhoBERT [@nguyen2020phobert] and the VnCoreNLP toolkit [@vu2018vncorenlp]. The Vietnam and emerging markets section at the end of the chapter walks through what an application-text pipeline looks like in Vietnamese.
+
+The engineering lives inside the same constraints that shape the rest of the book. Adverse-action notices under ECOA require a reason for denial, so feature importance on a transformer embedding is not enough. SR 11-7 requires documentation, so the pre-trained model version and its training corpus have to be pinned. The EU AI Act classifies consumer credit scoring as high risk. GDPR Article 22 restricts purely automated decisions that affect the data subject. Text features, being unstructured, are harder to audit than scorecard features. We write the chapter assuming the reader has to explain what each feature does.
+
+### Notation {.unnumbered}
+
+Let $\mathcal{D} = \{d_1, \ldots, d_N\}$ be a corpus of $N$ documents (loan descriptions, 10-K paragraphs, news articles). Let $\mathcal{V} = \{w_1, \ldots, w_V\}$ be the vocabulary of distinct tokens. For document $d_i$ let $c_{i,j}$ be the raw count of token $w_j$ in $d_i$. Let $Y_i \in \{0,1\}$ be the default indicator for the borrower or entity associated with $d_i$. Let $f_\theta$ be a parametric model with parameters $\theta$ mapping tokens or embeddings to a log-odds. Let $z_i \in \mathbb{R}^K$ denote a $K$-dimensional embedding of $d_i$ produced by any embedding method. Let $\pi(d_i) = \Pr(Y_i=1 \mid d_i)$.
+
+---
+
+## Text sources in credit {#sec-ch25-nlp}
+
+Most conversations about NLP in credit focus on one data source at a time. The picture is clearer when the sources are placed against the decision horizon they inform. Origination decisions use application text, loan description text when it is supplied, and any narrative a third-party vendor provides. Portfolio monitoring uses news and analyst reports for corporate exposures, transcripts of earnings calls, 10-K and 10-Q filings, and increasingly, social media text for small and midcap names. Dispute processing at consumer bureaus uses the consumer's own free-form narrative.
+
+### Loan applications and listing descriptions
+
+Peer-to-peer lending marketplaces gave the research community the first large public corpora of borrower-written text attached to a default label. Prosper, LendingClub, and Renrendai in China let borrowers write short paragraphs explaining why they want the loan, what they will do with the money, and why the lender should trust them. @iyer2016screening use Prosper data and show that lenders on the platform predict default significantly better than the credit grade alone, with the extra information concentrated in soft signals such as text and photograph. @lin2013judging show that the borrower's online social ties predict default risk. @duarte2012trust show that loan funding is higher for applicants perceived as more trustworthy, and that the trust signal partly predicts repayment. @dorfleitner2016description evaluate the text channel directly on two European platforms. @netzer2019words build a bag-of-words predictor on Prosper listings and find roughly 100 to 200 basis points of AUC improvement over a strong bureau baseline. @gao2022determines document that changes in sentiment polarity in P2P listings explain part of loan-level funding and default. @stevenson2021value run the same exercise for small-business default prediction with deep learning, and report meaningful lift.
+
+The structural feature of this source is that the borrower writes the text knowing the lender reads it. That creates three phenomena. First, self-presentation: borrowers with poor credit write more and write in a pleading tone. Second, deception cues: in repayment-relevant text, deceptive writers use more first-person-plural pronouns, more negative-emotion terms, and fewer specific numbers [@larcker2012detecting; @purda2015accounting]. Third, strategic language: the same words mean different things depending on the grade band. @netzer2019words document that keywords such as "God," "hospital," and "need help" are strongly predictive of default after controlling for grade. The analyst has to decide whether to let the model exploit that signal or to suppress it on fair-lending grounds.
+
+### Earnings calls and analyst reports
+
+For corporate exposures the text comes from the firm and from the analysts who cover it. Earnings-call transcripts contain a scripted CFO presentation and a question-and-answer section. The Q&A section carries most of the signal because it is less prepared. @mayew2012power show that managerial vocal cues during the Q&A predict future firm performance and stock returns. @hobson2012analyzing show that vocal markers of cognitive dissonance associate with later restatements. @larcker2012detecting classify deceptive discussions in conference calls using a small set of linguistic features. @druz2020loud show that when managers change their tone, analysts and investors change their forecasts. For credit, the natural dependent variable is not stock return but change in credit spread, rating, or CDS, and the same text features carry to that setting.
+
+Analyst reports are more structured. They have cover-page opinions, a numerical section, and a text body. The text body is typically the hardest to work with because it is drafted by multiple authors under firm guidelines, so author identity drives style more than content. @druz2020loud and @cohen2020lazy are two useful references on how to treat analyst text as a noisy signal about underlying beliefs.
+
+### 10-K and 10-Q filings
+
+Public issuer filings are the workhorse corpus of academic text-in-finance research. The 10-K includes Item 7 (Management's Discussion and Analysis) and Item 1A (Risk Factors), both of which are rich in qualitative information. @loughran2011liability build a finance-specific sentiment dictionary from 10-Ks and show that the General Inquirer Harvard IV-4 dictionary mislabels about three quarters of the negative words in a typical 10-K because finance reverses the polarity of many common words. "Liability" is a negative word in general English and a neutral accounting term in a balance-sheet context. @li2010information uses a Naive Bayes classifier on the forward-looking statements section and shows it predicts future earnings. @li2008annual uses the Fog index on 10-Ks to argue that less readable filings associate with lower earnings persistence. @hoberg2016text use text similarity on 10-K product descriptions to build text-based industry networks. @cohen2020lazy show that year-over-year changes in 10-K language predict future returns, what they call "lazy prices." @campbell2014information show that risk-factor disclosures contain incremental information about future firm-specific risk. @dyer2017evolution use LDA on 10-Ks over two decades to show that mandated disclosure and litigation risk drove an explosion of boilerplate that dilutes the information content. The engineering takeaway is that 10-K text is highly repetitive across years for the same firm, so year-over-year diffs are informationally richer than the level.
+
+### News and market commentary
+
+News is the oldest NLP data source in finance. @tetlock2007giving shows that pessimistic media sentiment predicts downward pressure on equity prices. @tetlock2008more generalize to firm-level text and predict earnings. @garcia2013sentiment shows the sentiment effect is larger in recessions. @antweiler2004all study internet stock message boards. @das2007yahoo study the same. @manela2017news build a news-implied volatility index. @baker2016measuring build the Economic Policy Uncertainty index from newspaper term counts. @hansen2018transparency study FOMC transcripts with topic models. For credit, the news signal is useful for corporate exposure monitoring (deteriorating coverage often precedes rating actions) and for policy-risk overlays on retail and small-business books.
+
+### Consumer dispute narratives
+
+The Consumer Financial Protection Bureau complaint database is a public corpus of narratives filed by US consumers about financial products. Narratives are moderated and redacted but retain the consumer's own words. For a credit bureau or large lender, similar internal dispute narratives exist in the system of record. The analyst use case is narrow: triage and routing, not direct feature input into a score. Using dispute-narrative content as a default-prediction feature raises substantial ECOA and FCRA concerns because the act of disputing is itself protected and because disputes correlate with protected characteristics.
+
+The economics of this chapter: text from the borrower predicts default partly because it reveals information the lender could not get from the bureau and partly because it reveals information the borrower would rather not reveal. The first channel is unambiguously value-creating. The second channel raises a governance question the scorecard alone does not answer.
+
+---
+
+## Bag of words and TF-IDF {#sec-ch25-bow}
+
+The bag-of-words model drops word order and keeps only counts. It is the base on top of which every more sophisticated method is built because it is cheap to compute, easy to interpret, and strong enough to be the default baseline a transformer model has to beat by a margin that justifies its deployment cost.
+
+### Formal setup
+
+Given corpus $\mathcal{D}$ and vocabulary $\mathcal{V}$, the document-term matrix $C \in \mathbb{N}^{N \times V}$ has entries $C_{i,j} = c_{i,j}$ equal to the count of token $w_j$ in document $d_i$. Raw counts are poorly behaved because common words dominate. Two normalizations correct that. The term frequency is
+
+$$
+\mathrm{tf}(w_j, d_i) = \frac{c_{i,j}}{\sum_{k=1}^{V} c_{i,k}},
+$$ {#eq-tf}
+
+the fraction of document $d_i$'s tokens equal to $w_j$. Alternative forms include the raw count, the log count $\log(1 + c_{i,j})$, and the sublinear form $1 + \log c_{i,j}$ when $c_{i,j} > 0$. The inverse document frequency is
+
+$$
+\mathrm{idf}(w_j) = \log\!\left(\frac{N}{n_j}\right),
+$$ {#eq-idf}
+
+where $n_j = |\{i : c_{i,j} > 0\}|$ is the number of documents that contain token $w_j$. Common variants add smoothing: $\log(N / (1 + n_j)) + 1$ or $\log((N + 1)/(n_j + 1)) + 1$ (the scikit-learn default). The TF-IDF weight is the product,
+
+$$
+\mathrm{tfidf}(w_j, d_i) = \mathrm{tf}(w_j, d_i) \cdot \mathrm{idf}(w_j).
+$$ {#eq-tfidf}
+
+### Probabilistic interpretation
+
+The log-IDF term has a clean probabilistic reading that dates to @sparckjones1972statistical and is formalized by @robertson2009probabilistic. Consider the probability that a random document $D$ contains word $w$, estimated as $\hat{\Pr}(w \in D) = n_j / N$. Under a noisy-channel view of retrieval, we want to know how much the presence of $w$ in the query shifts the posterior that the document is relevant $R$. Taking $\log \hat{\Pr}(w \in D)^{-1} = \log(N / n_j) = \mathrm{idf}(w)$ is the log-inverse of the word's marginal probability. Words that are rare across the corpus carry more information per token, so their TF is upweighted.
+
+The full Robertson-Sparck-Jones weight, assuming independent terms and given labels of relevant and non-relevant documents, is the log odds-ratio
+
+$$
+w_{\text{RSJ}}(w) = \log \frac{\Pr(w \in D \mid R) (1 - \Pr(w \in D \mid \bar{R}))}{(1 - \Pr(w \in D \mid R)) \Pr(w \in D \mid \bar{R})}.
+$$ {#eq-rsj}
+
+When relevance counts are unavailable, this collapses toward $\log((N - n_j)/n_j) \approx \mathrm{idf}(w)$ for small $n_j/N$. In credit, $R$ is default and $\bar{R}$ is non-default. Training a logistic regression on TF-IDF features is, up to link function, an estimate of @eq-rsj with shrinkage.
+
+### From BoW to BM25
+
+BM25 [@robertson2009probabilistic] extends TF-IDF with two modifications. It saturates the term-frequency contribution (more instances of the same word do not contribute linearly) and it normalizes for document length. The standard form is
+
+$$
+\mathrm{BM25}(w_j, d_i) = \mathrm{idf}(w_j) \cdot \frac{c_{i,j} (k_1 + 1)}{c_{i,j} + k_1 \bigl(1 - b + b \frac{|d_i|}{\bar{|d|}}\bigr)},
+$$ {#eq-bm25}
+
+where $|d_i|$ is the length of document $i$, $\bar{|d|}$ is the mean document length across the corpus, and $k_1 \in [1.2, 2.0]$, $b \in [0.5, 0.75]$ are tunable. BM25 is rarely used as a classifier feature in credit but shows up as a retrieval component inside RAG-style systems discussed in @sec-ch26.
+
+### Stopwords, stemming, and n-grams
+
+Practical BoW pipelines include a cascade of preprocessors. Lowercasing, punctuation removal, stopword removal, stemming or lemmatization, and n-gram extraction. In credit text the choice matters less than in general NLP because the signal is concentrated in content words and idiomatic phrases. @loughran2016textual survey textual-analysis methodology in accounting and argue that domain-specific cleaning rules beat generic ones. For loan descriptions, common choices: keep unigrams and bigrams, drop tokens below a minimum document frequency (5 is typical), cap vocabulary at 10,000 to 50,000 tokens. Trigrams add little and explode vocabulary size.
+
+### Implementation: TF-IDF + logistic regression on synthetic loan descriptions
+
+The following block builds a small synthetic corpus that imitates a LendingClub loan-description distribution, fits TF-IDF, and trains a logistic regression classifier. The code is deterministic and runs in under two seconds.
+
+```{python}
+import sys
+sys.path.insert(0, '../code')
+import numpy as np
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+from csutils import ks_statistic
+
+rng = np.random.default_rng(0)
+
+GOOD_TEMPLATES = [
+    "stable employment long tenure bank account consolidating on time payment history",
+    "consolidating one small bill on time payment history modest budget",
+    "modest home improvement trusted contractor family budget",
+    "medical copay minor procedure insured employer plan",
+    "wedding expense shared with partner stable income",
+    "small business inventory existing customers steady revenue",
+    "new roof repair trusted local contractor quote",
+    "debt consolidation lower rate save interest plan",
+    "furniture purchase savings supplement long tenure",
+    "education tuition degree program steady job",
+]
+
+BAD_TEMPLATES = [
+    "urgent need cover payday loan urgent overdue",
+    "gambling debt urgent need help behind payments",
+    "rent overdue eviction notice urgent rollover",
+    "rollover previous late loan debt urgent",
+    "cash emergency unable to pay creditor behind",
+    "urgent help losing job behind on payments",
+    "need cash fast please help bills stacking",
+    "desperate situation please fund help family",
+    "overdue loan rollover new credit help asap",
+    "fell behind medical bills debt collection urgent",
+]
+
+EXTRA_GOOD = ["income", "stable", "family", "budget", "plan", "term",
+              "savings", "tenure", "steady", "salary"]
+EXTRA_BAD = ["need", "fast", "now", "please", "urgent",
+             "bills", "stacking", "help", "emergency", "asap"]
+
+
+def synthesize_corpus(n=600, p_default=0.35, seed=0):
+    rng = np.random.default_rng(seed)
+    texts, labels = [], []
+    for _ in range(n):
+        if rng.random() < p_default:
+            base = rng.choice(BAD_TEMPLATES)
+            noise = " ".join(rng.choice(EXTRA_BAD, size=2))
+            texts.append(base + " " + noise)
+            labels.append(1)
+        else:
+            base = rng.choice(GOOD_TEMPLATES)
+            noise = " ".join(rng.choice(EXTRA_GOOD, size=2))
+            texts.append(base + " " + noise)
+            labels.append(0)
+    # label noise: 8 percent flips so the problem is not trivially separable
+    labels = np.array(labels)
+    flip = rng.random(n) < 0.08
+    labels = np.where(flip, 1 - labels, labels)
+    return pd.DataFrame({"text": texts, "default": labels})
+
+
+df = synthesize_corpus(n=600, p_default=0.35, seed=0)
+print("n = {}, default rate = {:.3f}".format(len(df), df["default"].mean()))
+print(df.head(3).to_string(index=False))
+```
+
+```{python}
+X_train, X_test, y_train, y_test = train_test_split(
+    df["text"].values, df["default"].values, test_size=0.25,
+    stratify=df["default"].values, random_state=42,
+)
+
+tfidf = TfidfVectorizer(
+    ngram_range=(1, 2), min_df=3, max_df=0.9, sublinear_tf=True
+)
+Xtr = tfidf.fit_transform(X_train)
+Xte = tfidf.transform(X_test)
+print("tfidf vocab size:", len(tfidf.vocabulary_))
+print("train shape:", Xtr.shape, "test shape:", Xte.shape)
+
+clf_tfidf = LogisticRegression(
+    C=1.0, max_iter=1000, solver="liblinear", random_state=42
+)
+clf_tfidf.fit(Xtr, y_train)
+p_train = clf_tfidf.predict_proba(Xtr)[:, 1]
+p_test = clf_tfidf.predict_proba(Xte)[:, 1]
+
+auc_tr = roc_auc_score(y_train, p_train)
+auc_te = roc_auc_score(y_test, p_test)
+ks_te = ks_statistic(y_test, p_test)
+print(f"TF-IDF + LR | train AUC = {auc_tr:.3f} | test AUC = {auc_te:.3f} | test KS = {ks_te:.3f}")
+```
+
+```{python}
+feature_names = np.array(tfidf.get_feature_names_out())
+coefs = clf_tfidf.coef_.ravel()
+order = np.argsort(coefs)
+print("Top negative coefficients (predict good):")
+for j in order[:8]:
+    print(f"  {feature_names[j]:<30s} {coefs[j]:+.3f}")
+print("Top positive coefficients (predict default):")
+for j in order[-8:][::-1]:
+    print(f"  {feature_names[j]:<30s} {coefs[j]:+.3f}")
+```
+
+The coefficient table is the payoff of a BoW pipeline. Every feature is a word or short phrase; the sign of the coefficient is the direction of the effect; the magnitude is the log-odds contribution. For ECOA adverse-action notices the top negative coefficients of the rejected applicant's non-zero features give the reason codes directly.
+
+### BoW failure modes
+
+BoW falls over in four situations. First, out-of-vocabulary words at scoring time are dropped: a new slang term or product name carries no signal until the vocabulary is rebuilt. Second, semantic generalization is absent: "car" and "auto" are orthogonal. Third, word order is ignored, so "pay off debt" and "debt off pay" are identical. Fourth, long-range dependencies are invisible: "without which the borrower would not have requested this loan" flips sentence polarity but is unreachable. Each of these motivates a step in the rest of the chapter.
+
+---
+
+## Word embeddings {#sec-ch25-embeddings}
+
+Static word embeddings map each token to a low-dimensional vector such that distributional similarity predicts geometric similarity. Two vectors are close if the words they represent appear in similar contexts. This is the distributional hypothesis: a word is characterized by the company it keeps. The engineering goal is to share statistical strength across words that a BoW pipeline would treat as unrelated.
+
+### Word2Vec
+
+@mikolov2013efficient introduce two architectures. The continuous-bag-of-words (CBOW) predicts a target word from context words. The skip-gram predicts context words from a target word. The skip-gram is the dominant variant and the one with the cleaner objective.
+
+Fix a context window of size $m$. For each center word $w_t$ in a sentence, the positive training examples are the pairs $(w_t, w_{t+j})$ for $j \in \{-m, \ldots, -1, 1, \ldots, m\}$. Under a softmax over the full vocabulary, the skip-gram objective is the average log-probability
+
+$$
+\mathcal{L}_{\text{SG}}(\theta) = \frac{1}{T} \sum_{t=1}^{T} \sum_{\substack{-m \le j \le m \\ j \ne 0}} \log \Pr(w_{t+j} \mid w_t),
+$$ {#eq-sg}
+
+where $T$ is the total number of tokens. Each word $w$ has two vectors: an input embedding $v_w \in \mathbb{R}^d$ and an output embedding $u_w \in \mathbb{R}^d$. The conditional probability in @eq-sg is the softmax
+
+$$
+\Pr(w_O \mid w_I) = \frac{\exp(u_{w_O}^\top v_{w_I})}{\sum_{w \in \mathcal{V}} \exp(u_w^\top v_{w_I})}.
+$$ {#eq-sg-softmax}
+
+The denominator sums over the full vocabulary, which is $O(V)$ per example and infeasible at scale. @mikolov2013distributed introduce negative sampling. For each positive pair $(w_I, w_O)$ one samples $k$ negative pairs $(w_I, w_n)$ with $w_n$ drawn from a noise distribution $P_n(w) \propto U(w)^{3/4}$ (unigram distribution raised to the 3/4 power). The negative-sampling objective for a single positive pair is
+
+$$
+\mathcal{L}_{\text{NS}}(w_I, w_O) = \log \sigma(u_{w_O}^\top v_{w_I}) + \sum_{n=1}^{k} \mathbb{E}_{w_n \sim P_n}\!\left[\log \sigma(-u_{w_n}^\top v_{w_I})\right],
+$$ {#eq-ns}
+
+where $\sigma(x) = 1/(1 + e^{-x})$. The total loss is the sum over all positive pairs. The negative-sampling loss is a proper binary cross-entropy on a logistic discriminator that separates true context words from noise samples. It approximates @eq-sg under the assumption that the discriminator is near optimal.
+
+### GloVe
+
+@pennington2014glove take the complementary route. Instead of predicting context words, GloVe factorizes the global co-occurrence matrix. Let $X_{ij}$ be the number of times word $j$ appears in the context of word $i$ across the corpus. GloVe fits vectors $v_i, u_j \in \mathbb{R}^d$ and biases $b_i, c_j \in \mathbb{R}$ to minimize
+
+$$
+\mathcal{L}_{\text{GloVe}} = \sum_{i,j : X_{ij} > 0} f(X_{ij}) \left(v_i^\top u_j + b_i + c_j - \log X_{ij}\right)^2,
+$$ {#eq-glove}
+
+with the weighting function $f(x) = \min\{1, (x/x_{\max})^\alpha\}$ ($x_{\max} = 100, \alpha = 3/4$). The squared loss is proportional to the KL divergence between the model and the empirical co-occurrence distribution up to a term that does not depend on $\theta$. For credit text, the practical difference between Word2Vec and GloVe is second order; the important choice is whether to use static embeddings at all or to go straight to contextualized encoders.
+
+### Subword embeddings
+
+Word2Vec and GloVe have one word per vector, which is awkward for morphologically rich languages, rare domain terms, and out-of-vocabulary tokens at scoring time. @bojanowski2017enriching introduce FastText, which represents each word as a sum of character n-gram vectors. A new word at inference time is the sum of its character n-grams, so there are no unseen words in the OOV sense. For financial text with proper nouns (ticker symbols, product names), the subword approach helps noticeably. Modern transformer tokenizers (BPE, WordPiece, SentencePiece) take the same idea further with learned subword vocabularies of 30,000 to 100,000 pieces.
+
+### Implementation: a minimal skip-gram from NumPy
+
+The canonical Word2Vec library is `gensim`. The environment this book runs in does not include it. We implement a small skip-gram with negative sampling directly in NumPy so the math in @eq-ns is concrete, then show neighbor queries on the resulting vectors. The implementation is deliberately small (200 iterations, 32-dimensional vectors) but produces sensible structure on the synthetic corpus.
+
+```{python}
+import numpy as np
+from collections import Counter
+
+def tokenize(texts):
+    return [t.lower().split() for t in texts]
+
+
+def build_vocab(tokenized, min_count=2):
+    counter = Counter()
+    for toks in tokenized:
+        counter.update(toks)
+    words = [w for w, c in counter.items() if c >= min_count]
+    w2i = {w: i for i, w in enumerate(words)}
+    counts = np.array([counter[w] for w in words], dtype=float)
+    return words, w2i, counts
+
+
+def sg_training_pairs(tokenized, w2i, window=2):
+    pairs = []
+    for toks in tokenized:
+        ids = [w2i[t] for t in toks if t in w2i]
+        for i, c in enumerate(ids):
+            lo = max(0, i - window)
+            hi = min(len(ids), i + window + 1)
+            for j in range(lo, hi):
+                if j == i: continue
+                pairs.append((c, ids[j]))
+    return np.array(pairs, dtype=np.int64)
+
+
+class SkipGramNS:
+    def __init__(self, V, d=32, lr=0.05, seed=0):
+        rng = np.random.default_rng(seed)
+        self.V, self.d = V, d
+        self.V_in = rng.standard_normal((V, d)) * 0.1
+        self.U_out = rng.standard_normal((V, d)) * 0.1
+        self.lr = lr
+
+    def step(self, pos_pairs, neg_dist, k_neg=5, rng=None):
+        if rng is None: rng = np.random.default_rng(0)
+        ctr = pos_pairs[:, 0]; ctx = pos_pairs[:, 1]
+        v = self.V_in[ctr]                         # (B, d)
+        u_pos = self.U_out[ctx]                    # (B, d)
+        # positive term
+        score_pos = np.sum(v * u_pos, axis=1)
+        sig_pos = 1.0 / (1.0 + np.exp(-score_pos))
+        gv_pos = (sig_pos - 1.0)[:, None] * u_pos
+        gu_pos = (sig_pos - 1.0)[:, None] * v
+        # negatives
+        neg_ids = rng.choice(self.V, size=(len(pos_pairs), k_neg), p=neg_dist)
+        u_neg = self.U_out[neg_ids]                # (B, k, d)
+        score_neg = np.einsum('bd,bkd->bk', v, u_neg)
+        sig_neg = 1.0 / (1.0 + np.exp(-score_neg))
+        gv_neg = np.einsum('bk,bkd->bd', sig_neg, u_neg)
+        gu_neg = sig_neg[:, :, None] * v[:, None, :]
+        # SGD
+        grad_v = gv_pos + gv_neg
+        # scatter-subtract gradients back to embedding tables
+        np.add.at(self.V_in, ctr, -self.lr * grad_v)
+        np.add.at(self.U_out, ctx, -self.lr * gu_pos)
+        for b in range(len(pos_pairs)):
+            for kk in range(k_neg):
+                self.U_out[neg_ids[b, kk]] -= self.lr * gu_neg[b, kk]
+
+    def vectors(self):
+        # following convention, use input embeddings as "the" vectors
+        return self.V_in
+
+
+# build corpus, vocab, pairs
+tok = tokenize(df["text"].values)
+words, w2i, counts = build_vocab(tok, min_count=2)
+V = len(words)
+print("vocab size:", V)
+
+# noise distribution: unigram ^ 0.75
+p_noise = counts ** 0.75
+p_noise = p_noise / p_noise.sum()
+
+pairs = sg_training_pairs(tok, w2i, window=2)
+print("positive pairs:", len(pairs))
+
+sg = SkipGramNS(V=V, d=32, lr=0.05, seed=0)
+rng = np.random.default_rng(42)
+batch = 512
+n_iter = 200
+for it in range(n_iter):
+    idx = rng.integers(0, len(pairs), size=batch)
+    sg.step(pairs[idx], p_noise, k_neg=5, rng=rng)
+
+W = sg.vectors()
+# cosine neighbors
+def neighbors(w, topk=5):
+    if w not in w2i: return []
+    v = W[w2i[w]]
+    sim = W @ v / (np.linalg.norm(W, axis=1) * np.linalg.norm(v) + 1e-9)
+    order = np.argsort(-sim)
+    return [(words[i], sim[i]) for i in order if words[i] != w][:topk]
+
+for query in ["urgent", "stable", "debt", "family"]:
+    nbrs = neighbors(query, topk=4)
+    print(f"nbrs({query}):", [f"{w}={s:.2f}" for w, s in nbrs])
+```
+
+The neighbor lists are crude because the corpus is tiny and the training budget is small. The shape is what we want: words that co-occur in bad-borrower templates cluster together ("urgent," "overdue," "fast"), and words that co-occur in good-borrower templates cluster together ("stable," "tenure," "income"). On a real 500k-document lending corpus the same skip-gram with standard budget (5 epochs, vocabulary 50k) produces clean analogy structure.
+
+### From word to document vectors
+
+For downstream use, a document needs a vector. Three common reductions:
+
+1. Mean pooling: $z_i = \frac{1}{|d_i|} \sum_{w \in d_i} v_w$. Simple, often the strongest baseline.
+2. TF-IDF-weighted pooling: $z_i = \sum_w \mathrm{tfidf}(w, d_i) \cdot v_w$. Weights content words more.
+3. SIF (smooth inverse frequency) pooling: weight each word by $\alpha / (\alpha + p(w))$ with $\alpha \approx 10^{-3}$, then subtract the first principal component across documents.
+
+In credit, mean pooling of static embeddings is a weak default compared to a fine-tuned contextual model, but it is free to compute and can close 50 to 70 percent of the gap at 1 percent of the cost.
+
+---
+
+## Transformers and BERT {#sec-ch25-transformers}
+
+Static embeddings give each word one vector. That is wrong for polysemy: "charge" is a verb of motion, an electrical quantity, an accusation, or a line item on a bill depending on context. @peters2018deep introduce ELMo, contextualized embeddings from a biLSTM language model. @vaswani2017attention replace recurrence with self-attention and introduce the transformer. @devlin2019bert introduce BERT, a bidirectional transformer encoder pre-trained with masked language modeling. BERT changed NLP because a single large encoder, fine-tuned on 1,000 to 10,000 labeled examples, matched or beat task-specific architectures across most supervised benchmarks.
+
+### Self-attention
+
+The building block is scaled dot-product attention. A sequence of $n$ tokens is embedded to a matrix $X \in \mathbb{R}^{n \times d_{\text{model}}}$. Three learned projections produce queries, keys, and values:
+
+$$
+Q = X W^Q, \quad K = X W^K, \quad V = X W^V,
+$$ {#eq-qkv}
+
+with $W^Q, W^K \in \mathbb{R}^{d_{\text{model}} \times d_k}$ and $W^V \in \mathbb{R}^{d_{\text{model}} \times d_v}$. Self-attention then computes
+
+$$
+\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{Q K^\top}{\sqrt{d_k}}\right) V,
+$$ {#eq-attention}
+
+where the softmax is applied row-wise. Each row $i$ of the output is a convex combination of the value vectors, with weights given by the dot products between query $i$ and all keys. Division by $\sqrt{d_k}$ keeps the dot products in a well-conditioned range for the softmax (without rescaling, variance grows with $d_k$ and the softmax saturates).
+
+Multi-head attention runs $h$ attention operations in parallel on $d_k = d_v = d_{\text{model}} / h$ slices and concatenates:
+
+$$
+\mathrm{MHA}(X) = \mathrm{Concat}(\mathrm{head}_1, \ldots, \mathrm{head}_h) W^O,
+$$ {#eq-mha}
+
+with $\mathrm{head}_i = \mathrm{Attention}(X W^Q_i, X W^K_i, X W^V_i)$. The transformer block adds a position-wise feedforward network, residual connections, and layer normalization.
+
+A transformer encoder has no recurrence and no convolution. Position is injected via positional embeddings (learned or sinusoidal). The computational cost of self-attention is $O(n^2 d)$ per layer, which is the binding constraint at long sequence lengths. For typical credit-text settings (a loan description is 10 to 100 tokens, a paragraph of a 10-K is 100 to 500 tokens) the quadratic cost is not a problem.
+
+### Masked language modeling
+
+BERT pre-trains on two objectives: masked language modeling (MLM) and next-sentence prediction (NSP). NSP was later shown to be unhelpful by @liu2019roberta, so modern variants (RoBERTa, DistilBERT) use MLM alone. MLM replaces 15 percent of tokens in the input sequence with a special `[MASK]` token (with 10 percent probability the token is replaced by a random token and with 10 percent kept unchanged, to reduce train-test mismatch). The model then predicts the original token at each masked position.
+
+Let $\mathcal{M}$ be the set of masked positions in a sentence, $x_{\backslash \mathcal{M}}$ the observed context, and $x_m$ the true token at masked position $m$. The MLM loss is the masked cross-entropy
+
+$$
+\mathcal{L}_{\text{MLM}}(\theta) = -\mathbb{E}_{x \sim \mathcal{D}}\!\left[\sum_{m \in \mathcal{M}} \log \Pr_\theta(x_m \mid x_{\backslash \mathcal{M}})\right],
+$$ {#eq-mlm}
+
+where $\Pr_\theta(x_m \mid x_{\backslash \mathcal{M}}) = \mathrm{softmax}(h_m^\top W_{\text{vocab}})_{x_m}$ uses the final hidden state $h_m \in \mathbb{R}^{d_{\text{model}}}$ at position $m$ projected onto the vocabulary. MLM is a proper log-likelihood of the masked tokens conditional on the unmasked ones. It is bidirectional because the transformer encoder sees all of $x_{\backslash \mathcal{M}}$ at once, which is the main advantage over left-to-right language models for encoding tasks.
+
+The `[CLS]` token is a special token prepended to every input. Its final hidden state is the pooled representation used for classification fine-tuning. Fine-tuning adds a small head (typically a single linear layer) on top of the `[CLS]` representation and trains end-to-end on the labeled task with cross-entropy loss.
+
+### Parameter counts
+
+BERT-base has 12 layers, 768 hidden, 12 heads, 110 million parameters. DistilBERT [@sanh2019distilbert] distills BERT-base into a 6-layer, 768-hidden model with 66 million parameters and retains roughly 97 percent of GLUE performance at 40 percent the inference cost. For credit use cases DistilBERT is the right default: cheaper to serve, fast enough to fine-tune without GPU, close enough in accuracy to BERT-base for the signal-to-noise levels in loan text.
+
+### Implementation: extract [CLS] embeddings from DistilBERT
+
+```{python}
+import warnings
+warnings.filterwarnings("ignore")
+import os
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+import torch
+from transformers import AutoTokenizer, AutoModel
+torch.manual_seed(0)
+
+MODEL_NAME = "distilbert-base-uncased"
+tok = AutoTokenizer.from_pretrained(MODEL_NAME)
+encoder = AutoModel.from_pretrained(MODEL_NAME)
+encoder.eval()
+
+def cls_embed(texts, batch_size=16, max_len=64):
+    out = []
+    with torch.no_grad():
+        for i in range(0, len(texts), batch_size):
+            b = list(texts[i:i+batch_size])
+            enc = tok(b, return_tensors="pt", padding=True, truncation=True, max_length=max_len)
+            h = encoder(**enc).last_hidden_state
+            cls = h[:, 0, :].numpy()
+            out.append(cls)
+    return np.vstack(out)
+
+Z_train = cls_embed(X_train, batch_size=32, max_len=48)
+Z_test = cls_embed(X_test, batch_size=32, max_len=48)
+print("CLS embedding shape:", Z_train.shape)
+```
+
+```{python}
+clf_cls = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+clf_cls.fit(Z_train, y_train)
+p_cls = clf_cls.predict_proba(Z_test)[:, 1]
+auc_cls = roc_auc_score(y_test, p_cls)
+ks_cls = ks_statistic(y_test, p_cls)
+print(f"Pre-trained [CLS] + LR | test AUC = {auc_cls:.3f} | test KS = {ks_cls:.3f}")
+```
+
+The unfine-tuned `[CLS]` embedding already carries enough structure to separate good and bad loan descriptions, because the pre-training corpus (Wikipedia + BooksCorpus) contains enough financial and general lexical context that words like "urgent" and "stable" have discriminative hidden states. The fine-tuning below makes the head target the actual default label.
+
+---
+
+## FinBERT and domain-specific fine-tuning
+
+The case for domain adaptation is empirical. @loughran2011liability show that generic sentiment dictionaries misclassify three quarters of negative words in 10-Ks. The same mechanism applies to pre-trained encoders: they were not trained on financial language and therefore mis-weight the contextualized meaning of domain-specific terms. Three families of domain-adapted models appear in the literature.
+
+### FinBERT variants
+
+@araci2019finbert takes BERT-base, continues pre-training on a financial news corpus (Reuters TRC2), and fine-tunes on the Financial Phrase Bank sentiment dataset. The resulting model improves polarity classification on financial text by 5 to 15 points over BERT-base. @yang2020finbert (Yang, Uy, Huang) do the same starting from a much larger financial corpus (corporate filings, analyst reports, call transcripts, roughly 4.9 billion tokens) and release a model widely used in academia. @huang2023finbert extend the model and the corpus and release the model now commonly referred to as the FinBERT of the accounting literature. The three models are distinct but use the same recipe: continued pre-training plus supervised fine-tuning.
+
+### When domain adaptation matters
+
+Three conditions favor domain adaptation. First, the target text is stylistically different from general pre-training data. A 10-K is different from Wikipedia. Second, the target task depends on term meanings that general pre-training got wrong. "Liability" in a balance-sheet context is neutral; "exposure" in a credit context is technical, not emotional. Third, labeled data for the specific downstream task is scarce. Continued pre-training on a large domain corpus is unsupervised, so it can absorb unlabeled text that labeled fine-tuning cannot.
+
+For credit text the three conditions partly hold. Loan descriptions are style-shifted from general text but not dramatically. Bureau data is pure numeric. Corporate filings and analyst reports are the strongest case for domain adaptation. Fine-tuning on the downstream default label is always available.
+
+### Two-stage fine-tuning
+
+The canonical two-stage recipe:
+
+1. Continue MLM pre-training (@eq-mlm) on domain-specific unlabeled text for $E_1$ epochs. Learning rate $\eta_1 \approx 10^{-4}$, batch size 32 to 128, sequence length 128 to 512.
+2. Fine-tune on labeled classification data for $E_2$ epochs, typically $E_2 \in \{2, 3, 4\}$, learning rate $\eta_2 \in \{2 \times 10^{-5}, 5 \times 10^{-5}\}$, batch size 16 to 32, with a linear learning-rate schedule with warmup.
+
+For a lender with a medium-sized unlabeled corpus (say, 5 million loan descriptions or application free-text fields) and a labeled default set (say, 50,000 labels), the stage-1 MLM on the full corpus plus stage-2 fine-tuning on the labels is the strongest empirical setup. With only labeled data and no unlabeled domain corpus, skipping stage 1 is rational.
+
+### Implementation: fine-tune DistilBERT on synthetic loan descriptions
+
+```{python}
+#| cache: true
+import torch
+import torch.nn as nn
+from transformers import AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+import time
+
+torch.manual_seed(0)
+np.random.seed(0)
+
+# small labeled set for fine-tuning
+N_FT = 200
+idx_ft = np.random.choice(len(X_train), size=N_FT, replace=False)
+X_ft = X_train[idx_ft]
+y_ft = y_train[idx_ft]
+print("fine-tune set:", len(X_ft), "positives:", int(y_ft.sum()))
+
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+enc_ft = tok(list(X_ft), return_tensors="pt", padding=True, truncation=True, max_length=48)
+labels_ft = torch.tensor(y_ft, dtype=torch.long)
+
+bs = 16
+n_epochs = 1
+n_steps = (N_FT + bs - 1) // bs * n_epochs
+opt = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
+sched = get_linear_schedule_with_warmup(opt, num_warmup_steps=int(0.1*n_steps), num_training_steps=n_steps)
+
+model.train()
+t0 = time.time()
+idx = np.arange(N_FT)
+for epoch in range(n_epochs):
+    np.random.shuffle(idx)
+    total_loss = 0.0
+    for i in range(0, N_FT, bs):
+        b = idx[i:i+bs]
+        ids = enc_ft["input_ids"][b]
+        am = enc_ft["attention_mask"][b]
+        lab = labels_ft[b]
+        out = model(input_ids=ids, attention_mask=am, labels=lab)
+        opt.zero_grad()
+        out.loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+        sched.step()
+        total_loss += out.loss.item() * len(b)
+    print(f"epoch {epoch+1} mean loss = {total_loss/N_FT:.4f}")
+print(f"fine-tune wall-clock: {time.time()-t0:.1f}s")
+```
+
+```{python}
+model.eval()
+def ft_proba(texts, batch_size=32, max_len=48):
+    ps = []
+    with torch.no_grad():
+        for i in range(0, len(texts), batch_size):
+            b = list(texts[i:i+batch_size])
+            enc = tok(b, return_tensors="pt", padding=True, truncation=True, max_length=max_len)
+            logits = model(**enc).logits
+            p = torch.softmax(logits, dim=-1)[:, 1].numpy()
+            ps.append(p)
+    return np.concatenate(ps)
+
+p_ft = ft_proba(X_test, batch_size=32, max_len=48)
+auc_ft = roc_auc_score(y_test, p_ft)
+ks_ft = ks_statistic(y_test, p_ft)
+print(f"Fine-tuned DistilBERT | test AUC = {auc_ft:.3f} | test KS = {ks_ft:.3f}")
+```
+
+```{python}
+# compare on a leaderboard
+from sklearn.linear_model import LogisticRegression
+
+# CLS embeddings + GBM (sklearn HistGradientBoosting avoids the xgboost/torch
+# libomp interaction that can deadlock in a kernel that already holds
+# transformers weights).
+from sklearn.ensemble import HistGradientBoostingClassifier
+gbm = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.1,
+                                     max_iter=200, random_state=42)
+gbm.fit(Z_train, y_train)
+p_xgb = gbm.predict_proba(Z_test)[:, 1]
+auc_xgb = roc_auc_score(y_test, p_xgb)
+ks_xgb = ks_statistic(y_test, p_xgb)
+
+print("\nLeaderboard on held-out synthetic loan descriptions:")
+print(f"  TF-IDF + LR                        AUC={auc_te:.3f}  KS={ks_te:.3f}")
+print(f"  Pre-trained [CLS] + LR             AUC={auc_cls:.3f}  KS={ks_cls:.3f}")
+print(f"  Pre-trained [CLS] + HistGBM        AUC={auc_xgb:.3f}  KS={ks_xgb:.3f}")
+print(f"  DistilBERT fine-tuned, 1 epoch     AUC={auc_ft:.3f}  KS={ks_ft:.3f}")
+```
+
+Four observations from the leaderboard. First, on this synthetic corpus the TF-IDF baseline is already strong because the signal is concentrated in a small vocabulary of trigger words and the template structure is easy to learn. Second, the pre-trained `[CLS]` + LR model is competitive without any domain adaptation because the off-the-shelf encoder has already learned that "urgent" and "stable" are distributionally distant. Third, substituting XGBoost for LR on the embedding representation rarely moves AUC by more than a few hundredths of a point, because the representation is already linearly separable, which matches the empirical finding in @grinsztajn2022why for low-cardinality text features. Fourth, fine-tuning on 200 examples for one epoch is enough to beat the baselines on the test split because the task is simple; on real loan-description default prediction the lift from fine-tuning on 50k labels is 1 to 3 AUC points over a strong TF-IDF baseline.
+
+### Deployment considerations
+
+Three points on serving. First, transformer inference cost is dominated by the attention matrix at long sequences. Truncation at 128 or 256 tokens is usually fine for loan descriptions and 10-K paragraphs. Second, the tokenizer vocabulary is fixed at pre-training, so a new domain-specific term is tokenized into multiple subword pieces. Vocabulary expansion is possible but rare in credit. Third, for high-volume origination systems, distillation from a fine-tuned BERT to a smaller student (DistilBERT to 2-layer student, or TinyBERT) can cut latency 5x with 1 to 2 AUC-point degradation, which is worth it when decisions are real-time.
+
+---
+
+## Soft information in P2P lending
+
+The central economic question: does borrower-written text add value over the credit grade? The answer in the P2P literature is yes, by a margin that is material but not large, and with substantial heterogeneity across platforms and grade bands.
+
+### The Iyer et al. (2016) result
+
+@iyer2016screening study 4,300 listings on Prosper in 2007. The platform assigned each listing a credit grade and allowed investors to fund or not fund. The authors ask whether the investor funding decision predicts default over and above the grade. They find that investors do extract information beyond the grade, and that the extra information is strongest in the subprime band where the grade is least informative. Their AUC-type decomposition isolates the soft-information contribution from the text, photograph, and social signals. The text channel contributes a meaningful slice. The economic interpretation is that marketplace lending can improve on bureau-only scoring precisely when the bureau is least discriminating, which is the population where subsidies and welfare losses from misclassification are largest.
+
+### Duarte et al. (2012) and the trust channel
+
+@duarte2012trust use Prosper listings and ask whether borrowers who look trustworthy in their photograph are more likely to be funded and more likely to repay. They find yes on both: funding probability and repayment probability move with perceived trustworthiness. The text analog is that borrowers who write trust-inducing descriptions may sort similarly. For a credit-scoring engineer, the lesson is that the text channel carries signal even after controlling for everything else observable, but the signal is partly about borrower type and partly about borrower presentation. Separating the two requires design rather than model.
+
+### Netzer, Lemaire, Herzenstein (2019) and the text model
+
+@netzer2019words build an LSTM-based default predictor on Prosper text and document which words move default risk. Words associated with higher default include God-related phrases, hardship descriptions (hospital, surgery, disability), and pleading language (help me, please). Words associated with lower default include explicit numeric specificity, mention of co-signers, and language signaling labor-market attachment. The model adds incremental AUC over the grade and standard features.
+
+### Dorfleitner et al. (2016) on European platforms
+
+@dorfleitner2016description run a similar exercise on Smava (Germany) and Auxmoney (Germany). They find that description length, specific keyword categories, and readability correlate with default risk on one platform and not the other, which is evidence that the signal is context- and platform-specific. The governance implication is that a text model trained on platform A cannot be deployed on platform B without recalibration.
+
+### Gao, Lin, Sias (2023) and the generality question
+
+@gao2022determines use Renrendai (China) data and show that textual sentiment explains funding and default outcomes after controlling for grade. The effect is robust across variant specifications (LDA topic shares, sentiment dictionaries, supervised classifier scores). The cross-country pattern is consistent with the Prosper and European evidence: text is a genuine signal about borrower type, not an artifact of platform design.
+
+### Practical lessons
+
+Four points for the practitioner. First, text adds AUC most strongly in the segments where traditional data is thinnest. For prime and super-prime, the incremental value of text over bureau is small because the bureau is already very good. For thin-file and near-prime, the incremental value is 2 to 5 AUC points. Second, text is most useful in the approval funnel, not in pricing. Price depends on pointwise PD estimates where calibration matters; text features often improve ranking without improving calibration. Third, the signal is partly mechanical (self-disclosed hardship predicts default) and partly strategic (deceptive language predicts default). The two have different fair-lending profiles. Mechanical self-disclosure is legally less risky because the borrower volunteered the information. Strategic language is harder to defend because it requires an inference the borrower did not make. Fourth, as alternative-data environments mature, the marginal value of loan-description text falls because other signals (open-banking cash flow, digital footprints) provide stronger, cleaner substitutes. The evidence in @berg2020rise is that a small number of digital-footprint variables match a full bureau panel. Text is becoming a complementary input rather than a primary one.
+
+---
+
+## Readability, sentiment, and deception cues
+
+Three lines of feature engineering predate and coexist with modern deep-learning text models. Each has a clean interpretation and legal auditability, so each remains useful even when the production system is a transformer.
+
+### Readability
+
+Readability indices collapse a document into a single score indicating the grade level required to understand it. The Gunning Fog index [@gunning1952technique] is
+
+$$
+\mathrm{Fog}(d) = 0.4 \left( \frac{\#\text{words}}{\#\text{sentences}} + 100 \cdot \frac{\#\text{complex words}}{\#\text{words}} \right),
+$$ {#eq-fog}
+
+where complex words are words with three or more syllables. The Flesch reading ease [@flesch1948readability] is
+
+$$
+\mathrm{Flesch}(d) = 206.835 - 1.015 \cdot \frac{\#\text{words}}{\#\text{sentences}} - 84.6 \cdot \frac{\#\text{syllables}}{\#\text{words}},
+$$ {#eq-flesch}
+
+with higher values easier. Flesch-Kincaid grade level inverts @eq-flesch into a US school-grade scale.
+
+@li2008annual shows that 10-Ks with a higher Fog index have less persistent earnings. @loughran2016textual argue that Fog has identification problems on financial text because financial terms are frequently multi-syllabic by convention, and propose file size of the 10-K as a simpler proxy. @bodnaruk2015usingten construct a constraining-words index from 10-K text and show it predicts financial constraints at the firm level. @dyer2017evolution document the explosion of 10-K length and boilerplate across the 2000s and 2010s using LDA.
+
+For credit, readability of a loan description carries a specific signal: short, clear descriptions from the borrower tend to be associated with lower default. Readability is less informative in corporate filings because they are written by counsel and standardized. The engineering pattern is to compute Fog or Flesch per document, bin it, and add as a feature alongside sentiment scores and length itself.
+
+### Finance-specific sentiment: Loughran-McDonald
+
+@loughran2011liability construct six dictionaries from a large sample of 10-Ks: negative, positive, uncertainty, litigious, strong-modal, weak-modal. The negative dictionary has about 2,355 words in the 2018 update. The positive dictionary has about 354. Importantly, the LM positive list is short on purpose because positive language in corporate filings is mostly boilerplate and noise. Their headline result: using the LM negative list instead of the Harvard IV-4 Psychosociological General Inquirer negative list removes three quarters of the noise in the negative-tone signal in 10-Ks. The effect on measured abnormal returns at earnings announcements is of order 50 to 100 basis points.
+
+For a document $d$ with $|d|$ tokens and $n_{\text{neg}}(d)$ tokens appearing in the LM negative list, the simplest negative-tone measure is
+
+$$
+\mathrm{tone}_{-}(d) = \frac{n_{\text{neg}}(d)}{|d|}.
+$$ {#eq-tone}
+
+Weighted versions replace the count by TF-IDF contributions (more weight to words that are simultaneously negative and corpus-rare). @jegadeesh2013word propose a different weighting based on the partial correlation between each word and the target variable (returns, earnings surprise, rating), which turns sentiment into a supervised method.
+
+### Deception cues
+
+Deception in finance-related text has a small but consistent linguistic signature. @larcker2012detecting use speech-and-language-processing features from conference-call transcripts, including pronoun ratios, hedging language, positive-emotion words, and reference specificity, to detect earnings manipulation. Their classifier achieves a modest AUC (0.6 to 0.7) on an out-of-sample restatement set. @hobson2012analyzing use vocal cues from the same call audio and find additional lift. @purda2015accounting study deception in management commentary and show that bag-of-words classifiers outperform feature-engineered deception dictionaries on restatement detection. @bertomeu2021machine generalize to a large-scale ML approach.
+
+The standard deception-cue list in psycholinguistics includes:
+
+1. More first-person-plural and fewer first-person-singular pronouns (distancing).
+2. More negative-emotion words, fewer positive-emotion words.
+3. Fewer specific numbers and more vague quantifiers ("some," "many," "significant").
+4. More words overall but lower information density.
+5. More hedging and modal language.
+
+For loan-application text the same cues apply, with the important caveat that the baseline rate of deception-cue-like language is high because many good borrowers genuinely hedge. The classifier has to learn which cues carry in which band, which is where a fine-tuned transformer beats a dictionary-based model.
+
+### Implementation: LM-style sentiment on a 10-K paragraph
+
+The following builds a miniature Loughran-McDonald-style dictionary and applies it to a synthetic 10-K paragraph, then correlates the negative-tone measure with firm-level PD on a simulated panel. The LM dictionaries are freely available but we use a small subset here for illustration.
+
+```{python}
+# tiny LM-style dictionary subset (illustrative; real LM has thousands of entries)
+LM_NEG = set("""adverse adversely against anti bad breach burden burdensome complaint
+concern concerning damages declining defaults deficiencies deficient delay delayed
+deteriorating difficulty distressed doubt fail failed failure fraud impair impairment
+inability insolvency insufficient litigation loss losses material misrepresentation
+negative overdue penalty restructuring slowdown stress uncertainty unfavorable
+unprofitable violation volatile weaken weakness worsening write-off""".split())
+
+LM_POS = set("""achieve able advance advantage benefit benefits better competent
+delighted effective efficient enable enabling excellent favorable gain gains good
+growth improve improved improvement increase innovative leading opportunities
+opportunity outstanding progress profitable strong stronger successful
+transparent valuable winning""".split())
+
+LM_UNC = set("""approximately apparently appeared assume assumed believe believed
+contingent could depend depending depends doubt likely maybe might pending perhaps
+possibility possible possibly predict preliminary presumably probable probably
+seem seems should sometimes suggest tentatively uncertain uncertainty unclear
+unknown unlikely volatile""".split())
+
+def lm_tone(text):
+    toks = [t.lower().strip(".,;:()[]\"'") for t in text.split()]
+    toks = [t for t in toks if t]
+    n = len(toks)
+    if n == 0: return {"neg": 0, "pos": 0, "unc": 0, "net": 0}
+    neg = sum(1 for t in toks if t in LM_NEG) / n
+    pos = sum(1 for t in toks if t in LM_POS) / n
+    unc = sum(1 for t in toks if t in LM_UNC) / n
+    return {"neg": neg, "pos": pos, "unc": unc, "net": pos - neg}
+
+
+paragraph = (
+    "The Company experienced a material slowdown in the third quarter, "
+    "driven by deteriorating demand in its core segment and increasing "
+    "losses on its receivables book. Management believes the situation "
+    "could worsen if macro conditions weaken further. There is substantial "
+    "uncertainty about the ability of certain customers to meet their "
+    "obligations, and the Company has recognized an impairment charge. "
+    "Nonetheless, the Company achieved improvements in operating efficiency "
+    "and remains committed to strengthening its balance sheet."
+)
+print(lm_tone(paragraph))
+```
+
+```{python}
+# Simulate a panel of 400 firms, each with a paragraph of risk-factor text
+# whose LM-negative share correlates with a latent default probability.
+rng = np.random.default_rng(7)
+N_FIRM = 400
+
+NEG_WORDS = sorted(LM_NEG)
+POS_WORDS = sorted(LM_POS)
+NEUTRAL = ["company", "quarter", "segment", "product", "service", "book",
+           "management", "report", "file", "rate", "cost", "revenue"]
+
+def gen_paragraph(latent_risk, length=60, seed=0):
+    r = np.random.default_rng(seed)
+    neg_share = np.clip(0.02 + 0.18 * latent_risk, 0, 0.35)
+    pos_share = np.clip(0.14 - 0.10 * latent_risk, 0, 0.30)
+    tokens = []
+    for _ in range(length):
+        u = r.random()
+        if u < neg_share:
+            tokens.append(r.choice(NEG_WORDS))
+        elif u < neg_share + pos_share:
+            tokens.append(r.choice(POS_WORDS))
+        else:
+            tokens.append(r.choice(NEUTRAL))
+    return " ".join(tokens)
+
+
+firms = []
+for i in range(N_FIRM):
+    lr = np.clip(rng.beta(2, 5), 0, 1)      # latent risk, mean ~0.28
+    pd_i = 1 / (1 + np.exp(-(-3.0 + 4.0 * lr + 0.4 * rng.standard_normal())))
+    default_i = int(rng.random() < pd_i)
+    para = gen_paragraph(lr, length=80, seed=int(1000*lr + i))
+    firms.append({"firm": i, "latent": lr, "pd": pd_i, "default": default_i, "text": para})
+
+panel = pd.DataFrame(firms)
+tone_vals = panel["text"].apply(lm_tone).apply(pd.Series)
+panel = pd.concat([panel, tone_vals], axis=1)
+
+print("Pearson correlations with PD:")
+for col in ["neg", "pos", "unc", "net"]:
+    rho = np.corrcoef(panel[col], panel["pd"])[0, 1]
+    print(f"  tone_{col:<3s}  rho = {rho:+.3f}")
+
+from sklearn.linear_model import LogisticRegression
+X_sent = panel[["neg", "pos", "unc"]].values
+y_sent = panel["default"].values
+clf_sent = LogisticRegression(max_iter=500).fit(X_sent, y_sent)
+p_sent = clf_sent.predict_proba(X_sent)[:, 1]
+print(f"In-sample AUC using LM tone only = {roc_auc_score(y_sent, p_sent):.3f}")
+```
+
+On the simulated panel the LM-negative share correlates positively with the latent risk and PD. A three-feature LM logistic model achieves in-sample AUC around 0.75, which is on the order of what the 10-K sentiment literature reports on real data [@loughran2011liability; @tetlock2008more] before adding firm fundamentals. The production setup concatenates LM-tone features with numeric firm features and trains a joint GBDT on the full panel.
+
+### When sentiment fails
+
+Two failure modes matter in credit. First, stylistic drift. Boilerplate in 10-Ks expanded dramatically over 2000 to 2020 [@dyer2017evolution]. A 10-K's raw negative-word share drifted up because legal counsel added more risk-factor language, not because firms became riskier. Diff-in-diff against a same-firm prior-year baseline (the "lazy prices" setup of @cohen2020lazy) removes much of the drift. Second, tone management. Firms facing deteriorating fundamentals may strategically write more upbeat commentary, which pushes the tone signal the wrong way. The deception-cue literature partly addresses this by looking at how tone is written rather than what it says. In a credit rating or distance-to-default context, tone should always be combined with fundamentals, not used alone.
+
+---
+
+## Benchmark on public credit data
+
+TF-IDF and fine-tuned transformers require text. The UCI German and Taiwan datasets do not contain text. To report a numeric benchmark in this chapter we compare the synthetic-text leaderboard above to a tabular baseline on German using the same metric, as a sanity check that the text-only numbers are in the realistic range.
+
+```{python}
+from csutils import load_german_credit, gini
+
+try:
+    german = load_german_credit()
+except Exception as e:
+    print("german credit fetch failed:", e)
+    german = None
+
+if german is not None:
+    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.pipeline import Pipeline
+    from sklearn.compose import ColumnTransformer
+    cat_cols = [c for c in german.columns if german[c].dtype == object]
+    num_cols = [c for c in german.columns if c not in cat_cols + ["default"]]
+    pre = ColumnTransformer([
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+        ("num", "passthrough", num_cols),
+    ])
+    pipe = Pipeline([("pre", pre), ("lr", LogisticRegression(max_iter=2000, C=1.0))])
+    Xg = german.drop(columns=["default"])
+    yg = german["default"].values
+    from sklearn.model_selection import cross_val_predict
+    pg = cross_val_predict(pipe, Xg, yg, method="predict_proba", cv=5)[:, 1]
+    print(f"German tabular LR 5-fold CV AUC = {roc_auc_score(yg, pg):.3f}")
+    print(f"                         KS = {ks_statistic(yg, pg):.3f}")
+    print(f"                         Gini = {gini(yg, pg):.3f}")
+```
+
+The synthetic text leaderboard numbers (AUC around 0.95 on our toy corpus) exceed the German benchmark (AUC around 0.78) because the synthetic text is engineered to be discriminative. On a real LendingClub corpus with real labels, reported numbers are closer to German: TF-IDF + LR on description text alone gives AUC in the 0.58 to 0.62 range; combining description text with bureau and application features adds 1 to 3 AUC points over the numeric-only baseline [@netzer2019words; @stevenson2021value].
+
+---
+
+## Scalability
+
+NLP scales differently from tabular machine learning. The bottleneck shifts from feature engineering to embedding compute and I/O. A short pandas-to-Spark sketch:
+
+1. Up to 1 million short documents: pandas + scikit-learn TF-IDF fits on a single machine. TF-IDF matrix is sparse and compact. Vectorization is trivially parallel across documents with joblib.
+2. 1 million to 100 million documents: Dask and Polars are better than pandas for the initial tokenization and DTM construction. scikit-learn's `HashingVectorizer` avoids building an in-memory vocabulary, which lets the pipeline scale to arbitrary corpus sizes at the cost of hash collisions.
+3. Beyond 100 million or when embeddings are required: PySpark with the MLlib TF-IDF stages (Tokenizer, HashingTF, IDF) is the standard. For transformer embedding computation at scale, Spark with a GPU cluster running Hugging Face via `pandas_udf` is standard; batch size per executor is the tuning parameter.
+4. Transformer fine-tuning scales with data by sharding. `accelerate` plus FSDP is the lightweight path; DeepSpeed stage 2 or 3 is the standard for 10+B parameter encoders.
+5. For production inference, ONNX export of a fine-tuned DistilBERT or TinyBERT cuts CPU latency 2 to 3x. Quantization to INT8 gives another 1.5 to 2x. Batched inference at the endpoint is critical.
+
+The specific pattern for a credit lender with 50 million historical applications: build a TF-IDF baseline in Spark (hours), continue MLM pretraining of a domain-specific encoder on the unlabeled corpus (1 to 2 days on 8 GPUs), fine-tune on a labeled default panel (hours), and serve the fine-tuned encoder behind an ONNX runtime endpoint with request batching. The production Y-axis is milliseconds per decision; typical budgets are 50 to 200 ms for an underwriting call including all other model components.
+
+---
+
+## Deployment
+
+A deployed text model in a regulated credit-scoring system has four pieces beyond the usual scorecard deployment footprint.
+
+First, a tokenizer version pinned to the model version. Tokenizer drift (new vocabulary pieces, changed normalization) invalidates a fine-tuned model silently, because token IDs shift. The model artifact has to include the tokenizer config and vocabulary.
+
+Second, text preprocessing rules pinned to the training pipeline. Lowercasing, Unicode normalization, stopword lists, entity masking (PII redaction). Changes to any of these at scoring time shift the distribution of tokens, which shifts embeddings, which shifts scores.
+
+Third, monitoring. Text features drift fast. Populations of subwords, average token counts, language mix, and sentiment distributions should be tracked the same way PSI tracks tabular features. A PSI of 0.2 on a token-frequency histogram is a red flag.
+
+Fourth, explanation. Adverse-action notices require reasons. For a BoW model, the top contributing features are words or phrases, which are human-readable. For a transformer, attribution methods (Integrated Gradients, attention rollout, LIME over token perturbations) produce local explanations. Integrated gradients on `[CLS]` logits with respect to input token embeddings gives a per-token contribution that can be mapped back to the top three to five words. Those words serve as the reason codes. The legal defensibility of that mapping is still being tested.
+
+A minimal FastAPI wrapper around a fine-tuned DistilBERT classifier looks like the following skeleton (not executed in this chapter):
+
+```
+# deployment/text_score.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+app = FastAPI()
+MODEL_DIR = "/srv/models/loan_text_v1"
+tok = AutoTokenizer.from_pretrained(MODEL_DIR)
+mdl = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
+mdl.eval()
+
+class Req(BaseModel):
+    text: str
+
+@app.post("/score")
+def score(req: Req):
+    enc = tok(req.text, return_tensors="pt", truncation=True, max_length=128)
+    with torch.no_grad():
+        logits = mdl(**enc).logits
+    pd = torch.softmax(logits, dim=-1)[0, 1].item()
+    return {"pd": pd}
+```
+
+Pairing the endpoint with an MLflow model registry entry that stores the tokenizer, model weights, training commit SHA, and training-data snapshot hash is the standard governance pattern. ONNX export of the encoder is typical for latency and portability.
+
+---
+
+## Regulatory considerations
+
+Text models in credit sit at the intersection of several overlapping regulations. The key touchpoints:
+
+### ECOA and Regulation B
+
+The Equal Credit Opportunity Act prohibits discrimination on protected characteristics. Text features can proxy for protected characteristics in ways numeric features cannot. Words associated with language background, immigration status, national origin, or religion can carry information about protected class that a scorecard feature list would exclude. The proxy risk is higher in free-text fields than in numeric features because the feature space is larger and the audit cost is higher. The compliance playbook: (i) enumerate the text features that enter the decision (for BoW, every word; for a transformer, the `[CLS]` embedding); (ii) run an empirical disparate-impact test conditional on an approval rule; (iii) for features with material disparate impact, test for business necessity and consider less-discriminatory alternatives. For transformer embeddings, this is harder because the feature is dense and entangled. Common mitigations include adversarial debiasing [@barocas2016big] and post-hoc score adjustment on the model output.
+
+### FCRA and adverse action
+
+The Fair Credit Reporting Act requires lenders to provide a reason for adverse action based on a credit decision. Regulation B requires up to four specific reasons. For a BoW model the top-contributing negative words are the reasons. For a transformer, the reasons have to be derived from an attribution method. Case law and agency guidance on transformer-based reason codes is still evolving. A conservative deployment stacks a BoW or lexicon-based feature layer alongside the transformer, uses the lexicon layer to generate reason codes, and uses the transformer to rank and approve.
+
+### SR 11-7
+
+The Federal Reserve's SR 11-7 on model risk management applies to any model used in a regulated credit decision, including text models. Key obligations: documentation of the model (what it does, how it was trained, what data it uses); testing of the model (performance, stability, benchmarks); independent validation of the model; governance of model changes. Transformer models have higher documentation burden than scorecards because the weights are opaque, the training corpus is large, and the pre-training source is often external. The standard documentation pattern records: the pre-trained base model name and checkpoint hash, the continued-pre-training corpus metadata, the fine-tuning labeled data specification, the tokenizer configuration, the preprocessing pipeline, and the evaluation protocol. SR 11-7 also requires effective challenge, which in a text model context typically means running an independent baseline (TF-IDF or LM-lexicon) as a challenger and documenting where the transformer beats and loses against it.
+
+### Basel II/III and IRB
+
+Under the internal-ratings-based approach, a bank uses its own PD, LGD, and EAD estimates for regulatory capital [@basel2006international; @basel2017finalising]. Including text-based features in an IRB PD model is permitted subject to the same documentation, backtesting, and stability requirements as any other feature. The practical barriers are three. First, text features need long backtest series (typically 5 to 7 years), and many lenders only recently started archiving loan-description text. Second, text features can drift with platform changes (new application UI, new character limits) in ways numeric features do not, which raises stability concerns. Third, text features that enter the IRB model require the same what-if analyses under stress scenarios, which is harder when the model is a transformer.
+
+### GDPR Article 22
+
+The General Data Protection Regulation restricts purely automated decisions that produce legal or similarly significant effects on natural persons. Credit underwriting falls inside scope. Article 22 obligations include a right to human intervention, to express a view, and to contest the decision. For a text model, the additional complication is that the text itself is personal data under Article 4. Data subject rights including access (Art. 15), rectification (Art. 16), and erasure (Art. 17) apply to the text and to its derivatives (embeddings). In practice, lenders keep raw text for the legally required retention window, hash or discard it thereafter, and re-derive embeddings from hashes or compressed representations when needed.
+
+### EU AI Act
+
+The EU AI Act classifies consumer credit scoring as a high-risk AI system and imposes obligations on transparency, risk management, data governance, and human oversight [@euaiact2024]. Text models inside such systems inherit the full set of obligations. The Act also prohibits certain practices (social scoring using predictive profiling from publicly available text, certain kinds of emotion recognition in employment contexts). Consumer-text analysis for credit decisions is permitted when the text is supplied voluntarily as part of the application. Analysis of publicly available social-media text for credit decisions is at minimum a high-risk practice and, depending on specifics, potentially prohibited.
+
+### Data-minimization pattern
+
+Across all five regulatory regimes, the engineering pattern that holds up best is:
+
+1. Collect free-text only with explicit, informed borrower consent tied to a specific purpose.
+2. Hash or redact PII inside the text at ingestion.
+3. Pin the exact model version and preprocessing pipeline at the time of decision.
+4. Retain the raw text only for the legally required retention window; store only the embedding or derived features thereafter.
+5. For each decision, log the specific features that contributed, in a form auditable by the data subject on request.
+
+This pattern adds cost but removes most of the downstream audit risk. A lender that has to scramble to reconstruct which text model scored a borrower's application two years ago has a hard problem. A lender with a model registry, a feature log, and a preprocessing pipeline pinned to version is in a defensible position.
+
+---
+
+## Vietnam and emerging markets
+
+### Market context
+
+Vietnamese NLP is an under-resourced-language problem that has been moving fast. Until 2018 there was no widely adopted open-source Vietnamese tokenizer that matched the quality of spaCy or CoreNLP in English. VnCoreNLP [@vu2018vncorenlp] closed that gap with word segmentation, POS tagging, named entity recognition, and dependency parsing trained on Vietnamese treebanks. PhoBERT [@nguyen2020phobert] extended this to pretrained contextual embeddings, with a base and a large variant trained on a 20GB Vietnamese corpus; the paper appeared in Findings of EMNLP 2020. ViT5 [@phan2022vit5] extended the pattern to text-to-text generation for Vietnamese. These three projects now anchor most production Vietnamese NLP systems, including those inside banks and finance companies.
+
+The lender context in Vietnam is that application text is short, mixed-register, and often code-switched with English loanwords. Loan descriptions on consumer platforms rarely exceed two sentences. Servicer notes contain Vietnamese prose with embedded English product codes and decimal abbreviations. Earnings calls for listed Vietnamese firms are delivered in Vietnamese, with occasional English Q&A. Off-the-shelf English tools do not work, and a pipeline that skips word segmentation will tokenize a Vietnamese sentence into fragments that break the downstream model.
+
+### Application considerations
+
+Three pipeline choices matter. The first is segmentation. Vietnamese is written with spaces between syllables, not between words; a "word" in the linguistic sense spans one to four space-separated syllables. VnCoreNLP segmentation is the de facto standard, and PhoBERT is trained on input that has been segmented by VnCoreNLP. Skipping this step degrades downstream accuracy meaningfully. The second is encoder choice. PhoBERT-base is the default for classification; PhoBERT-large is available where compute allows; multilingual models such as XLM-RoBERTa trail PhoBERT on Vietnamese downstream tasks on published benchmarks. The third is domain adaptation. A bank that builds a domain encoder by continued pretraining PhoBERT on servicer notes and collections narratives can capture vocabulary that the public corpus does not cover.
+
+### Rationalization
+
+The fairness and regulatory concerns in this chapter travel unchanged to Vietnam, but with a softer enforcement layer. Vietnam has no Regulation B adverse-action requirement, so reason codes are not a statutory deliverable, and text-feature proxy risk is not policed by a federal agency. The main drivers are Decree 13/2023 personal data protection [@vn_decree13_2023], which governs the storage and processing of text containing PII, and the SBV's supervisory interest in internal control. Parent-group policy for foreign-invested lenders adds an additional layer. An ESG audit will ask whether a text feature disadvantages a regional dialect group; a Vietnamese lender should be able to answer. The economic argument for a Vietnamese NLP pipeline is the same as for English: AUC lift on thin-file populations, better dispute handling, better collections targeting.
+
+### Practical notes
+
+Segment before you embed. Use VnCoreNLP for segmentation [@vu2018vncorenlp] and PhoBERT as the encoder [@nguyen2020phobert]. For generation tasks (summarization of servicer notes, adverse-action drafts), use ViT5 [@phan2022vit5] rather than an English-to-Vietnamese translated prompt. Pin the model checkpoint and the tokenizer version in an internal wheel mirror, because Hugging Face access from Vietnamese data centers is rate-limited during business hours. Store raw text only for the retention window allowed by Decree 13/2023, then keep only the embedding. Run a disparate-impact test on text features by urban-rural and by region, because rural dialect differences and code-switching patterns can produce group-correlated features that ethics reviewers will ask about. Finally, monitor drift. The Vietnamese internet vocabulary moves fast, with new slang entering loan descriptions quarterly; a model trained on 2022 data applied to 2025 applications will miss vocabulary that the current encoder does not know.
+
+## Takeaways
+
+- Text is an underused feature channel in credit. The BoW + logistic regression baseline is strong, auditable, and cheap, and should anchor every text deployment. The incremental value over a full bureau baseline is 1 to 3 AUC points on standard P2P corpora and is larger in thin-file segments.
+- Static embeddings like Word2Vec and GloVe are useful for generalization beyond exact-word matches but are dominated by fine-tuned contextual encoders on downstream classification tasks. The cost is nontrivial, so the deployment question is whether the lift justifies the infrastructure.
+- Transformer-based models (BERT, DistilBERT, FinBERT) are the production standard for any task where labeled data exists and the gain over BoW exceeds 1 AUC point. Domain adaptation via continued MLM pretraining on a corpus of the target domain (filings, news, applications) captures another 1 to 3 AUC points and is usually worth the compute.
+- Finance-specific sentiment via the Loughran-McDonald dictionaries corrects for the polarity reversal of common words in financial text. For 10-K and earnings-call analysis, LM tone is the right starting feature and the right sanity check on a transformer model.
+- In P2P lending the text channel predicts default over and above the grade, with signal strongest in the subprime band and in thin-file segments. The signal is a mix of mechanical self-disclosure and strategic language; separating the two matters for fair-lending defensibility.
+- Regulatory load is the binding constraint on text deployment. The ECOA disparate-impact risk, the FCRA adverse-action reason-code requirement, the SR 11-7 documentation burden, and the EU AI Act high-risk classification together make text models expensive to govern. A BoW or lexicon feature layer alongside the transformer is a practical pattern that keeps reason-code generation defensible while preserving most of the transformer's predictive lift.
+
+---
+
+## Further reading
+
+- @loughran2011liability: the foundational finance sentiment dictionary paper, JF 2011.
+- @loughran2016textual: survey of textual analysis in accounting and finance, JAR 2016.
+- @netzer2019words: words in Prosper loan descriptions as default predictors, JMR 2019.
+- @iyer2016screening: soft information in P2P lending, RFS 2016.
+- @duarte2012trust: trust and appearance in P2P lending, RFS 2012.
+- @dorfleitner2016description: description text in European P2P platforms, JBF 2016.
+- @gao2022determines: text in online credit markets, JFQA 2023.
+- @vaswani2017attention: the transformer architecture, NeurIPS 2017.
+- @devlin2019bert: BERT and the masked language model, NAACL 2019.
+- @sanh2019distilbert: DistilBERT, NeurIPS EMC2 2019.
+- @liu2019roberta: RoBERTa improvements over BERT.
+- @huang2023finbert: FinBERT with corporate filings pretraining, CAR 2023.
+- @yang2020finbert: FinBERT on financial communications.
+- @mikolov2013efficient and @mikolov2013distributed: Word2Vec.
+- @pennington2014glove: GloVe embeddings.
+- @tetlock2007giving: media sentiment and equity returns, JF 2007.
+- @cohen2020lazy: lazy prices and year-over-year 10-K changes, JF 2020.
+- @gentzkow2019text: text as data survey, JEL 2019.
+- @larcker2012detecting: deception detection in conference calls, JAR 2012.
+- @hansen2018transparency: FOMC deliberation via topic models, QJE 2018.
+- @cohen2020lazy: 10-K changes and returns, JF 2020.
