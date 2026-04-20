@@ -264,7 +264,11 @@ from creditutils import (
 np.random.seed(0)
 ```
 
-The `creditutils` module exposes deterministic loaders for the two public datasets. Both come from the UCI Machine Learning Repository and are cached in `book/data/` after the first fetch. `train_valid_test_split` performs a deterministic 60/20/20 split keyed by seed.
+The `creditutils` module exposes deterministic loaders for the two public datasets. Both come from the UCI Machine Learning Repository and are cached in `book/data/` after the first fetch. `train_valid_test_split` performs a deterministic 60/20/20 partition keyed by seed, so every chapter that imports it sees the same rows in the same slice. The three slices serve distinct roles:
+
+-   **Training set (60 percent).** The rows the model actually fits on. Coefficients, splits, embeddings, and any other parameters are estimated only from this slice.
+-   **Validation set (20 percent).** A held-out slice used *during* development to pick hyperparameters, thresholds, and early-stopping rounds. It is seen many times but never fit on directly.
+-   **Test set (20 percent).** A locked-away slice touched exactly once, at the end, to report out-of-sample performance. Anything tuned against it stops being a test set and starts being a second validation set.
 
 ```{python}
 #| label: load-data
@@ -316,6 +320,48 @@ for ax in axes:
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-split-sizes
+#| fig-cap: "Row counts for each slice produced by `train_valid_test_split` at `seed=0`. The 60/20/20 rule is proportional, so the German set (1,000 rows) and the Taiwan set (30,000 rows) get the same *shares* but very different *absolute* sample sizes for validation and test. A 200-row German test slice is small enough that a single metric estimate carries wide confidence intervals, which motivates the resampling designs in later chapters."
+split_rows = []
+for name, df in [('German', german), ('Taiwan', taiwan)]:
+    tr, va, te = train_valid_test_split(df, y_col='default', seed=0)
+    split_rows.append((name, len(tr), len(va), len(te)))
+
+labels = [r[0] for r in split_rows]
+n_tr = np.array([r[1] for r in split_rows])
+n_va = np.array([r[2] for r in split_rows])
+n_te = np.array([r[3] for r in split_rows])
+totals = n_tr + n_va + n_te
+slice_colors = {'train': '#4C72B0', 'valid': '#55A868', 'test': '#C44E52'}
+
+fig, ax = plt.subplots(figsize=(8, 2.8))
+ypos = np.arange(len(labels))
+ax.barh(ypos, n_tr, color=slice_colors['train'], label='train (60%)')
+ax.barh(ypos, n_va, left=n_tr, color=slice_colors['valid'], label='valid (20%)')
+ax.barh(ypos, n_te, left=n_tr + n_va, color=slice_colors['test'], label='test (20%)')
+
+for i, (tot, a, b, c) in enumerate(zip(totals, n_tr, n_va, n_te)):
+    ax.text(a / 2, i, f'{a:,}', ha='center', va='center',
+            color='white', fontsize=9)
+    ax.text(a + b / 2, i, f'{b:,}', ha='center', va='center',
+            color='white', fontsize=9)
+    ax.text(a + b + c / 2, i, f'{c:,}', ha='center', va='center',
+            color='white', fontsize=9)
+    ax.text(tot, i, f'  n={tot:,}', ha='left', va='center', fontsize=9)
+
+ax.set_yticks(ypos)
+ax.set_yticklabels(labels)
+ax.set_xlabel('rows')
+ax.set_xlim(0, totals.max() * 1.15)
+ax.invert_yaxis()
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.legend(loc='lower right', frameon=False, ncol=3)
 fig.tight_layout()
 plt.show()
 ```
