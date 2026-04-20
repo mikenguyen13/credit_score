@@ -748,15 +748,17 @@ print(f"Beta(2, {beta_sr_default:.2f})   (sev-ratio)   -> "
       f"boosting H = {h_measure(y_te, p_gb, alpha=2, beta=beta_sr_default):.4f}")
 ```
 
-**Two further subtleties.** First, the H-measure is not a strict improvement over AUC in every regime. When the ROC curves of two classifiers are well separated (one Pareto-dominates the other), AUC and H agree and the extra complexity of the prior is not buying anything. H earns its keep when ROCs cross, which is precisely the regime where AUC's implicit weighting is most misleading. The rank-flip example above is the clean demonstration.
+**Two further subtleties.**
+
+First, the H-measure is not a strict improvement over AUC in every regime. When the ROC curves of two classifiers are well separated (one Pareto-dominates the other), AUC and H agree and the extra complexity of the prior is not buying anything. H earns its keep when ROCs cross, which is precisely the regime where AUC's implicit weighting is most misleading. The rank-flip example above is the clean demonstration.
 
 Second, H is a ratio, and ratios misbehave when the denominator shrinks. Recall the construction:
 
 $$
-H \;=\; 1 \;-\; \frac{\int L(c)\, w(c)\, dc}{\int L_{\max}(c)\, w(c)\, dc},
+H = 1 - \frac{\int L(c)\, w(c)\, dc}{\int L_{\max}(c)\, w(c)\, dc},
 $$
 
-where the numerator is the model's expected loss under the prior $w(c)$ and the denominator is the expected loss of the *trivial* benchmark (classify everyone the same way). A standard form of the benchmark loss is $L_{\max}(c) = \min\{\pi_0 c,\; \pi_1 (1-c)\}$: at small $c$, rejecting no one is optimal and the loss is $\pi_1(1-c)$; at large $c$, rejecting everyone is optimal and the loss is $\pi_0 c$. Either way, $L_{\max}(c) \to 0$ as $c \to 0$ or $c \to 1$. The function is pinned to zero at both corners.
+where the numerator is the model's expected loss under the prior $w(c)$ and the denominator is the expected loss of the *trivial* benchmark (classify everyone the same way). A standard form of the benchmark loss is $L_{\max}(c) = \min\{\pi_0 c, \pi_1 (1-c)\}$: at small $c$, rejecting no one is optimal and the loss is $\pi_1(1-c)$; at large $c$, rejecting everyone is optimal and the loss is $\pi_0 c$. Either way, $L_{\max}(c) \to 0$ as $c \to 0$ or $c \to 1$. The function is pinned to zero at both corners.
 
 That is where trouble starts. If the prior $w(c)$ concentrates almost all of its mass near a corner, it is integrating $L_{\max}$ precisely over the region where $L_{\max}$ is nearly zero. The denominator then shrinks toward zero, and H becomes a small number divided by a small number: tiny numerical perturbations in the numerator (bin edges, grid spacing, a single extra observation near the cut) can swing H by a lot. Concretely:
 
@@ -808,7 +810,7 @@ $$ {#eq-murphy}
 
 -   A model that predicts the constant base rate $\bar{p}_i = \bar{o}$ is perfectly calibrated (reliability $= 0$) but has zero resolution. Its Brier equals uncertainty. Operationally it is useless: every applicant gets the same PD, so no one can be ranked, priced, or cut off.
 
--   A model that sorts risk well but is miscalibrated (say, every PD is inflated by $3\times$) can still beat the constant forecast on AUC yet have a *worse* Brier than a calibrated but less discriminating model. Recalibration (isotonic regression, Platt scaling) fixes reliability without touching the ranking (i.e. without touching resolution), which is why it is an almost-free improvement when available.
+-   A model that sorts risk well but is miscalibrated (say, every PD is inflated by $3\times$) can still beat the constant forecast on AUC yet have a *worse* Brier than a calibrated but less discriminating model. Recalibration (isotonic regression, Platt scaling) fixes reliability without touching the ranking (i.e., without touching resolution), which is why it is an almost-free improvement when available.
 
 -   Because reliability and resolution move independently, report both alongside the headline Brier. A single Brier number hides whether you need better features (raise resolution) or better calibration (lower reliability) [@degroot1983comparison; @dawid1982well].
 
@@ -920,6 +922,54 @@ y^+ = \frac{N_+ + 1}{N_+ + 2}, \qquad y^- = \frac{1}{N_- + 2},
 $$
 
 where $N_+$ and $N_-$ are the positive and negative counts in the calibration set. Without this smoothing the MLE can blow up toward infinite $A$ when the scores separate the classes perfectly; the Laplace-style prior keeps the estimate finite. Implementations that omit the smoothing (rare but not unheard of) tend to produce over-confident $\hat{p}$ at the extremes.
+
+To make this concrete, we construct a small near-separable calibration set and fit Platt's two parameters two ways: once against the hard $\{0,1\}$ targets, and once against the smoothed $(y^+, y^-)$ targets. Because the targets are no longer binary we cannot reuse `LogisticRegression`; we minimize the Bernoulli negative log-likelihood directly.
+
+```{python}
+#| label: platt-smoothing-demo
+from scipy.optimize import minimize
+
+rng = np.random.default_rng(0)
+n_pos, n_neg = 40, 60
+s_pos = rng.normal(loc= 3.0, scale=0.4, size=n_pos)
+s_neg = rng.normal(loc=-3.0, scale=0.4, size=n_neg)
+s_cal = np.concatenate([s_pos, s_neg])
+y_cal = np.concatenate([np.ones(n_pos), np.zeros(n_neg)]).astype(int)
+
+y_plus  = (n_pos + 1) / (n_pos + 2)
+y_minus = 1.0 / (n_neg + 2)
+t_smooth = np.where(y_cal == 1, y_plus, y_minus)
+
+def platt_nll(params, s, t):
+    A, B = params
+    z = A * s + B
+    # log(1+exp(z)) computed stably
+    log1pexp = np.logaddexp(0.0, z)
+    # -[t*log(sigmoid(z)) + (1-t)*log(1-sigmoid(z))] = -t*z + log1pexp
+    return float(np.sum(-t * z + log1pexp))
+
+def fit_platt(s, t):
+    res = minimize(platt_nll, x0=[1.0, 0.0], args=(s, t), method="BFGS")
+    return res.x, res.nit
+
+(A_hard,  B_hard),  it_hard  = fit_platt(s_cal, y_cal.astype(float))
+(A_smooth, B_smooth), it_sm  = fit_platt(s_cal, t_smooth)
+
+print(f"hard    labels: A={A_hard:8.3f}  B={B_hard:8.3f}  iters={it_hard}")
+print(f"smooth  labels: A={A_smooth:8.3f}  B={B_smooth:8.3f}  iters={it_sm}")
+
+def sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-z))
+
+s_grid = np.linspace(-4, 4, 9)
+p_hard   = sigmoid(A_hard   * s_grid + B_hard)
+p_smooth = sigmoid(A_smooth * s_grid + B_smooth)
+print(pd.DataFrame({"s": s_grid,
+                    "p_hard":   np.round(p_hard,   6),
+                    "p_smooth": np.round(p_smooth, 6)}))
+```
+
+With hard labels the optimizer drives $A$ toward a large value (the gradient keeps rewarding steeper slopes because *every* positive sits above *every* negative). The resulting $\hat{p}$ at moderate scores like $s = \pm 2$ is already indistinguishable from $0$ or $1$ in floating-point, which is exactly the over-confidence at the extremes that the paper warns about. With smoothed targets the MLE's ceiling is set by $y^+ < 1$ and $y^- > 0$: the slope that best matches $y^+ \approx 0.976$ for the positives is finite, so $A$ converges to a moderate value and the recalibrated probabilities leave room for uncertainty.
 
 ### Isotonic regression
 
