@@ -10,11 +10,11 @@ bibliography: ../refs/appx-B.bib
 
 ## Why reproducibility matters for credit models {#sec-app-B-env}
 
-A credit score is a regulated artefact. When a supervisor, an internal validator, or a plaintiff asks how a score was produced, the lender must be able to rebuild it. Bit-for-bit reproduction is rarely required. Score-for-score reproduction on the same inputs is. SR 11-7 makes this explicit. Effective model risk management requires "robust model development, implementation, and use" and "ongoing monitoring" [@fed2011sr117]. None of that is possible without a pinned environment.
+A credit score is a regulated artifact. When a supervisor, an internal validator, or a plaintiff asks how a score was produced, the lender must be able to rebuild it. Bit-for-bit reproduction is rarely required. Score-for-score reproduction on the same inputs is. SR 11-7 makes this explicit. Effective model risk management requires "robust model development, implementation, and use" and "ongoing monitoring" [@fed2011sr117]. None of that is possible without a pinned environment.
 
-Three concrete use cases drive the constraints in this appendix. First, regulatory audit. Examiners will ask for the exact library versions that produced the approved champion. Second, model validation. An independent second line of defence rebuilds the model from source. They must be able to match every number in the development document. Third, challenger recreation. A researcher five years from now needs to reproduce the baseline before claiming a lift.
+Three concrete use cases drive the constraints in this appendix. First, regulatory audit. Examiners will ask for the exact library versions that produced the approved champion. Second, model validation. An independent second line of defense rebuilds the model from source. They must be able to match every number in the development document. Third, challenger recreation. A researcher five years from now needs to reproduce the baseline before claiming a lift.
 
-The Basel IRB framework adds a second layer. A PD, LGD, or EAD model feeds regulatory capital. Any drift between development and production translates into a capital mis-statement [@bcbs2005irb]. Supervisors expect the bank to demonstrate that the production artefact equals the development artefact under the same inputs.
+The Basel IRB framework adds a second layer. A PD, LGD, or EAD model feeds regulatory capital. Any drift between development and production translates into a capital mis-statement [@bcbs2005irb]. Supervisors expect the bank to demonstrate that the production artifact equals the development artifact under the same inputs.
 
 The rules below are prescriptive. Follow them for every chapter, every notebook, every deployment. Deviation is an audit finding waiting to happen.
 
@@ -156,7 +156,7 @@ The `pyproject.toml` groups roughly 50 packages. Read the file for the authorita
 
 **Explainability (XAI).** `shap`, `lime`, `dice-ml`. `shap` produces Shapley-value attributions. `lime` produces local surrogate explanations. `dice-ml` generates counterfactuals.
 
-**Fairness.** `fairlearn`, `aif360`. Demographic parity, equalised odds, and reweighting. Used in the fairness chapters.
+**Fairness.** `fairlearn`, `aif360`. Demographic parity, equalized odds, and reweighting. Used in the fairness chapters.
 
 **Scorecard-specific.** `optbinning`, `scorecardpy`. Optimal binning with monotonic constraints and a traditional scorecard builder.
 
@@ -291,7 +291,7 @@ def safe_to_device(model, tensor, prefer: str = "mps"):
     return model.to("cpu"), tensor.to("cpu")
 ```
 
-On MPS, watch for float64 operations. MPS supports float32 and float16. Cast explicitly before sending tensors to the device. On CUDA, check `torch.cuda.mem_get_info()` before loading 7B-parameter LLMs; the LLM chapter uses 8-bit quantisation via `bitsandbytes` to fit on a 24GB card.
+On MPS, watch for float64 operations. MPS supports float32 and float16. Cast explicitly before sending tensors to the device. On CUDA, check `torch.cuda.mem_get_info()` before loading 7B-parameter LLMs; the LLM chapter uses 8-bit quantization via `bitsandbytes` to fit on a 24GB card.
 
 ## Quarto
 
@@ -391,7 +391,7 @@ book/data/
   ...
 ```
 
-`csutils._cache_get` implements the caching logic. The function is a dozen lines:
+`creditutils._cache_get` implements the caching logic. The function is a dozen lines:
 
 ```python
 def _cache_get(url: str, filename: str, timeout: int = 60) -> Path:
@@ -483,7 +483,7 @@ Set it before the interpreter starts. Inside the process, changing `os.environ["
 export PYTHONHASHSEED=0
 ```
 
-This controls the randomisation of hashes for strings, bytes, and several other types. Without it, dict iteration order differs run-to-run for tie-breaking paths that hash values.
+This controls the randomization of hashes for strings, bytes, and several other types. Without it, dict iteration order differs run-to-run for tie-breaking paths that hash values.
 
 ### OpenMP thread count
 
@@ -495,7 +495,7 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 ```
 
-BLAS reductions are not associative in float arithmetic. Different thread counts compute partial sums in different orders, which changes the last few ULPs of the result. For model monitoring (PSI over time), those ULPs are irrelevant. For bit-for-bit reproduction of a regulatory artefact, they matter.
+BLAS reductions are not associative in float arithmetic. Different thread counts compute partial sums in different orders, which changes the last few ULPs of the result. For model monitoring (PSI over time), those ULPs are irrelevant. For bit-for-bit reproduction of a regulatory artifact, they matter.
 
 ### CUDA determinism flags
 
@@ -514,7 +514,7 @@ Also export:
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 ```
 
-`warn_only=True` trades determinism for fallback on ops that have no deterministic kernel. For regulatory artefacts, set it to `False` and accept that some ops will raise. You then have to rewrite the forward pass to avoid them.
+`warn_only=True` trades determinism for fallback on ops that have no deterministic kernel. For regulatory artifacts, set it to `False` and accept that some ops will raise. You then have to rewrite the forward pass to avoid them.
 
 ### End-to-end snippet
 
@@ -549,7 +549,7 @@ Running this on the reference machine prints `coef[0,0] = -0.079236`. If a valid
 
 ## Docker image
 
-A container lets you hand a validator a single artefact that builds the book end to end. The Dockerfile below uses a multi-stage pattern. Stage one resolves dependencies with `uv`. Stage two renders the book with Quarto.
+A container lets you hand a validator a single artifact that builds the book end to end. The Dockerfile below uses a multi-stage pattern. Stage one resolves dependencies with `uv`. Stage two renders the book with Quarto.
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -718,7 +718,7 @@ If `xgboost` or `lightgbm` fails to import on macOS, return to the libomp sectio
 A few rules distilled from the chapters already in the book. Follow them and your chapter will render identically on your laptop and in CI.
 
 1. Put the determinism preamble at the top of every executed block.
-2. Import helpers with `sys.path.insert(0, '../code'); from csutils import ...`. Do not copy helper functions into the chapter.
+2. Import helpers with `sys.path.insert(0, '../code'); from creditutils import ...`. Do not copy helper functions into the chapter.
 3. When you sample data, pass `random_state=seed` to the sampler. Default seeds in the book are `0` for data and `42` for model init. Pick one convention per chapter and stick to it.
 4. Avoid `time.time()` and `datetime.now()` inside cells that render into the book. The printed timestamp breaks byte-for-byte diff checks.
 5. Wall-clock timings are acceptable when the number is the point of the section (for example, "pandas vs polars"). Round to two significant figures so CI noise does not invalidate the prose.
@@ -729,7 +729,7 @@ A few rules distilled from the chapters already in the book. Follow them and you
 
 **`ImportError: dlopen(...libxgboost.dylib): Library not loaded: @rpath/libomp.dylib`.** You skipped the libomp step. Either apply the rpath patch or export `DYLD_FALLBACK_LIBRARY_PATH`.
 
-**`ModuleNotFoundError: No module named 'csutils'`.** The chapter was rendered from outside the project root. `execute-dir: project` in `_quarto.yml` sets the working directory, but only when you run `quarto render` from the root.
+**`ModuleNotFoundError: No module named 'creditutils'`.** The chapter was rendered from outside the project root. `execute-dir: project` in `_quarto.yml` sets the working directory, but only when you run `quarto render` from the root.
 
 **`quarto render` hangs on the first code cell.** Kernel startup is slow on cold disk. Wait. If it never completes, `jupyter kernelspec list` and check that `credit-scoring-book` points at the project venv.
 

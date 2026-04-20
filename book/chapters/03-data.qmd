@@ -9,7 +9,7 @@ execute:
 
 ## Overview {.unnumbered}
 
-Credit scoring lives or dies on its inputs. A logistic model trained on the wrong population, a gradient-boosted tree fit to leaky features, or a deep network that imputes missingness with a mean will all fail in production, and they will fail in ways that regulators care about. The modelling choices that textbooks emphasize matter. The data choices matter more.
+Credit scoring lives or dies on its inputs. A logistic model trained on the wrong population, a gradient-boosted tree fit to leaky features, or a deep network that imputes missingness with a mean will all fail in production, and they will fail in ways that regulators care about. The modeling choices that textbooks emphasize matter. The data choices matter more.
 
 This chapter takes data seriously. We walk through the traditional sources that sit inside a bank's scorecard, catalog the alternative signals that have appeared in the past decade, and formalize the preprocessing steps that translate raw tables into model-ready features. Three tools get most of the attention: (1) weight of evidence for monotone encoding, (2) imputation for missingness, and (3) time-aware splitting for leakage control. Each is worked out in math and in code that runs on the public UCI data sets.
 
@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from csutils import load_german_credit, load_taiwan_default
+from creditutils import load_german_credit, load_taiwan_default
 
 rng = np.random.default_rng(42)
 np.random.seed(42)
@@ -67,7 +67,7 @@ The specific feature vocabulary is remarkably stable across bureaus and across d
 -   `utilization_revolving`: sum of balance divided by sum of limit across open revolving lines.
 -   `utilization_maximum_tradeline`: the maximum utilization across any single revolving tradeline.
 -   `num_tradelines_30dpd_12m`: count of tradelines that reached 30+ days past due in the last 12 months.
--   `num_tradelines_60dpd_24m`: the 60+ DPD analogue over 24 months.
+-   `num_tradelines_60dpd_24m`: the 60+ DPD analog over 24 months.
 -   `num_inquiries_6m`: hard pulls in the last 6 months.
 -   `num_new_tradelines_12m`: newly opened accounts in the last 12 months.
 -   `bankruptcy_flag`, `collections_flag`, `tax_lien_flag`: public record presence indicators.
@@ -208,7 +208,7 @@ Practitioners rank features by IV with the rules of thumb from @siddiqi2017intel
 
 ### A worked example by hand
 
-Before invoking `optbinning`, it helps to compute the formulas in @eq-shares–@eq-iv on a toy portfolio with three bins. Suppose 1,000 applicants split across an `income_bucket` feature with $G = 900$ goods and $B = 100$ bads in total:
+Before invoking `optbinning`, it helps to compute the formulas in @eq-shares-@eq-iv on a toy portfolio with three bins. Suppose 1,000 applicants split across an `income_bucket` feature with $G = 900$ goods and $B = 100$ bads in total:
 
 ```{python}
 #| label: woe-by-hand
@@ -307,7 +307,7 @@ iv_tbl.head(15).round(4)
 
 The `summary()` table includes two additional ranking columns alongside `iv`, both computed on the same binned distributions and sometimes preferred when IV is unstable.
 
--   **`js`: Jensen–Shannon divergence.** A bounded, symmetric variant of the KL divergences from @eq-kl-pq–@eq-kl-qp. With $M = (P + Q)/2$ the bin-share midpoint, $\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)$. Always lies in $[0, \ln 2]$, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.
+-   **`js`: Jensen-Shannon divergence.** A bounded, symmetric variant of the KL divergences from @eq-kl-pq-@eq-kl-qp. With $M = (P + Q)/2$ the bin-share midpoint, $\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)$. Always lies in $[0, \ln 2]$, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.
 -   **`gini`: bin-level Gini coefficient.** Twice the area between the bin-ordered cumulative-goods and cumulative-bads curves; equivalently $2 \cdot \mathrm{AUC} - 1$ computed using the bin-ordered WoE as the score. Reported on $[0, 1]$. Same monotone direction as IV but scaled like the discriminative AUC measure used in @sec-ch04, so it lets the scorecard team compare a feature's marginal predictive contribution against the overall model AUC in the same units. The full treatment of AUC, Gini, KS, and Brier sits in @sec-ch04.
 
 In practice, these three columns rank features almost identically; large disagreements are a flag that one bin is dominating IV, in which case a coarser binning or a JS-based ranking is the safer choice.
@@ -358,7 +358,7 @@ This is the structural reason for the AUC gap pattern in the comparison above an
 2.  **Two-dimensional supervised binning.** `optbinning` ships an `OptimalBinning2D` that solves the same MIP over a pair of features. Useful for a small number of known-interactive pairs (utilization × age of oldest tradeline is a classic).
 3.  **Segmented scorecards.** Fit one scorecard per pre-defined segment (thin-file vs thick-file, secured vs unsecured). Interactions with the segmenting variable are absorbed by the segmentation. @sec-ch31 treats this in depth.
 
-If the dominant signal is genuinely interactive, none of the above competes with a tree ensemble that splits in arbitrary feature combinations by construction. The empirical fact that WoE-plus-logistic stays close to gradient boosting on regulated retail credit data is a statement about that data — monotone main effects from delinquency, utilization, and tenure dominate, and interactions are second-order — not a general property of the encoding. On data where interactions are first-order (fraud, marketing response on heterogeneous customer pools), the calculus reverses and a tree ensemble is the right starting point.
+If the dominant signal is genuinely interactive, none of the above competes with a tree ensemble that splits in arbitrary feature combinations by construction. The empirical fact that WoE-plus-logistic stays close to gradient boosting on regulated retail credit data is a statement about that data: monotone main effects from delinquency, utilization, and tenure dominate, and interactions are second-order, not a general property of the encoding. On data where interactions are first-order (fraud, marketing response on heterogeneous customer pools), the calculus reverses and a tree ensemble is the right starting point.
 
 ### A from-scratch implementation
 
@@ -404,7 +404,7 @@ opt_var.binning_table.build().round(4)
 
 This table is the canonical artifact a scorecard developer hands over for model validation. Each row is a bin. The columns show the bin boundaries, the fraction of the population in the bin, the event rate, the WoE, and the IV contribution. The totals row at the bottom gives the IV for the feature. Binning tables like this one are what SR 11-7 [@sr117] validators will read first when reviewing a scorecard submission.
 
-Three diagnostics in the binning table carry most of the validation signal. First, the WoE column should be monotone when the feature is ordinal and the business logic calls for monotonicity. An income feature that increases in WoE, then dips for the highest bin, then increases again, either has too many bins, has a sample-size problem, or has a real structural break (high earners with complicated tax situations, for instance) that needs a dedicated flag. Second, the bin-share column (often labelled `count (%)`) should not have any bin with less than 3 to 5 percent of the population. Small bins have unstable WoE and produce scorecards that swing wildly under resampling. Third, the event rate column should step smoothly across bins when ordered by WoE. Large jumps suggest that the bin boundaries are not where the risk boundary actually sits.
+Three diagnostics in the binning table carry most of the validation signal. First, the WoE column should be monotone when the feature is ordinal and the business logic calls for monotonicity. An income feature that increases in WoE, then dips for the highest bin, then increases again, either has too many bins, has a sample-size problem, or has a real structural break (high earners with complicated tax situations, for instance) that needs a dedicated flag. Second, the bin-share column (often labeled `count (%)`) should not have any bin with less than 3 to 5 percent of the population. Small bins have unstable WoE and produce scorecards that swing wildly under resampling. Third, the event rate column should step smoothly across bins when ordered by WoE. Large jumps suggest that the bin boundaries are not where the risk boundary actually sits.
 
 The `optbinning` algorithm is a mixed-integer programming formulation that enforces these properties globally rather than through heuristic post-processing [@navas2022optbinning]. It extends the classical supervised discretization literature, which treats binning as a greedy information-gain split, by adding constraints that express what a scorecard developer would actually want. The classical reference is @fayyad1993multi, which uses a minimum description length principle to choose the number of bins. The MIP formulation subsumes this as a special case with different constraints.
 
@@ -1693,7 +1693,7 @@ df = df.join(broadcast(agg), on="bin", how="left")
 df.write.mode("overwrite").parquet("/tmp/scale_woe_spark/")
 ```
 
-Three practical notes on the Spark version. `QuantileDiscretizer` is the production-grade analogue of `pd.cut` on quantiles; for fixed user-supplied edges (regulatory bins) use `Bucketizer(splits=edges)` instead. The `broadcast()` hint is mandatory rather than optional once the right side has more than a handful of partitions; Spark's cost-based optimizer will under-broadcast in the presence of skew. Configure `spark.sql.shuffle.partitions` to roughly the cluster's vCPU count for the aggregation; the default of 200 is wrong for both small clusters (over-partitioned) and large ones (under-partitioned), and is the single most common cause of slow Spark scorecard jobs.
+Three practical notes on the Spark version. `QuantileDiscretizer` is the production-grade analog of `pd.cut` on quantiles; for fixed user-supplied edges (regulatory bins) use `Bucketizer(splits=edges)` instead. The `broadcast()` hint is mandatory rather than optional once the right side has more than a handful of partitions; Spark's cost-based optimizer will under-broadcast in the presence of skew. Configure `spark.sql.shuffle.partitions` to roughly the cluster's vCPU count for the aggregation; the default of 200 is wrong for both small clusters (over-partitioned) and large ones (under-partitioned), and is the single most common cause of slow Spark scorecard jobs.
 
 When porting between engines, the sanity check is to run all four (pandas, Polars, Dask, Spark) on the same 1M-row sample and assert that the resulting per-bin WoE values agree to 1e-6. Disagreement is almost always an off-by-one in bin edges (`include_lowest`, `right=True/False`, `handleInvalid` for Spark) or a quantile-approximation mismatch; it is always solvable, but it has to be caught at port time, not in production. For a one-shot scorecard rebuild that has to run on a billion rows, the pragmatic recipe is: develop and validate on a 1M-row Polars sample, then port to Spark for the full-volume rebuild, keeping the Polars code as the regression oracle.
 
@@ -1716,7 +1716,7 @@ The discussion so far has been piecewise: WoE on Taiwan, imputation on German, l
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.ensemble import GradientBoostingClassifier
-from csutils import ks_statistic, gini
+from creditutils import ks_statistic, gini
 
 def score_pipeline(Xtr, Xte, ytr, yte, pre, model):
     Xtr_p = pre.fit_transform(Xtr, ytr)

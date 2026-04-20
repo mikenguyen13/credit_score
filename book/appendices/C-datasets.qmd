@@ -8,7 +8,7 @@ bibliography: ../refs/appx-C.bib
 
 # Datasets: Download, Catalog, and Licensing {#sec-app-C}
 
-## Why dataset choice is a first-class modelling decision {#sec-app-C-data}
+## Why dataset choice is a first-class modeling decision {#sec-app-C-data}
 
 A credit model inherits the biases, the definition of default, and the observation window of the data it is trained on. The choice of dataset is therefore part of the model, not a preliminary. A model that looks excellent on UCI German Credit may collapse on a modern mortgage panel because the underlying population, the product, the economy, and the target definition are different. This appendix fixes that by writing down, for every public dataset used in the book, what it contains, where it comes from, what you can legally do with it, and how to pull it with a deterministic loader.
 
@@ -28,9 +28,9 @@ Licensing clarity. Every dataset must have a license that permits academic repub
 
 Credit-risk relevance. The target must encode a payment outcome: default, charge-off, serious delinquency, or a regulator-defined bad flag. Pure marketing response data does not qualify.
 
-Size diversity. We want at least one dataset under 10,000 rows for teaching, one between 30,000 and 500,000 for benchmarking, and one above 5 million for scaling. Otherwise the Scalability section in every chapter becomes theatre.
+Size diversity. We want at least one dataset under 10,000 rows for teaching, one between 30,000 and 500,000 for benchmarking, and one above 5 million for scaling. Otherwise the Scalability section in every chapter becomes theater.
 
-Datasets that fail any single filter are excluded. The PKDD 1999 Berka dataset [@berka1999pkdd] is referenced only as a historical artefact because its license is ambiguous. Private bureau extracts are discussed but never loaded.
+Datasets that fail any single filter are excluded. The PKDD 1999 Berka dataset [@berka1999pkdd] is referenced only as a historical artifact because its license is ambiguous. Private bureau extracts are discussed but never loaded.
 
 ## The caching layout
 
@@ -51,9 +51,9 @@ book/
       synthetic_openbanking_v1.parquet
 ```
 
-The `csutils._cache_get` function implements a content-addressable download. If the file exists and has non-zero size, it returns the path without hitting the network. If the file is missing, it downloads, writes, and returns. This idempotency is the reason every chapter in this book renders offline after the first run.
+The `creditutils._cache_get` function implements a content-addressable download. If the file exists and has non-zero size, it returns the path without hitting the network. If the file is missing, it downloads, writes, and returns. This idempotency is the reason every chapter in this book renders offline after the first run.
 
-Each loader is deterministic under a fixed seed. The `seed` argument to `load_home_credit_sample` controls sampling. The split functions in `csutils.train_valid_test_split` use `numpy.random.default_rng`, which is reproducible across operating systems and Python versions. There is no reliance on the legacy `np.random` global state.
+Each loader is deterministic under a fixed seed. The `seed` argument to `load_home_credit_sample` controls sampling. The split functions in `creditutils.train_valid_test_split` use `numpy.random.default_rng`, which is reproducible across operating systems and Python versions. There is no reliance on the legacy `np.random` global state.
 
 ## Licensing matrix
 
@@ -79,9 +79,9 @@ Government data sits at the other end. HMDA is a US public record under the Home
 
 Three regimes matter for a global credit book.
 
-GDPR. Under Article 6 of Regulation (EU) 2016/679 [@gdpr2016], processing of personal data requires a lawful basis. For credit decisions, the usual bases are contract (6(1)(b)) and legitimate interests (6(1)(f)). Article 9 restricts special category data: race, ethnic origin, religious beliefs, biometric data, health data, and sexual orientation. Training a credit model on EU-resident data that includes Article 9 fields without a specific Article 9 basis is unlawful. HMDA contains race and ethnicity. HMDA data cannot be freely used to train a model that will be deployed on EU residents. The practical consequence is a firewall: HMDA fairness analyses in this book are US-only experiments. Voigt and von dem Bussche give the full picture [@voigt2017eugdpr].
+GDPR. Under Article 6 of Regulation (EU) 2016/679 [@gdpr2016], processing of personal data requires a lawful basis. For credit decisions, the usual bases are contract (6(1)(b)) and legitimate interests (6(1)(f)). Article 9 restricts special category data: race, ethnic origin, religious beliefs, biometric data, health data, and sexual orientation. Training a credit model on EU-resident data that includes Article 9 fields without a specific Article 9 basis is unlawful. HMDA contains race and ethnicity. HMDA data cannot be freely used to train a model that will be deployed on EU residents. The practical consequence is a firewall: HMDA fairness analyzes in this book are US-only experiments. Voigt and von dem Bussche give the full picture [@voigt2017eugdpr].
 
-CCPA. The California Consumer Privacy Act of 2018 [@ccpa2018] gives California residents the right to know, delete, and opt out of sale of personal information. For model training, CCPA does not prohibit training on collected data. It requires that the data inventory and the retention policy are published. Derivative models built on CCPA-regulated data inherit no special restriction. Retraining on deletion requests is a documented open question; most lenders treat the trained model as anonymised once personal identifiers are excluded from the feature matrix.
+CCPA. The California Consumer Privacy Act of 2018 [@ccpa2018] gives California residents the right to know, delete, and opt out of sale of personal information. For model training, CCPA does not prohibit training on collected data. It requires that the data inventory and the retention policy are published. Derivative models built on CCPA-regulated data inherit no special restriction. Retraining on deletion requests is a documented open question; most lenders treat the trained model as anonymized once personal identifiers are excluded from the feature matrix.
 
 HMDA public disclosure. HMDA is a disclosure regime, not a privacy regime. The statute forces lenders to publish a Loan/Application Register (LAR) every year. Bartlett, Morse, Stanton, and Wallace [@bartlett2022consumer] use the LAR to measure consumer-lending discrimination in the FinTech era; their paper is the reference for any HMDA-based fairness work in this book. The LAR contains loan-level decisions, applicant demographics, and pricing data. The CFPB releases a modified LAR with some fields coarsened to reduce re-identification risk. For research, the modified LAR is sufficient. For litigation support, institutions use the unmodified LAR under restricted access.
 
@@ -98,7 +98,7 @@ import matplotlib.pyplot as plt
 import requests
 
 sys.path.insert(0, "../code")
-import csutils as cs
+import creditutils as cs
 
 np.random.seed(0)
 
@@ -132,7 +132,7 @@ Feature summary. Mix of categorical and numeric. Status of the existing checking
 
 Imbalance. 300 bad out of 1000. A class-weighted logistic regression will reach an AUC in the 0.76 to 0.79 range with minimal tuning. Anything above 0.81 is either careful feature engineering or a leaky cross-validation split.
 
-Caveats. The dataset is small. It contains a cost matrix in the original accompanying documentation: misclassifying a bad as good is five times more costly than the reverse. Any profit-weighted evaluation must use that matrix. The "personal status and sex" feature combines marital status and sex; using it directly in 2024 is legally questionable under ECOA in the US and Article 9 GDPR in Europe. Treat it as a pedagogical artefact, not a production input.
+Caveats. The dataset is small. It contains a cost matrix in the original accompanying documentation: misclassifying a bad as good is five times more costly than the reverse. Any profit-weighted evaluation must use that matrix. The "personal status and sex" feature combines marital status and sex; using it directly in 2024 is legally questionable under ECOA in the US and Article 9 GDPR in Europe. Treat it as a pedagogical artifact, not a production input.
 
 Loader.
 
@@ -166,7 +166,7 @@ describe(taiwan, "Taiwan Default", target="default")
 print(taiwan[["LIMIT_BAL", "SEX", "AGE", "default"]].head(3).to_string())
 ```
 
-Use Taiwan for class imbalance experiments, for calibration work, and for the first serious benchmark of tree-based models against logistic baselines. It is the dataset Butaru, Chen, Clark, Das, Lo, and Siddique [@butaru2016risk] would recognise as a miniature version of a credit card book, and Khandani, Kim, and Lo [@khandani2010consumer] treat consumer-credit panels of this shape as the canonical ML playground.
+Use Taiwan for class imbalance experiments, for calibration work, and for the first serious benchmark of tree-based models against logistic baselines. It is the dataset Butaru, Chen, Clark, Das, Lo, and Siddique [@butaru2016risk] would recognize as a miniature version of a credit card book, and Khandani, Kim, and Lo [@khandani2010consumer] treat consumer-credit panels of this shape as the canonical ML playground.
 
 ## Home Credit Default Risk (Kaggle 2018) {#sec-app-C-homecredit}
 
@@ -189,11 +189,11 @@ The join graph is a star plus a chain. `SK_ID_CURR` is the primary key for the c
 
 Target definition. `TARGET = 1` if the client had late payment greater than X days on at least one of the first Y installments of the loan. The loader renames `TARGET` to `default`. Positive rate is about 8.07%.
 
-Feature summary of `application_train`. Demographics (age, gender, education, family status), employment (occupation, organisation type, days employed), income and credit amount (AMT_INCOME_TOTAL, AMT_CREDIT, AMT_ANNUITY), external scores (EXT_SOURCE_1, EXT_SOURCE_2, EXT_SOURCE_3), housing characteristics, document flags, and many aggregate indicators. The three `EXT_SOURCE` columns are the strongest individual predictors. They are labelled as "normalized scores from external data sources" and are likely bureau-derived.
+Feature summary of `application_train`. Demographics (age, gender, education, family status), employment (occupation, organization type, days employed), income and credit amount (AMT_INCOME_TOTAL, AMT_CREDIT, AMT_ANNUITY), external scores (EXT_SOURCE_1, EXT_SOURCE_2, EXT_SOURCE_3), housing characteristics, document flags, and many aggregate indicators. The three `EXT_SOURCE` columns are the strongest individual predictors. They are labeled as "normalized scores from external data sources" and are likely bureau-derived.
 
 Imbalance. About 8% positive.
 
-Caveats. Feature engineering dominates raw model choice in this competition. The winning solution combined several hundred aggregated features from the auxiliary tables. The dataset also contains anonymised categorical levels (`XAP`, `XNA`) that require explicit missing-value treatment. The `DAYS_EMPLOYED` column has a sentinel value of `365243` for "not employed" that must be recoded.
+Caveats. Feature engineering dominates raw model choice in this competition. The winning solution combined several hundred aggregated features from the auxiliary tables. The dataset also contains anonymized categorical levels (`XAP`, `XNA`) that require explicit missing-value treatment. The `DAYS_EMPLOYED` column has a sentinel value of `365243` for "not employed" that must be recoded.
 
 Loader.
 
@@ -222,9 +222,9 @@ Target definition. The `loan_status` column has many values. The standard mappin
 - Negative (`default = 0`): `Fully Paid`, `Does not meet the credit policy. Status:Fully Paid`.
 - Exclude from training: `Current`, `In Grace Period`, `Late (16-30 days)`, `Late (31-120 days)`, `Issued`.
 
-Failing to exclude open loans is the single most common error in published LendingClub baselines. It creates optimistic bias because open loans with low cumulative delinquency are disproportionately labelled as non-default.
+Failing to exclude open loans is the single most common error in published LendingClub baselines. It creates optimistic bias because open loans with low cumulative delinquency are disproportionately labeled as non-default.
 
-Feature summary. Loan amount, term (36 or 60 months), interest rate, installment, grade and subgrade, employment title and length, home ownership, annual income, verification status, issue date, purpose, DTI, delinquencies in the last two years, open accounts, public records, revolving balance, revolving utilisation, total accounts, FICO range (low and high), and many aggregates. FICO scores are released as ranges, not point values, to comply with the FCRA.
+Feature summary. Loan amount, term (36 or 60 months), interest rate, installment, grade and subgrade, employment title and length, home ownership, annual income, verification status, issue date, purpose, DTI, delinquencies in the last two years, open accounts, public records, revolving balance, revolving utilization, total accounts, FICO range (low and high), and many aggregates. FICO scores are released as ranges, not point values, to comply with the FCRA.
 
 Imbalance. Default rate on closed loans is around 13% to 21% depending on the vintage and term.
 
@@ -337,7 +337,7 @@ Use Give Me Some Credit for calibration experiments, for Platt and isotonic comp
 
 ## Freddie Mac Single-Family Loan-Level {#sec-app-C-freddie}
 
-Source and license. Freddie Mac's Single-Family Loan-Level Dataset is released quarterly [@freddiemac2024sfloan]. Use is governed by a click-through agreement that permits academic research, internal modelling, and redistribution of derived works. The raw files can be redistributed subject to the terms posted on Freddie Mac's public page.
+Source and license. Freddie Mac's Single-Family Loan-Level Dataset is released quarterly [@freddiemac2024sfloan]. Use is governed by a click-through agreement that permits academic research, internal modeling, and redistribution of derived works. The raw files can be redistributed subject to the terms posted on Freddie Mac's public page.
 
 Size. The full historical dataset covers 1999 to the most recent quarter. It contains over 50 million loan-level records split across an origination file and a monthly performance file.
 
@@ -375,9 +375,9 @@ print(fre_cols[:10])
 
 ## Fannie Mae Single-Family Loan Performance {#sec-app-C-fannie}
 
-Source and license. Fannie Mae's Single-Family Loan Performance Data is released quarterly through Fannie Mae Data Dynamics [@fanniemae2024sfloan]. Terms mirror Freddie's: academic use, internal modelling, and derived redistribution are all permitted under the posted agreement.
+Source and license. Fannie Mae's Single-Family Loan Performance Data is released quarterly through Fannie Mae Data Dynamics [@fanniemae2024sfloan]. Terms mirror Freddie's: academic use, internal modeling, and derived redistribution are all permitted under the posted agreement.
 
-Size. Comparable to Freddie Mac, with full coverage of 2000 onwards and over 50 million loans in the history. Files are split by origination vintage and by acquisition quarter.
+Size. Comparable to Freddie Mac, with full coverage of 2000 onward and over 50 million loans in the history. Files are split by origination vintage and by acquisition quarter.
 
 Schema. Acquisition file plus performance file. Acquisition has 25 fields: loan identifier, channel, seller name, original interest rate, original UPB, original loan term, origination date, first payment date, original LTV, original CLTV, number of borrowers, DTI, borrower credit score, co-borrower credit score, first time home buyer indicator, loan purpose, property type, number of units, occupancy status, property state, zip code short, mortgage insurance percentage, product type, co-borrower credit score at origination, mortgage insurance type. Performance has over 30 fields per month.
 
@@ -406,7 +406,7 @@ Freddie and Fannie together are the anchor for every mortgage survival model in 
 
 Real open-banking transaction data is almost always private. Three synthetic substitutes keep @sec-ch15 reproducible.
 
-PSD2-style transaction tape. A monthly transaction panel per account, with fields `account_id`, `date`, `amount`, `category`, `merchant`, `balance_after`. The book generates this from a controlled process: inflows drawn from a log-normal distribution, category mix calibrated to the UK FCA Open Banking research, and a fraction of accounts with structural overdraft. The generator lives in `csutils` as future work; for now the book ships a one-shot seed.
+PSD2-style transaction tape. A monthly transaction panel per account, with fields `account_id`, `date`, `amount`, `category`, `merchant`, `balance_after`. The book generates this from a controlled process: inflows drawn from a log-normal distribution, category mix calibrated to the UK FCA Open Banking research, and a fraction of accounts with structural overdraft. The generator lives in `creditutils` as future work; for now the book ships a one-shot seed.
 
 IEEE-CIS Fraud Detection [@ieee2019fraud] is used as a transactional proxy for classification experiments that do not need the open-banking timestamp semantics.
 
@@ -500,7 +500,7 @@ plt.show()
 
 New datasets must clear the same four filters: reproducibility, licensing clarity, credit relevance, and a size that fits a tier. The mechanics are simple.
 
-1. Add a loader to `book/code/csutils.py` that writes to `book/data/.cache/` and returns a DataFrame with a `default` column.
+1. Add a loader to `book/code/creditutils.py` that writes to `book/data/.cache/` and returns a DataFrame with a `default` column.
 2. Add a license entry and a row to the matrix above.
 3. Add a preview block to this appendix.
 4. Add the citation to `book/refs/appx-C.bib`.
@@ -510,17 +510,17 @@ The reviewer's checklist is the same. If any item is missing, the dataset is rej
 
 ## Joining auxiliary tables in Home Credit
 
-The multi-table design is the most valuable feature of the Home Credit dataset. It forces the modeller to think about temporal aggregation. The raw `application_train` file is not competitive on its own. Winning solutions construct hundreds of features by aggregating over `bureau`, `bureau_balance`, `previous_application`, `POS_CASH_balance`, `installments_payments`, and `credit_card_balance`.
+The multi-table design is the most valuable feature of the Home Credit dataset. It forces the modeler to think about temporal aggregation. The raw `application_train` file is not competitive on its own. Winning solutions construct hundreds of features by aggregating over `bureau`, `bureau_balance`, `previous_application`, `POS_CASH_balance`, `installments_payments`, and `credit_card_balance`.
 
-The standard aggregation pattern is a groupby on `SK_ID_CURR` with a dictionary of aggregation functions for each numeric column. Typical aggregates include mean, sum, min, max, and the count of non-null observations. For each aggregate the modeller also computes the recent slice (last 12 months, last 3 months) and the trend (slope of a linear fit against time).
+The standard aggregation pattern is a groupby on `SK_ID_CURR` with a dictionary of aggregation functions for each numeric column. Typical aggregates include mean, sum, min, max, and the count of non-null observations. For each aggregate the modeler also computes the recent slice (last 12 months, last 3 months) and the trend (slope of a linear fit against time).
 
 Bureau data contributes the longest history. A borrower with three closed previous loans and a clean repayment record reads very differently to the model than a borrower with the same current application but no external history. The bureau signal is mostly captured through counts of active credits, total outstanding balance, and the ratio of past-due to current credits.
 
-Previous applications inside Home Credit contribute the recent intent signal. A customer who has been refused twice in the last six months is statistically different from a first-time applicant. The challenge is that refusal reasons are coded with anonymised categorical levels.
+Previous applications inside Home Credit contribute the recent intent signal. A customer who has been refused twice in the last six months is statistically different from a first-time applicant. The challenge is that refusal reasons are coded with anonymized categorical levels.
 
-Installments payments contribute the behavioural signal. The difference between the scheduled payment amount and the actual payment amount is the single most informative aggregate at the customer level. Customers who routinely underpay by a small amount are distinct from customers who sometimes overpay and sometimes miss a cycle.
+Installments payments contribute the behavioral signal. The difference between the scheduled payment amount and the actual payment amount is the single most informative aggregate at the customer level. Customers who routinely underpay by a small amount are distinct from customers who sometimes overpay and sometimes miss a cycle.
 
-POS cash and credit card balance tables contribute the revolving exposure signal. Their schemas mirror standard credit-card reporting. Monthly utilisation, monthly change in utilisation, and the drawdown rate are the usual aggregates.
+POS cash and credit card balance tables contribute the revolving exposure signal. Their schemas mirror standard credit-card reporting. Monthly utilization, monthly change in utilization, and the drawdown rate are the usual aggregates.
 
 ## LendingClub feature allowlist
 
@@ -587,13 +587,13 @@ HMDA spans 1990 to present. The Dodd-Frank expansion in 2018 changed the schema 
 
 Give Me Some Credit is reported to cover US borrowers around 2008. The crisis context is relevant.
 
-Freddie and Fannie span 1999 to present. Both capture the 2008 crisis, the 2020 COVID forbearance spike, and the 2022 rate shock. Their panels are the right data for cycle-aware modelling.
+Freddie and Fannie span 1999 to present. Both capture the 2008 crisis, the 2020 COVID forbearance spike, and the 2022 rate shock. Their panels are the right data for cycle-aware modeling.
 
 ## Known failure modes
 
 Four failure modes recur and are worth calling out.
 
-URL rot. UCI moved to a new URL scheme in 2023. Kaggle renames datasets. Government portals redirect. The loaders in `csutils` are written against URLs that are stable as of the book's publication but will need maintenance. The test suite in `book/tests/test_loaders.py` catches rot within a release cycle.
+URL rot. UCI moved to a new URL scheme in 2023. Kaggle renames datasets. Government portals redirect. The loaders in `creditutils` are written against URLs that are stable as of the book's publication but will need maintenance. The test suite in `book/tests/test_loaders.py` catches rot within a release cycle.
 
 Schema drift. Fannie Mae and Freddie Mac change their schemas between releases. HMDA changed substantially in 2018. LendingClub's columns were reordered multiple times. Every loader pins a schema version. Version mismatches raise a clear error.
 
@@ -645,13 +645,13 @@ The test dataset must be retained for reproducibility. Auditors will ask for the
 
 The feature-store lineage must be retained for the same period as the training dataset. A model retrained on updated features must be able to reconstruct the historical feature matrix for audit.
 
-Deletion requests (GDPR right to erasure, CCPA right to delete) apply to live customer records, not to aggregate model artefacts. The book's convention is to strip direct identifiers before the model training pipeline and to document that the stripping is a one-way operation.
+Deletion requests (GDPR right to erasure, CCPA right to delete) apply to live customer records, not to aggregate model artifacts. The book's convention is to strip direct identifiers before the model training pipeline and to document that the stripping is a one-way operation.
 
 ## Takeaways
 
-- Dataset selection is a modelling decision, not a housekeeping step.
+- Dataset selection is a modeling decision, not a housekeeping step.
 - Every dataset in this book is documented with source, license, target definition, imbalance, and caveats.
-- The `csutils` loaders are deterministic and cache-aware.
-- Synthetic fallbacks are a rendering guarantee, not a modelling shortcut.
+- The `creditutils` loaders are deterministic and cache-aware.
+- Synthetic fallbacks are a rendering guarantee, not a modeling shortcut.
 - Government datasets (HMDA, Freddie, Fannie) are public but still subject to governance.
 - The benchmark protocol is pinned to seed 42 and to the splits produced by `cs.train_valid_test_split`.

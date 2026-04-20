@@ -105,7 +105,7 @@ def train_valid_test_split(
 
 
 def ks_statistic(y_true, y_score) -> float:
-    """Kolmogorov–Smirnov statistic for a binary classifier."""
+    """Kolmogorov-Smirnov statistic for a binary classifier."""
     y_true = np.asarray(y_true).astype(int)
     y_score = np.asarray(y_score)
     order = np.argsort(-y_score)

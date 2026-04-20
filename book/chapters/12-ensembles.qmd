@@ -261,7 +261,7 @@ import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import roc_auc_score, brier_score_loss
 from sklearn.ensemble import GradientBoostingClassifier
-from csutils import load_taiwan_default, ks_statistic
+from creditutils import load_taiwan_default, ks_statistic
 
 rng = np.random.default_rng(42)
 
@@ -509,7 +509,7 @@ Stacking typically gives a small but measurable lift on credit data (0.001 to 0.
 We extend the benchmark to include both Taiwan and German data with the same protocol, report AUC/KS/Brier, and plot calibration curves for the leading models.
 
 ```{python}
-from csutils import load_german_credit
+from creditutils import load_german_credit
 import matplotlib.pyplot as plt
 
 def benchmark(df, cats=None):
@@ -860,7 +860,7 @@ Expect AUC loss of order 0.002 to 0.010, depending on how restrictive the groups
 
 ## Why trees still win on credit
 
-A final observation before we move on. For all the recent deep-learning papers that have claimed parity with boosted trees on tabular data, the independent replications by @grinsztajn2022why and @shwartz2022tabular do not support that claim. The reasons are by now well catalogued.
+A final observation before we move on. For all the recent deep-learning papers that have claimed parity with boosted trees on tabular data, the independent replications by @grinsztajn2022why and @shwartz2022tabular do not support that claim. The reasons are by now well cataloged.
 
 First, credit features are heterogeneous. Trees are invariant to monotone feature transforms; neural networks are not. Boosting ignores the sign and scale of features automatically.
 
@@ -1053,7 +1053,7 @@ Expect the blend to sit between the three individual models on AUC and at or abo
 
 In European credit practice the Gini coefficient $G = 2 \text{AUC} - 1$ is the canonical ranking statistic. A boosted model with Taiwan AUC 0.78 has Gini 0.56. On German with AUC 0.80, Gini is 0.60. These numbers are directly comparable across banks and across vintages, which is why Gini is preferred over raw AUC in internal risk reports.
 
-The KS statistic, computed in `csutils.ks_statistic`, is more sensitive to the central quantile of the score distribution than Gini. Two models with the same Gini can differ in KS by 0.02 to 0.04, and the one with higher KS is the one that separates better at the most common operating cutoffs. For cutoff-based policies (approve if score above threshold), KS is the right optimization target. For portfolio-level risk ranking, Gini is the right target.
+The KS statistic, computed in `creditutils.ks_statistic`, is more sensitive to the central quantile of the score distribution than Gini. Two models with the same Gini can differ in KS by 0.02 to 0.04, and the one with higher KS is the one that separates better at the most common operating cutoffs. For cutoff-based policies (approve if score above threshold), KS is the right optimization target. For portfolio-level risk ranking, Gini is the right target.
 
 ---
 
@@ -1358,7 +1358,7 @@ We have already generated items 3 through 5 in this chapter. Items 6 through 10 
 ### A concrete monitoring snippet
 
 ```{python}
-from csutils import psi
+from creditutils import psi
 
 # Fit on the first 60 percent of time, monitor on the next 40 percent.
 # We do not have time order in Taiwan; use a random permutation as a proxy
@@ -1574,19 +1574,19 @@ This is the production-grade recipe. Every component was derived earlier in the 
 
 ### Market context
 
-Vietnam offers a clean test case for boosted ensembles in an emerging market. The Credit Information Center reports coverage of regulated bank borrowers but acknowledges gaps in consumer finance, peer-to-peer, and buy-now-pay-later exposures that the supervisor is still mapping [@cic_vietnam2023]. Findex 2021 estimated that a sizeable minority of Vietnamese adults still borrow outside the formal system [@worldbank_findex2021]. Under Circular 41/2016/TT-NHNN, banks compute capital charges using a Basel II standardised approach, and the path toward IRB is under development [@sbv_circular41_2016]. Circular 22/2023/TT-NHNN (29 Dec 2023) amends Circular 41/2016 on capital adequacy ratios and refines standardised risk-weights that bite directly on retail ensemble models [@sbv_circular22_2023]. Consumer finance companies additionally operate under Circular 43/2016/TT-NHNN on consumer lending by finance companies, which sets concentration limits and disclosure requirements. Electronic onboarding is authorised by Circular 16/2020/TT-NHNN [@sbv_circular16_2020], and data use is now governed by Decree 13/2023/ND-CP [@vn_decree13_2023]. The SBV's fintech sandbox, formalised through Decree 94/2025/ND-CP, expects participants to document models, training data, and monitoring plans at a level that a supervisor can interrogate [@vn_decree94_2025; @sbv2023vietnam]. The IMF's 2024 Vietnam FSAP flagged thin data and rapid non-bank credit growth as systemic concerns, and BIS work on EMDE credit reached similar conclusions [@imf_vietnam_fsap2024; @bis_emde2023; @bis_credit_em2022]. The Asian Development Bank's regional work places Vietnam among the fastest-digitising retail-credit markets in Southeast Asia [@adb2023digital].
+Vietnam offers a clean test case for boosted ensembles in an emerging market. The Credit Information Center reports coverage of regulated bank borrowers but acknowledges gaps in consumer finance, peer-to-peer, and buy-now-pay-later exposures that the supervisor is still mapping [@cic_vietnam2023]. Findex 2021 estimated that a sizeable minority of Vietnamese adults still borrow outside the formal system [@worldbank_findex2021]. Under Circular 41/2016/TT-NHNN, banks compute capital charges using a Basel II standardized approach, and the path toward IRB is under development [@sbv_circular41_2016]. Circular 22/2023/TT-NHNN (29 Dec 2023) amends Circular 41/2016 on capital adequacy ratios and refines standardized risk-weights that bite directly on retail ensemble models [@sbv_circular22_2023]. Consumer finance companies additionally operate under Circular 43/2016/TT-NHNN on consumer lending by finance companies, which sets concentration limits and disclosure requirements. Electronic onboarding is authorized by Circular 16/2020/TT-NHNN [@sbv_circular16_2020], and data use is now governed by Decree 13/2023/ND-CP [@vn_decree13_2023]. The SBV's fintech sandbox, formalized through Decree 94/2025/ND-CP, expects participants to document models, training data, and monitoring plans at a level that a supervisor can interrogate [@vn_decree94_2025; @sbv2023vietnam]. The IMF's 2024 Vietnam FSAP flagged thin data and rapid non-bank credit growth as systemic concerns, and BIS work on EMDE credit reached similar conclusions [@imf_vietnam_fsap2024; @bis_emde2023; @bis_credit_em2022]. The Asian Development Bank's regional work places Vietnam among the fastest-digitizing retail-credit markets in Southeast Asia [@adb2023digital].
 
 ### Application considerations
 
 Ensembles behave differently at Vietnamese sample sizes. Take the three failure modes in turn.
 
-Small-N training sets. A 50,000 to 200,000 row application book with a 3 to 8 percent default rate contains between 1,500 and 16,000 positives. A random forest with 500 trees of depth 20 will memorise that minority class in training and collapse on out-of-time validation. LightGBM and XGBoost with `num_leaves` in the 15 to 31 range, `min_data_in_leaf` of 200 or more, learning rate 0.03 to 0.05, and 200 to 500 rounds (with early stopping) is a safer default. @tran2022xgboost and @nguyen2021machine both report that carefully tuned gradient boosting beats logistic regression by 2 to 5 AUC points on Vietnamese consumer portfolios, a real but not overwhelming lift.
+Small-N training sets. A 50,000 to 200,000 row application book with a 3 to 8 percent default rate contains between 1,500 and 16,000 positives. A random forest with 500 trees of depth 20 will memorize that minority class in training and collapse on out-of-time validation. LightGBM and XGBoost with `num_leaves` in the 15 to 31 range, `min_data_in_leaf` of 200 or more, learning rate 0.03 to 0.05, and 200 to 500 rounds (with early stopping) is a safer default. @tran2022xgboost and @nguyen2021machine both report that carefully tuned gradient boosting beats logistic regression by 2 to 5 AUC points on Vietnamese consumer portfolios, a real but not overwhelming lift.
 
-Categorical handling on informal-sector features. Province, household-registration type, and employment class are high-cardinality (Vietnam's July 2025 administrative reorganisation consolidated 63 provinces into 34 provincial-level units; any province-fixed-effect scheme must map pre-merger and post-merger codes; dozens of occupation codes). CatBoost's ordered target statistics are ideal here, because they avoid the target leakage that plain mean-encoding introduces on thin province-level buckets [@prokhorenkova2018catboost]. LightGBM's native categorical split is a reasonable alternative when CatBoost's training cost is prohibitive.
+Categorical handling on informal-sector features. Province, household-registration type, and employment class are high-cardinality (Vietnam's July 2025 administrative reorganization consolidated 63 provinces into 34 provincial-level units; any province-fixed-effect scheme must map pre-merger and post-merger codes; dozens of occupation codes). CatBoost's ordered target statistics are ideal here, because they avoid the target leakage that plain mean-encoding introduces on thin province-level buckets [@prokhorenkova2018catboost]. LightGBM's native categorical split is a reasonable alternative when CatBoost's training cost is prohibitive.
 
-Monotonicity and IRB migration. Vietnamese banks preparing for the IRB transition under the SBV roadmap need PD models monotone in utilisation, past-due counts, and delinquency age. Apply `monotone_constraints` as early as candidate-model selection, not as a late patch. The AUC cost is typically 0.002 to 0.005, consistent with the benchmark reported for Taiwan in this chapter.
+Monotonicity and IRB migration. Vietnamese banks preparing for the IRB transition under the SBV roadmap need PD models monotone in utilization, past-due counts, and delinquency age. Apply `monotone_constraints` as early as candidate-model selection, not as a late patch. The AUC cost is typically 0.002 to 0.005, consistent with the benchmark reported for Taiwan in this chapter.
 
-Stacking and meta-learning are sometimes pitched as the response to small-N. In practice, a stack of logistic scorecard plus LightGBM plus CatBoost tends to overfit the validation fold when the underlying samples are small and correlated. A single regularised booster with a monotone constraint and a post-hoc isotonic calibration is usually a better bet than a stack on Vietnamese retail data [@chu2024vietnam; @reynolds2009colombia].
+Stacking and meta-learning are sometimes pitched as the response to small-N. In practice, a stack of logistic scorecard plus LightGBM plus CatBoost tends to overfit the validation fold when the underlying samples are small and correlated. A single regularized booster with a monotone constraint and a post-hoc isotonic calibration is usually a better bet than a stack on Vietnamese retail data [@chu2024vietnam; @reynolds2009colombia].
 
 A fourth consideration is alternative data. Mobile-channel features collected under Circular 16/2020/TT-NHNN (device fingerprint, session velocity, geolocation consistency) carry repayment signal in emerging-market settings [@bjorkegren2020behavior], but they drift quickly and can leak identity information under Decree 13/2023/ND-CP if not hashed at ingestion [@sbv_circular16_2020; @vn_decree13_2023]. A booster that consumes these features needs a feature-level consent audit trail and a PSI monitor by channel, not just by province. A fifth consideration is out-of-time validation. Vietnamese retail books exhibit faster concept drift than typical OECD benchmarks, with product mix and channel share shifting year over year [@chu2024vietnam]. A boosted model validated only on a random hold-out will overstate performance; a time-split validation with at least six months of out-of-time data is the defensible baseline, and the one that the SBV sandbox application is most likely to ask for [@vn_decree94_2025].
 
@@ -1596,7 +1596,7 @@ The choice between a boosted ensemble and a scorecard in Vietnam hinges on three
 
 ### Practical notes
 
-Operational defaults that have held up on Vietnamese consumer books. Use LightGBM or CatBoost with at most 500 rounds and a learning rate of 0.03 to 0.05. Set `min_data_in_leaf` to at least 200 on books under 100,000 rows. Apply monotone constraints on utilisation, past-due counts, and delinquency age. Calibrate with isotonic regression on a held-out fold. Store the TreeSHAP explainer next to the model artifact so the adverse-action service can run without re-training. Document training data provenance to the CIC pull date and to any alternative-data vendor, because Decree 13/2023/ND-CP treats alternative data differently from bureau data [@vn_decree13_2023]. Monitor population stability by province and by channel (mobile, branch, agent), because eKYC-originated cohorts drift faster than branch-originated cohorts [@adb2023digital]. Retrain quarterly in a normal cycle, faster when macroeconomic uncertainty rises [@chu2024vietnam]. Finally, keep a bilingual model card, in Vietnamese and English, so the same artifact satisfies the SBV and an offshore parent's model-risk team.
+Operational defaults that have held up on Vietnamese consumer books. Use LightGBM or CatBoost with at most 500 rounds and a learning rate of 0.03 to 0.05. Set `min_data_in_leaf` to at least 200 on books under 100,000 rows. Apply monotone constraints on utilization, past-due counts, and delinquency age. Calibrate with isotonic regression on a held-out fold. Store the TreeSHAP explainer next to the model artifact so the adverse-action service can run without re-training. Document training data provenance to the CIC pull date and to any alternative-data vendor, because Decree 13/2023/ND-CP treats alternative data differently from bureau data [@vn_decree13_2023]. Monitor population stability by province and by channel (mobile, branch, agent), because eKYC-originated cohorts drift faster than branch-originated cohorts [@adb2023digital]. Retrain quarterly in a normal cycle, faster when macroeconomic uncertainty rises [@chu2024vietnam]. Finally, keep a bilingual model card, in Vietnamese and English, so the same artifact satisfies the SBV and an offshore parent's model-risk team.
 
 ---
 

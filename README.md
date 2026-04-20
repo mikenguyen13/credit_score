@@ -36,7 +36,7 @@ credit_score/
     ├── references.qmd      # Rendered reference list
     ├── chapters/           # 35 chapters
     ├── appendices/         # Math, env setup, data catalog
-    ├── code/               # Shared Python helpers (csutils.py)
+    ├── code/               # Shared Python helpers (creditutils.py)
     ├── data/               # Downloaded datasets (gitignored)
     ├── deployment/         # FastAPI, Docker, MLflow recipes
     ├── figures/

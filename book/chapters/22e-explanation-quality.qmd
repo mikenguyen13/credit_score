@@ -50,29 +50,37 @@ import sys
 sys.path.insert(0, '../code')
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
 from sklearn.model_selection import train_test_split
 import xgboost as xgb
 import shap
-from csutils import load_taiwan_default
+from creditutils import load_taiwan_default
 
 SEED = 0
 np.random.seed(SEED)
-torch.manual_seed(SEED)
 
 df = load_taiwan_default()
 y = df['default'].values
 X = df.drop(columns=['id', 'default'])
+feat = list(X.columns)
 Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=SEED, stratify=y)
 
 clf = xgb.XGBClassifier(
     n_estimators=200, max_depth=5, learning_rate=0.07,
-    eval_metric='logloss', random_state=SEED, n_jobs=4
+    tree_method='hist', eval_metric='logloss',
+    random_state=SEED, n_jobs=1,
 )
 clf.fit(Xtr, ytr)
-explainer = shap.TreeExplainer(clf)
-sv = explainer.shap_values(Xte.iloc[:200])
+booster = clf.get_booster()
+
+def tree_shap(X_like):
+    arr = X_like.values if hasattr(X_like, 'values') else np.asarray(X_like)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    dmat = xgb.DMatrix(arr, feature_names=feat)
+    contribs = booster.predict(dmat, pred_contribs=True)
+    return contribs[:, :-1]
+
+sv = tree_shap(Xte.iloc[:200])
 
 def lipschitz_local(f_attr, x, eps=0.05, n=20, rng=None):
     rng = rng or np.random.default_rng(SEED)
@@ -86,7 +94,7 @@ def lipschitz_local(f_attr, x, eps=0.05, n=20, rng=None):
     return worst
 
 def shap_of(x):
-    return explainer.shap_values(pd.DataFrame([x], columns=X.columns))[0]
+    return tree_shap(np.asarray(x).reshape(1, -1))[0]
 
 x0 = Xte.iloc[0].values.astype(float)
 L_shap = lipschitz_local(shap_of, x0, eps=0.01, n=25)
@@ -110,7 +118,7 @@ def infidelity_score(f_pred, f_attr, x, n=100, k=3, rng=None):
     return np.mean(vals)
 
 def clf_prob(x):
-    return clf.predict_proba(pd.DataFrame([x], columns=X.columns))[0, 1]
+    return clf.predict_proba(pd.DataFrame([x], columns=feat))[0, 1]
 
 inf = infidelity_score(clf_prob, shap_of, x0, n=80, k=4)
 print(f"infidelity(TreeSHAP, masks of 4): {inf:.3e}")
@@ -124,13 +132,16 @@ def top_k_overlap(attr_a, attr_b, k=5):
     top_b = set(np.argsort(-np.abs(attr_b))[:k])
     return len(top_a & top_b) / k
 
-explainer_int = shap.TreeExplainer(clf, data=Xtr.sample(100, random_state=SEED), feature_perturbation='interventional')
-sv_int = explainer_int.shap_values(Xte.iloc[:50])
-overlaps = [top_k_overlap(sv[i], sv_int[i], k=5) for i in range(50)]
-print(f"TreeSHAP(observational) vs TreeSHAP(interventional) top-5 Jaccard: mean={np.mean(overlaps):.3f}, min={np.min(overlaps):.3f}")
+bg = shap.sample(Xtr, 40, random_state=SEED)
+def _proba(arr):
+    return clf.predict_proba(pd.DataFrame(arr, columns=feat))[:, 1]
+ksh = shap.KernelExplainer(_proba, bg)
+sv_kernel = ksh.shap_values(Xte.iloc[:50].values, nsamples=150, silent=True)
+overlaps = [top_k_overlap(sv[i], sv_kernel[i], k=5) for i in range(50)]
+print(f"TreeSHAP vs KernelSHAP top-5 Jaccard: mean={np.mean(overlaps):.3f}, min={np.min(overlaps):.3f}")
 ```
 
-Low Jaccard is itself a signal: it means the observational-vs-interventional choice is consequential for these applicants and the model card should disclose which was used.
+Low Jaccard is itself a signal: it means the method choice (exact TreeSHAP vs model-agnostic KernelSHAP, or any other pair) is consequential for these applicants and the model card should disclose which was used.
 
 ## The disagreement problem, formalized {#sec-ch22e-disagreement}
 

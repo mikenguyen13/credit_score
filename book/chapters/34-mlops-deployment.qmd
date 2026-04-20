@@ -38,7 +38,7 @@ A lender that deploys a credit model without the MLOps scaffolding to support th
 
 ### MLOps as a model-risk discipline
 
-The first paper to frame production machine learning as an engineering liability was @sculley2015hidden. The authors catalogued the hidden costs of shipping ML systems: glue code, pipeline jungles, undeclared consumers, entangled features, and the corrosive effect of CACE ("changing anything changes everything"). Everything they described was already true of internal-ratings-based scorecards in 2005, but the paper made it legible to a broader engineering audience. The follow-up ML Test Score rubric by @breck2017mltest proposed a 28-point checklist covering feature tests, model tests, infrastructure tests, and monitoring tests. @polyzotis2018datamgmt surveyed the data-management side. @paleyes2022challenges gave the most comprehensive industrial survey. @klaise2020monitoring is the canonical reference for explainability and monitoring in production.
+The first paper to frame production machine learning as an engineering liability was @sculley2015hidden. The authors cataloged the hidden costs of shipping ML systems: glue code, pipeline jungles, undeclared consumers, entangled features, and the corrosive effect of CACE ("changing anything changes everything"). Everything they described was already true of internal-ratings-based scorecards in 2005, but the paper made it legible to a broader engineering audience. The follow-up ML Test Score rubric by @breck2017mltest proposed a 28-point checklist covering feature tests, model tests, infrastructure tests, and monitoring tests. @polyzotis2018datamgmt surveyed the data-management side. @paleyes2022challenges gave the most comprehensive industrial survey. @klaise2020monitoring is the canonical reference for explainability and monitoring in production.
 
 Credit-risk systems sit in the most regulated corner of all of this. A commercial bank running an IRB portfolio can have hundreds of PD, LGD, and EAD models in its inventory, each with a model owner, a validator, a champion and several challengers, a prescribed backtesting cadence, and a formal re-development trigger. The Fed's SR 11-7 letter requires the model inventory to be comprehensive, accurate, and current, and it requires ongoing performance monitoring that compares realized outcomes against predictions at a frequency matched to model materiality [@fed2011sr117].
 
@@ -99,7 +99,7 @@ $$
 g_{\text{train}}(r) \neq g_{\text{serv}}(r) \quad \text{for some raw record } r,
 $$ {#eq-skew}
 
-where $r$ denotes the raw application record before feature extraction. The practical failure modes are well catalogued [@sculley2015hidden; @amershi2019software]: mean-imputation values computed on the wrong slice, one-hot categories inferred from the serving batch rather than the training fit, timezone normalization applied once instead of twice, and so on. The engineering response is to make the two pipelines the same object, stored as a single serialized artifact, versioned jointly with the model.
+where $r$ denotes the raw application record before feature extraction. The practical failure modes are well cataloged [@sculley2015hidden; @amershi2019software]: mean-imputation values computed on the wrong slice, one-hot categories inferred from the serving batch rather than the training fit, timezone normalization applied once instead of twice, and so on. The engineering response is to make the two pipelines the same object, stored as a single serialized artifact, versioned jointly with the model.
 
 ### Drift: a unified view
 
@@ -239,7 +239,7 @@ sys.path.insert(0, '../code')
 SEED = 42
 rng = np.random.default_rng(SEED)
 
-from csutils import load_taiwan_default, train_valid_test_split, ks_statistic
+from creditutils import load_taiwan_default, train_valid_test_split, ks_statistic
 ```
 
 The chapter runs on the UCI Taiwan default dataset (30,000 credit-card customers). Its moderate size makes it tractable on a laptop while still exhibiting realistic class imbalance (about 22% default).
@@ -560,7 +560,7 @@ def make_app(pipeline, onnx_sess, feature_names):
     @app.post('/score')
     def score(req: PredictRequest):
         x = np.asarray(req.features, dtype=np.float32)
-        from csutils import scorecard_points
+        from creditutils import scorecard_points
         p = pipeline.predict_proba(x)[:, 1]
         pts = scorecard_points(p, base_score=600, base_odds=50.0, pdo=20)
         return {'points': pts.tolist()}

@@ -11,13 +11,13 @@ execute:
 
 A credit score is useful only to the extent that it ranks, calibrates, and pays. Ranking is about discrimination between defaulters and non-defaulters. Calibration is about the scores matching observed default rates. Paying is about the dollars a portfolio gains or loses at a chosen cut-off. This chapter treats each of these three questions formally, derives the standard metrics from first principles, implements them from scratch, and compares the from-scratch code against the production libraries that will be used everywhere else in the book.
 
-The chapter is unusually long because the field has accumulated a large collection of conflicting conventions. AUC (@sec-ch04-auc) is the default academic yardstick but is incoherent as a cost measure [@hand2009measuring]. KS (@sec-ch04-ks) is the default regulatory yardstick and is arguably worse for ordering classifiers. Brier (@sec-ch04-brier) is proper but ignores ranking. Profit curves (@sec-ch04-profit) require cost assumptions that most teams never write down. H-measure (@sec-ch04-hmeasure) fixes the coherence problem but almost nobody uses it. EMP (@sec-ch04-emp) is the right objective for many credit portfolios but is missing from `sklearn`. A practitioner must know when each one matters.
+The chapter is unusually long because the field has accumulated a large collection of conflicting conventions. AUC (@sec-ch04-auc) is the default academic yardstick but is incoherent as a cost measure [@hand2009measuring]. KS (@sec-ch04-ks) is the default regulatory yardstick and is arguably worse for ordering classifiers. Brier (@sec-ch04-brier) is proper but ignores ranking. Profit curves (@sec-ch04-profit) require cost assumptions that most teams never write down. H-measure (@sec-ch04-hmeasure) fixes the coherence problem, but almost nobody uses it. EMP (@sec-ch04-emp) is the right objective for many credit portfolios, but is missing from `sklearn`. A practitioner must know when each one matters.
 
-A chapter on metrics is also, implicitly, a chapter on validation design. Every point estimate of AUC, KS, Brier, PSI, or profit is an estimate from a finite sample, which means every number comes with a standard error that a careful practitioner reports and defends. Two teams disagreeing about which of their models is better is almost always a disagreement about variance, not about the point estimate. Most of the interesting arguments in credit-scoring benchmark papers [@baesens2003benchmarking; @lessmann2015benchmarking] turn out to be about the right statistical test, not about the right algorithm. This chapter therefore spends as much time on the statistics of model comparison as on the metric formulas.
+A chapter on metrics is also implicitly a chapter on validation design. Every point estimate of AUC, KS, Brier, PSI, or profit is an estimate from a finite sample, which means every number comes with a standard error that a careful practitioner reports and defends. Two teams disagreeing about which of their models is better is almost always a disagreement about variance, not about the point estimate. Most of the interesting arguments in credit-scoring benchmark papers [@baesens2003benchmarking; @lessmann2015benchmarking] turn out to be about the right statistical test, not about the right algorithm. This chapter, therefore, spends as much time on the statistics of model comparison as on the metric formulas.
 
-A word for the emerging-market reader. AUC, KS, Brier, and profit-based metrics transplant unchanged, but the operating context does not. In Vietnam and peer markets, thin bureau files mean smaller evaluation samples and wider confidence intervals on every point estimate; macro volatility means that out-of-time validation on a single recent quarter can be misleading; and cost-matrix parameters for profit curves have to be set against local funding cost, local LGD histories, and local collection rules rather than a US credit-card template. A metric dashboard calibrated on US benchmarks will report healthy AUC at a Vietnamese bank while hiding a calibration drift that moves Circular 41/2016 capital by basis points. This chapter's statistics still apply; the defaults need adjustment.
+A word for the emerging-market reader. AUC, KS, Brier, and profit-based metrics transplant unchanged, but the operating context does not. In Vietnam and peer markets, thin bureau files mean smaller evaluation samples and wider confidence intervals on every point estimate; macro volatility means that out-of-time validation on a single recent quarter can be misleading; and cost-matrix parameters for profit curves have to be set against local funding cost, local LGD histories, and local collection rules rather than a US credit-card template. A metric dashboard calibrated on US benchmarks will report a healthy AUC at a Vietnamese bank while hiding a calibration drift that moves Circular 41/2016 capital by basis points. This chapter's statistics still apply; the defaults need adjustment.
 
-The running datasets are the UCI German Credit file and the UCI Taiwan credit-card default file loaded through `csutils`. Both come from `load_german_credit()` and `load_taiwan_default()`. For drift and walk-forward experiments we generate a time-stamped synthetic cohort because neither UCI file carries dates. For 10M-row scalability we synthesise Bernoulli labels and Gaussian scores and drive the computation through Dask `delayed` graphs. The point is not that 10 million rows are exotic for a credit portfolio, they are not, but that the same code must run correctly at that scale without rewriting.
+The running datasets are the UCI German Credit file and the UCI Taiwan credit-card default file loaded through `creditutils`. Both come from `load_german_credit()` and `load_taiwan_default()`. For drift and walk-forward experiments we generate a time-stamped synthetic cohort because neither UCI file carries dates. For 10M-row scalability we synthesize Bernoulli labels and Gaussian scores and drive the computation through Dask `delayed` graphs. The point is not that 10 million rows are exotic for a credit portfolio, they are not, but that the same code must run correctly at that scale without rewriting.
 
 ### Notation {.unnumbered}
 
@@ -25,11 +25,17 @@ We write $Y \in \{0, 1\}$ for the default label, with $Y=1$ meaning default. $S$
 
 ## The three questions a credit model must answer {#sec-ch04-metrics}
 
-Discrimination, calibration, and expected profit are mathematically distinct objects. A model can discriminate perfectly yet be badly miscalibrated. A model can be well calibrated and yet lose money at every threshold because the cost structure is asymmetric. The Hand and Henley review lays out the three-way taxonomy cleanly [@hand1997statistical]. Lessmann and colleagues update it and show that model rankings depend on which question you ask [@lessmann2015benchmarking].
+Discrimination, calibration, and expected profit are mathematically distinct objects. A model can discriminate perfectly yet be badly miscalibrated. A model can be well calibrated yet still lose money at every threshold because the cost structure is asymmetric. The Hand and Henley review lays out the three-way taxonomy cleanly [@hand1997statistical]. Lessmann and colleagues update it and show that model rankings depend on which question you ask [@lessmann2015benchmarking].
 
-Discrimination answers: if I draw a random good and a random bad, what is the probability the score ranks them correctly? AUC, Gini, KS, and the H-measure all live here. Calibration answers: among borrowers with predicted probability $p$, is the observed default rate also $p$? Brier score, reliability diagrams, and isotonic or Platt rescaling live here. Expected profit answers: given the unit economics of my loan book, what threshold maximises dollars? Profit curves, cost-sensitive learning, and EMP live here.
+-   Discrimination answers: if I draw a random good and a random bad, what is the probability the score ranks them correctly? AUC, Gini, KS, and the H-measure all live here.
 
-Monitoring adds a fourth question, more operational than statistical: does the score distribution this month look like the distribution on which the model was trained? PSI and CSI answer that. Finally the chapter closes on validation design and on statistical comparison of two or more classifiers.
+-   Calibration answers: among borrowers with predicted probability $p$, is the observed default rate also $p$? Brier score, reliability diagrams, and isotonic or Platt rescaling live here.
+
+-   Expected profit answers: given the unit economics of my loan book, what threshold maximizes dollars? Profit curves, cost-sensitive learning, and EMP live here.
+
+-   Monitoring adds a fourth question, more operational than statistical: does the score distribution this month look like the distribution on which the model was trained? PSI and CSI answer that.
+
+-   Finally, the chapter closes on validation design and on statistical comparison of two or more classifiers.
 
 The reason three distinct questions matter is most visible in a stress scenario. Consider a retail lender that keeps ranking performance (AUC, KS) flat quarter-on-quarter while the macro environment deteriorates, say in a mild recession. The portfolio default rate rises from 2 percent to 4 percent. If the scoring model was only validated on ranking, nothing flags. If it was validated on calibration, the reliability diagram crosses above the diagonal in every bucket, Brier spikes, and the lender responds by increasing loss allowances. If it was validated on profit, the profit curve at the current threshold is below zero and the lender tightens. Each of the three views gives a different and complementary signal. A governance regime that collapses them into a single number has no chance of detecting the recession fast enough.
 
@@ -56,9 +62,9 @@ from sklearn.metrics import (
 from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.isotonic import IsotonicRegression
 
-from csutils import (
+from creditutils import (
     load_german_credit, load_taiwan_default,
-    ks_statistic, psi, train_valid_test_split,
+    psi, train_valid_test_split,
 )
 
 np.random.seed(42)
@@ -94,7 +100,7 @@ print(f"boosting AUC = {roc_auc_score(y_te, p_gb):.4f}   "
 
 The logistic baseline reaches an out-of-sample AUC near 0.72 on Taiwan. Gradient boosting lifts it roughly seven points, to around 0.78. That gap, which in relative terms is substantial, sets the scale for the rest of the chapter: metrics are not just ranking tools, they are the yardstick on which the return-on-effort of model improvements is measured. A 0.005 AUC difference between logistic and boosting is noise on a dataset of this size. A 0.05 difference is a genuine lift. The DeLong test in @sec-ch04-compare makes that distinction formal.
 
-A further pedagogical reason for this dataset: the base rate of 22 percent is closer to a sub-prime or emerging-market book than to a prime retail portfolio, where the base rate is often under 2 percent. Many of the subtleties of metrics in credit scoring only become operationally relevant under class imbalance. A Taiwan-like base rate is near enough to balanced that the textbook formulas work but far enough from 50-50 that the effect of imbalance on Brier, on KS, and on profit curves is visible. The German Credit file, with its base rate of 30 percent and just 1000 observations, is the pedagogical toy; Taiwan at 30000 observations is the realistic workhorse.
+A further pedagogical reason for this dataset: the base rate of 22 percent is closer to a sub-prime or emerging-market book than to a prime retail portfolio, where the base rate is often under 2 percent. Many of the subtleties of metrics in credit scoring only become operationally relevant under class imbalance. A Taiwan-like base rate is near enough to balanced that the textbook formulas work, but far enough from 50-50 that the effect of imbalance on Brier, on KS, and on profit curves is visible. The German Credit file, with its base rate of 30 percent and just 1000 observations, is the pedagogical toy; Taiwan at 30000 observations is the realistic workhorse.
 
 ## AUC-ROC and Gini {#sec-ch04-auc}
 
@@ -170,17 +176,43 @@ The agreement is to eight decimal places, which is as close as 64-bit floats get
 
 ### Interpretation and a warning
 
-AUC has a third reading, often forgotten: it is also the probability that a randomly chosen observation is correctly classified when the threshold is itself drawn uniformly at random from the set of scores [@hand2013area]. Hand's argument against AUC as a scalar summary rests on this: the implicit weighting over thresholds depends on the classifier's score distribution, and therefore on the classifier itself. That weighting is not a user-chosen cost function. It is an artefact of the model. Two models compared by AUC are being compared under two different implicit cost distributions. The H-measure in @hand2009measuring fixes this.
+AUC has a third reading, often forgotten: it is also the probability that a randomly chosen observation is correctly classified when the threshold is itself drawn uniformly at random from the set of scores [@hand2013area]. Hand's argument against AUC as a scalar summary rests on this: the implicit weighting over thresholds depends on the classifier's score distribution, and therefore on the classifier itself. That weighting is not a user-chosen cost function. It is an artifact of the model. Two models compared by AUC are being compared under two different implicit cost distributions. The H-measure (@sec-ch04-hmeasure) in @hand2009measuring fixes this.
 
 ### Partial AUC
 
-A common patch for the uniform-weighting problem is the partial AUC, pAUC, which integrates the ROC curve only between two FPR bounds $[a, b]$:
+Before getting to the partial variant, it helps to restate what the ROC curve actually draws, because the rest of this section is a claim about *which part* of that curve matters for a credit decision. The notation was fixed at the start of the chapter, but the quick reminder is:
+
+-   **TPR** (true positive rate, also called *sensitivity* or *recall*) at threshold $t$ is the fraction of actual defaulters the model flags as risky, $\mathrm{TPR}(t) = \Pr(S > t \mid Y=1)$. Higher is better: it is the share of the bad book you caught.
+-   **FPR** (false positive rate, $1 - \text{specificity}$) at threshold $t$ is the fraction of actual non-defaulters the model wrongly flags as risky, $\mathrm{FPR}(t) = \Pr(S > t \mid Y=0)$. Lower is better: it is the share of the good book you turned away.
+-   The **ROC curve** (Receiver Operating Characteristic, a name inherited from WWII radar detection) is the parametric plot of $\mathrm{TPR}(t)$ on the $y$-axis against $\mathrm{FPR}(t)$ on the $x$-axis as the threshold $t$ sweeps from $+\infty$ (deny nobody, both rates at 0) to $-\infty$ (approve nobody, both rates at 1). A useful model bows up into the top-left corner: high TPR at low FPR. A coin-flip model tracks the diagonal. The full AUC in @eq-auc-def is the area under this whole curve.
+
+The partial AUC is the same integral, restricted to a slice of that curve:
 
 $$
-\mathrm{pAUC}(a, b) = \int_a^b \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr)\, du.
+\mathrm{pAUC}(a, b) = \int_a^b \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr)\, du,
 $$ {#eq-pauc}
 
-In credit scoring, the typical operating regime is the low-FPR end of the ROC curve. A lender that approves the top 60 percent of applicants by score cares about performance in the region FPR in \[0, 0.4\]. Reporting pAUC over that region is a cheaper approximation to the H-measure: it simply zeroes the contribution of thresholds that the bank will never use. `sklearn.metrics.roc_auc_score` accepts a `max_fpr` argument that returns the McClish normalisation of the partial AUC, scaled to span \[0.5, 1\]. When the business question is narrow, pAUC is often a better summary than full AUC.
+where $\mathrm{FPR}^{-1}(u)$ is the threshold that produces false-positive rate $u$, so the integrand is just "the TPR you get when the FPR is $u$". Integrating from $a$ to $b$ means averaging TPR over the FPR band $[a, b]$, ignoring the rest of the curve.
+
+The motivation is that full AUC averages TPR over *every* possible FPR from 0 to 1, which is operationally absurd for a lender. Thresholds that produce FPR = 0.9 mean approving almost all defaulters and rejecting almost all good customers; no bank would ever deploy a model there, so performance in that region is economically irrelevant, yet full AUC counts it with equal weight. Partial AUC literally zeroes the contribution of thresholds the business will not use.
+
+The usable region in credit scoring is always the low-FPR end: lenders reject few good customers, which means low FPR, and accept whatever TPR that buys them. A concrete example. Suppose a lender's current policy approves roughly the top 60 percent of applicants by score. On a book with a 3 percent default rate, those 40 percent of declined applicants are overwhelmingly good customers, so the operating FPR is near 0.4. Anything beyond FPR = 0.4 corresponds to cut-offs more aggressive than the bank would ever use. Reporting $\mathrm{pAUC}(0, 0.4)$ captures every cut-off the credit committee would actually consider, and nothing else.
+
+This makes pAUC a cheap, practical approximation to the H-measure (@sec-ch04-hmeasure), which formalizes the same "only count thresholds you would actually pick" idea through a cost-distribution prior. pAUC replaces that prior with a hard window: weight 1 inside $[a, b]$, weight 0 outside. It is crude but easy to explain to a non-technical audience, which is why it shows up in model-validation reports when H-measure does not.
+
+Two implementation notes.
+
+First, the raw $\mathrm{pAUC}(a, b)$ has an awkward scale. It lies in $[0, b - a]$, so for $a = 0, b = 0.4$, a perfect classifier scores 0.4 and random scores 0.08, which is hard to read. @mcclish1989analyzing proposed the standard rescaling:
+
+$$
+\mathrm{pAUC}_{\text{norm}}(a, b) = \tfrac{1}{2}\left[1 + \frac{\mathrm{pAUC}(a, b) - \tfrac{1}{2}(b^2 - a^2)}{(b - a) - \tfrac{1}{2}(b^2 - a^2)}\right],
+$$
+
+which maps random to 0.5 and perfect to 1, matching the scale of full AUC. This is the number `sklearn.metrics.roc_auc_score` returns when called with the `max_fpr` argument (which sets $a = 0$ and $b$ equal to `max_fpr`).
+
+Second, a warning before anyone puts pAUC into a production scorecard document: the choice of $[a, b]$ is a modeling decision and should be justified from the book's operating policy, not tuned to make the model look good. Two teams reporting pAUC on the same model with different FPR windows will get different numbers; without the window, the metric is ambiguous. Always report the window alongside the statistic: "pAUC(0, 0.4) = 0.84, McClish-normalized", not just "pAUC = 0.84".
+
+When the business question is narrow and the operating point is known, pAUC is often a better summary than full AUC. When the operating point is unknown or the model will be used across many regimes, full AUC or the H-measure is safer.
 
 ### Sampling variance
 
@@ -190,7 +222,7 @@ $$
 \widehat{\mathrm{Var}}(\widehat{\mathrm{AUC}}) = \frac{\hat A(1-\hat A) + (m-1)(Q_1 - \hat A^2) + (n-1)(Q_2 - \hat A^2)}{m n},
 $$ {#eq-auc-var-hanley}
 
-with $Q_1 = \hat A / (2 - \hat A)$ and $Q_2 = 2\hat A^2/(1+\hat A)$. For a Taiwan-like sample with $m \approx 2000$ positives and $n \approx 7000$ negatives at $\hat A = 0.78$, this gives a standard error around 0.008, corresponding to a 95 percent interval roughly $[0.76, 0.80]$. The bootstrap and DeLong standard errors in @sec-ch04-compare should both land in this neighbourhood.
+with $Q_1 = \hat A / (2 - \hat A)$ and $Q_2 = 2\hat A^2/(1+\hat A)$. For a Taiwan-like sample with $m \approx 2000$ positives and $n \approx 7000$ negatives at $\hat A = 0.78$, this gives a standard error around 0.008, corresponding to a 95 percent interval roughly $[0.76, 0.80]$. The bootstrap and DeLong standard errors in @sec-ch04-compare should both land in this neighborhood.
 
 For pure ranking, AUC is defensible. For any decision that depends on a threshold, ranking is not enough.
 
@@ -204,7 +236,7 @@ $$
 \mathrm{KS} = \sup_t \bigl|F_1(t) - F_0(t)\bigr|,
 $$ {#eq-ks-def}
 
-an application of the classical two-sample statistic of @kolmogorov1933sulla and @smirnov1948table. In terms of ROC coordinates it is the maximum vertical distance between the ROC curve and the diagonal,
+an application of the classical two-sample statistic of @kolmogorov1933sulla and @smirnov1948table. In terms of ROC coordinates, it is the maximum vertical distance between the ROC curve and the diagonal,
 
 $$
 \mathrm{KS} = \sup_t \bigl(\mathrm{TPR}(t) - \mathrm{FPR}(t)\bigr).
@@ -229,13 +261,23 @@ def ks_from_scratch(y_true, y_score):
     return float(gap.max()), int(np.argmax(gap))
 
 
+from scipy.stats import ks_2samp
+from sklearn.metrics import roc_curve
+
 ks_scratch, idx_star = ks_from_scratch(y_te, p_lr)
-print(f"KS (scratch)  = {ks_scratch:.4f} at ordered index {idx_star:,} "
-      f"(score = {np.sort(-p_lr)[idx_star]*-1:.4f})")
-print(f"KS (csutils)  = {ks_statistic(y_te, p_lr):.4f}")
+cut_score = float(np.sort(p_lr)[::-1][idx_star])
+print(f"KS (scratch)      = {ks_scratch:.4f} at ordered index {idx_star:,} "
+      f"(score = {cut_score:.4f})")
+
+ks_scipy = ks_2samp(p_lr[y_te == 1], p_lr[y_te == 0]).statistic
+print(f"KS (scipy)        = {ks_scipy:.4f}")
+
+fpr, tpr, _ = roc_curve(y_te, p_lr)
+ks_sklearn = float(np.max(tpr - fpr))
+print(f"KS (sklearn ROC)  = {ks_sklearn:.4f}")
 ```
 
-The KS value on the Taiwan logistic baseline is roughly 0.37, meaning there is some threshold at which the model correctly keeps 37 percentage points more defaulters on the rejected side than it keeps non-defaulters on the rejected side.
+The KS value on the Taiwan logistic baseline is roughly 0.37. Intuitively, at the score threshold where the gap is largest, the model rejects 37 percentage points more of the defaulters than of the non-defaulters: for example, at that cut-off it might reject 60% of the true bads while only rejecting 23% of the true goods ($\mathrm{TPR}-\mathrm{FPR}=0.37$).
 
 ### The geometric link to AUC
 
@@ -245,23 +287,84 @@ $$
 \mathrm{Gini} = 2\int_0^1 \bigl(\mathrm{TPR}(u) - u\bigr)\, du,
 $$ {#eq-gini-area}
 
-so Gini is the mean vertical distance of the ROC curve above the diagonal, whereas KS is the maximum. Two classifiers can have the same Gini and very different KS, and vice versa. KS rewards models that separate well at one particular threshold. AUC rewards average separation across thresholds.
+so Gini is (twice) the *mean* vertical distance of the ROC curve above the diagonal, whereas KS is its *maximum*. Because one summary is an average and the other is a peak, two classifiers can have the same Gini and very different KS, or the same KS and very different Gini.
 
-A common trap: KS-optimising a classifier silently chooses an operating point. If business uses a different cut-off, that KS is operationally irrelevant.
+-   *Same Gini, different KS.* Model A has an ROC curve that bulges uniformly above the diagonal, giving a moderate gap at every threshold. Model B has an ROC curve that spikes sharply in one region and sits close to the diagonal elsewhere. The two areas under the curve can match exactly, so their Gini agrees, yet Model B's peak gap (its KS) is taller because all of its separating power is concentrated at one cut-off.
+-   *Same KS, different Gini.* Two models can reach the same peak TPR$-$FPR at some threshold, but one keeps that gap wide across a large range of thresholds (a fat ROC curve, higher Gini) while the other drops back to the diagonal immediately on either side of the peak (a narrow spike, lower Gini).
 
-### The score bucket at which KS is maximised
+@fig-gini-vs-ks makes both cases concrete. Four piecewise-linear ROC curves are constructed by hand so the arithmetic is transparent. In the left panel, two models with the same Gini land at the same area under the curve, yet the red spike delivers a KS of 0.50 against the blue bulge's 0.30. In the right panel, two models touch the diagonal-gap ceiling at the same FPR, and both report KS of 0.50, yet the wider green ROC carries a Gini of 0.61 while the narrow orange triangle registers 0.50. The vertical bars mark the KS point on each curve.
 
-Banks often report the decile or score bucket at which the KS gap occurs, and adopt that bucket as the cut-off. The practice is defensible when the KS cut-off aligns with the unit economics of the portfolio. When the profit-maximising threshold is somewhere else, the KS cut-off is merely a convenient statistical landmark with no financial interpretation. The KS of a random scorer is zero in expectation, and its sampling distribution under the null is the two-sample Kolmogorov distribution. Critical values depend only on the sample sizes $m, n$,
+```{python}
+#| label: fig-gini-vs-ks
+#| fig-width: 11
+#| fig-height: 5
+def _roc_path(vertices):
+    seg = [np.linspace(a[i], b[i], 200, endpoint=False)
+           for a, b in zip(vertices[:-1], vertices[1:]) for i in (0, 1)]
+    fpr = np.concatenate(seg[0::2] + [[vertices[-1][0]]])
+    tpr = np.concatenate(seg[1::2] + [[vertices[-1][1]]])
+    return fpr, tpr
+
+
+def _auc_ks(fpr, tpr):
+    auc = float(np.trapezoid(tpr, fpr))
+    idx = int(np.argmax(tpr - fpr))
+    return auc, 2.0 * auc - 1.0, float(tpr[idx] - fpr[idx]), idx
+
+
+def _draw(ax, verts, color, name):
+    fpr, tpr = _roc_path(verts)
+    _, gini, ks, idx = _auc_ks(fpr, tpr)
+    ax.plot(fpr, tpr, color=color, lw=2.2,
+            label=f"{name} (Gini={gini:.2f}, KS={ks:.2f})")
+    ax.fill_between(fpr, fpr, tpr, where=(tpr >= fpr), color=color, alpha=0.08)
+    ax.vlines(fpr[idx], fpr[idx], tpr[idx], color=color, lw=3)
+    ax.plot([fpr[idx]], [tpr[idx]], "o", color=color, ms=6)
+
+
+fat_verts   = [(0.0, 0.0), (0.30, 0.60), (0.70, 0.90), (1.0, 1.0)]
+spike_verts = [(0.0, 0.0), (0.10, 0.60), (0.90, 0.79), (1.0, 1.0)]
+wide_verts  = [(0.0, 0.0), (0.05, 0.35), (0.20, 0.70), (0.60, 0.95), (1.0, 1.0)]
+narrow_verts = [(0.0, 0.0), (0.20, 0.70), (1.0, 1.0)]
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 5), sharex=True, sharey=True)
+for ax in axes:
+    ax.plot([0, 1], [0, 1], color="grey", linestyle="--", lw=1)
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect("equal")
+    ax.set_xlabel("FPR (1 - specificity)")
+
+_draw(axes[0], fat_verts,   "#1f77b4", "Model A (fat)")
+_draw(axes[0], spike_verts, "#d62728", "Model B (spike)")
+axes[0].set_title("Same Gini, different KS")
+axes[0].set_ylabel("TPR (sensitivity)")
+axes[0].legend(loc="lower right", fontsize=9)
+
+_draw(axes[1], wide_verts,   "#2ca02c", "Model C (wide)")
+_draw(axes[1], narrow_verts, "#ff7f0e", "Model D (narrow)")
+axes[1].set_title("Same KS, different Gini")
+axes[1].legend(loc="lower right", fontsize=9)
+
+plt.tight_layout()
+plt.show()
+```
+
+The operational lesson is that KS rewards a model that separates well at one particular threshold, while AUC rewards average separation across all thresholds. If the business runs a single accept/reject policy at a known cut-off, KS near that cut-off is the relevant number; if the model is used across many cut-offs (risk-based pricing, tiered limits, challenger testing), AUC or Gini is more faithful to how the scorecard is actually consumed. A classic failure mode is celebrating a model with the highest KS in a validation deck, then deploying it at a business cut-off that sits far from the KS-maximizing threshold, where a rival model with a lower KS but a flatter, fatter ROC curve would have done better.
+
+A common trap: KS-optimizing a classifier silently chooses an operating point. If business uses a different cut-off, that KS is operationally irrelevant.
+
+### The score bucket at which KS is maximized
+
+Banks often report the decile or score bucket at which the KS gap occurs, and adopt that bucket as the cut-off. The practice is defensible when the KS cut-off aligns with the unit economics of the portfolio. When the profit-maximizing threshold is somewhere else, the KS cut-off is merely a convenient statistical landmark with no financial interpretation. The KS of a random scorer is zero in expectation, and its sampling distribution under the null is the two-sample Kolmogorov distribution. Critical values depend only on the sample sizes $m, n$,
 
 $$
 \Pr\bigl(\mathrm{KS} > c\bigr) \approx 2\sum_{k=1}^{\infty} (-1)^{k-1} e^{-2 k^2 c^2 \frac{mn}{m+n}}.
 $$ {#eq-ks-null}
 
-In practice the KS of a credit model is orders of magnitude above the null, so the critical-value test is not useful for model validation. The two-sample KS is, however, useful for detecting distribution shift at the feature level, a cheap complement to PSI for continuous variables.
+In practice, the KS of a credit model is orders of magnitude above the null, so the critical-value test is not useful for model validation. The two-sample KS is, however, useful for detecting distribution shift at the feature level, a cheap complement to PSI for continuous variables.
 
 ### Why practitioners cling to KS
 
-KS is appealing because it maps cleanly to a business decision: the gap between cumulative bads and goods at a threshold is the headline number on every credit-policy deck. It is also the natural number to plot against score deciles. Banks have used KS for 50 years and every downstream process (policy rules, pricing matrices, recovery operations) is engineered around a KS-selected cut-off. The consequence is path-dependence: even when AUC or H-measure is a better metric, a bank cannot easily switch because the downstream plumbing assumes a single KS cut-off. Any serious metric overhaul must therefore include a policy migration plan.
+KS is appealing because it maps cleanly to a business decision: the gap between cumulative bads and goods at a threshold is the headline number on every credit-policy deck. It is also the natural number to plot against score deciles. Banks have used KS for 50 years, and every downstream process (policy rules, pricing matrices, recovery operations) is engineered around a KS-selected cut-off. The consequence is path-dependence: even when AUC or H-measure is a better metric, a bank cannot easily switch because the downstream plumbing assumes a single KS cut-off. Any serious metric overhaul must therefore include a policy migration plan.
 
 ## The H-measure {#sec-ch04-hmeasure}
 
@@ -273,31 +376,61 @@ The H-measure replaces the classifier-dependent weighting by a user-specified pr
 
 ### Derivation
 
-Let $c \in (0, 1)$ parameterise the cost of a false positive, with $1-c$ the cost of a false negative. For prior $\pi_1$ and $\pi_0$, the threshold that minimises expected loss is the one that solves
+**Step 1: costs on a single scale.** A false positive (a good flagged as bad) costs $c_{FP}$; a false negative (a bad accepted as good) costs $c_{FN}$. Only the ratio matters for ranking thresholds, so rescale the two costs to sum to one and write $c = c_{FP}/(c_{FP}+c_{FN}) \in (0,1)$. Then $c_{FP} = c$ and $c_{FN} = 1-c$, a single scalar. $c = 0.5$ is the symmetric case; $c \to 1$ penalizes false positives almost exclusively, $c \to 0$ penalizes false negatives almost exclusively.
+
+**Step 2: expected loss at a threshold.** With the notation fixed at the start of the chapter (predict positive when $S > t$), the two error probabilities for a randomly drawn subject are
+
+-   false positive: $\Pr(S > t,\ Y=0) = \pi_0 (1 - F_0(t))$,
+-   false negative: $\Pr(S \le t,\ Y=1) = \pi_1 F_1(t)$.
+
+The $\pi_0$ and $\pi_1$ appear because a FP requires the subject to *be* a good in the first place ($Y=0$, probability $\pi_0$) and *then* fall on the wrong side of the threshold (probability $1-F_0(t)$). Same for the FN. Multiplying each error probability by its cost and summing:
 
 $$
-t^*(c) = \arg\min_t \bigl\{\pi_0 c (1-F_0(t)) + \pi_1 (1-c) F_1(t)\bigr\},
+\mathcal{L}(t, c) = \pi_0 c (1-F_0(t)) + \pi_1 (1-c) F_1(t).
+$$ {#eq-hloss-threshold}
+
+This is the expected per-subject loss of using threshold $t$ under cost ratio $c$.
+
+**Step 3: optimal threshold for a given** $c$. The decision-maker picks $t$ to minimize @eq-hloss-threshold, giving the cost-conditional Bayes threshold
+
+$$
+t^*(c) = \arg\min_t \bigl\{\pi_0 c (1-F_0(t)) + \pi_1 (1-c) F_1(t)\bigr\}.
 $$ {#eq-hcost-min}
 
-and the corresponding minimum loss is
+The minimized loss is
 
 $$
 L(c) = \pi_0 c (1-F_0(t^*(c))) + \pi_1 (1-c) F_1(t^*(c)).
 $$ {#eq-hloss}
 
-The trivial classifier that either accepts everyone or rejects everyone achieves
+As $c$ sweeps from 0 to 1, $t^*(c)$ traces out the ROC-convex-hull operating points: high $c$ (costly FP) drives $t^*$ up so few subjects get flagged; low $c$ drives $t^*$ down.
+
+**Step 4: trivial baselines.** Two threshold-free classifiers bracket the problem:
+
+-   *Accept everyone* ($t = +\infty$): no FP, every bad missed. Loss $= \pi_1 (1-c)$.
+-   *Reject everyone* ($t = -\infty$): every good flagged, no FN. Loss $= \pi_0 c$.
+
+A decision-maker would use whichever of the two is cheaper at the cost ratio $c$, so the best the trivial rule can do is
 
 $$
 L_{\max}(c) = \min\{\pi_0 c,\ \pi_1 (1-c)\}.
 $$ {#eq-hloss-trivial}
 
-The H-measure is the normalised integrated loss gap under prior $w(c)$:
+The two lines cross at $c^\dagger = \pi_1/(\pi_0+\pi_1) = \pi_1$: left of $c^\dagger$ reject-everyone is cheaper, right of $c^\dagger$ accept-everyone is cheaper. $L_{\max}$ is a triangular tent with peak $\pi_0 \pi_1$. Any useful classifier must beat this at every $c$ where we care, i.e., $L(c) \le L_{\max}(c)$.
+
+**Step 5: averaging over cost ratios.** A single value of $c$ is rarely known, so integrate $L(c)$ against a user-specified prior $w(c)$ on $(0,1)$. The *loss gap* is $L_{\max}(c) - L(c)$, the savings over the trivial rule at cost $c$. Normalizing this average gap by the average trivial loss gives the H-measure:
 
 $$
 H = 1 - \frac{\int_0^1 L(c) w(c)\, dc}{\int_0^1 L_{\max}(c) w(c)\, dc}.
 $$ {#eq-h-measure}
 
-By construction $H \in [0, 1]$, $H=0$ for a random classifier, $H=1$ for a classifier that dominates the trivial one at every $c$. The user controls the weighting.
+**Step 6: bounds and corner cases.** Because $0 \le L(c) \le L_{\max}(c)$ pointwise, the ratio lies in $[0,1]$, so $H \in [0,1]$:
+
+-   $H = 1$ when $L(c) = 0$ for $w$-almost every $c$, which requires the score to separate the classes perfectly ($F_0$ and $F_1$ have disjoint support).
+-   $H = 0$ when $L(c) = L_{\max}(c)$ for $w$-almost every $c$, i.e., the classifier is never better than picking the cheaper trivial rule. A random score achieves this in expectation because $t^*(c)$ under a random score collapses to one of the two trivial thresholds.
+-   Values in between measure the fraction of the trivial-rule loss the classifier recovers, averaged under $w$.
+
+The weighting $w$ is the one thing the user controls. Hand's default is $\mathrm{Beta}(2,2)$, centered on $c=0.5$ with light tails. A bank with a calibrated estimate of its FP/FN cost ratio should pick a $w$ tightly concentrated near that value; a regulator auditing a portfolio across many use cases should pick a broader $w$.
 
 ### From-scratch implementation
 
@@ -336,64 +469,306 @@ print(f"H-measure (perfect score) = "
       f"{h_measure(y_toy, y_toy + 1e-6*rng.random(5000)):.4f}")
 ```
 
-The random scorer gets $H \approx 0$, the perfect scorer $H = 1$, and the Taiwan logistic model sits well inside the unit interval. On the same dataset, boosting wins against logistic under both H-measure and AUC, which is reassuring. That agreement is not automatic: when classifiers cross in ROC space the two metrics can disagree.
+The random scorer gets $H \approx 0$, the perfect scorer $H = 1$, and the Taiwan logistic model sits well inside the unit interval. On the same dataset, boosting wins against logistic under both H-measure and AUC, which is reassuring.
+
+That agreement is not automatic, and the reason comes straight from the two metrics' definitions:
+
+-   AUC $= \int_0^1 \text{TPR}(u)\, du$ treats every FPR equally. The implicit weight on the cost ratio $c$ is the classifier's own score density [@hand2009measuring], so two classifiers are effectively weighed on different scales.
+-   H integrates the Bayes loss $L(c)$ against a *fixed* user prior $w(c)$. Each $c$ pins down one operating point on the ROC convex hull, specifically the tangent with slope $\pi_0 c / (\pi_1 (1-c))$.
+
+When one ROC sits weakly above the other at every FPR the classifier is Pareto-dominant: $\text{TPR}_A(u) \ge \text{TPR}_B(u)$ for all $u$ forces both $\text{AUC}_A \ge \text{AUC}_B$ and $L_A(c) \le L_B(c)$ at every $c$, so AUC and H must agree. The interesting case is when the ROCs cross: one classifier is better in a low-FPR region (tight-credit regime, high $c$) and worse in a high-FPR region (loose-credit regime, low $c$), or vice versa. AUC's uniform average over FPR and H's $w$-weighted average over $c$ then emphasize different slices of the curve, and the winner flips. The "When H-measure changes the ranking" example below builds two classifiers with identical AUC but opposite regime strengths, and shows the H rank flip as $w(c)$ shifts from low $c$ to high $c$.
 
 ### When H-measure changes the ranking
 
-Generate two scorers with the same AUC but different regimes, a common pattern when one model is better at the low-FPR end of the curve and another at the high-FPR end:
+The previous subsection argued abstractly that crossing ROCs can cause AUC and H to disagree. This subsection *builds* two such classifiers on purpose, then walks through the graphics to show why the rank flips.
+
+**Construction.** Pick a synthetic population with $\pi_1 = 0.3$. Build two scores on the same labels, each calibrated so the ROCs cross and the AUCs nearly match:
+
+-   **Model A (top-loaded).** Half of the positives are "obvious," their score is drawn from $\mathcal{N}(4.5, 0.3^2)$, far above everyone else. The remaining positives look like the negatives, $\mathcal{N}(0, 1)$. The ROC shoots up to $\mathrm{TPR} \approx 0.5$ at almost zero FPR, then runs along the diagonal. Good when the business only keeps the very top of the ranked list.
+-   **Model B (uniform shift).** Every positive gets the same moderate boost: $\mathcal{N}(1, 1)$ versus $\mathcal{N}(0, 1)$ for negatives. The ROC is smoothly concave: no fast start, but a better climb once you are willing to tolerate some FPR. Good when the business operates at moderate-to-high flag rates.
 
 ```{python}
-#| label: h-vs-auc-rank-flip
-rng = np.random.default_rng(1)
-n_toy = 4000
-y_toy2 = rng.binomial(1, 0.3, n_toy)
+#| label: h-rankflip-gen
+rng = np.random.default_rng(7)
+n_toy = 8000
+pi1_toy = 0.3
+y_toy2 = rng.binomial(1, pi1_toy, n_toy)
 
-# Model A: separates well only near the top of the ranking.
-def gen_a(y_lab, rng):
-    s = rng.normal(0, 1, len(y_lab))
-    s[y_lab == 1] += 1.2
-    top = np.argsort(-s)[: int(0.1 * len(y_lab))]
-    s[top] += 2.0 * y_lab[top]
+def gen_a(y_lab, rng_):
+    s = rng_.normal(0.0, 1.0, len(y_lab))
+    pos = np.where(y_lab == 1)[0]
+    obvious = rng_.choice(pos, size=int(0.50 * len(pos)), replace=False)
+    s[obvious] = rng_.normal(4.5, 0.3, len(obvious))
     return s
 
-# Model B: separates uniformly across the whole score range.
-def gen_b(y_lab, rng):
-    s = rng.normal(0, 1, len(y_lab))
-    s[y_lab == 1] += 0.9
+def gen_b(y_lab, rng_):
+    s = rng_.normal(0.0, 1.0, len(y_lab))
+    s[y_lab == 1] += 1.0
     return s
 
 sA = gen_a(y_toy2, rng)
 sB = gen_b(y_toy2, rng)
 
-print(f"AUC A = {roc_auc_score(y_toy2, sA):.4f}  AUC B = {roc_auc_score(y_toy2, sB):.4f}")
-
-# H with low-c prior (business cares about false positives, the top-slice regime).
-print(f"H(Beta(10,2)) A = {h_measure(y_toy2, sA, alpha=10, beta=2):.4f}  "
-      f"B = {h_measure(y_toy2, sB, alpha=10, beta=2):.4f}")
-
-# H with a prior centred on high-c (business cares about false negatives).
-print(f"H(Beta(2,10)) A = {h_measure(y_toy2, sA, alpha=2, beta=10):.4f}  "
-      f"B = {h_measure(y_toy2, sB, alpha=2, beta=10):.4f}")
+auc_A = roc_auc_score(y_toy2, sA)
+auc_B = roc_auc_score(y_toy2, sB)
+print(f"AUC A = {auc_A:.4f}   AUC B = {auc_B:.4f}")
 ```
 
-Under a prior that concentrates weight on low $c$, which is the relevant regime when a bank cares mainly about avoiding bad loans from an aggressive acceptance rate, model A wins. Under a prior that concentrates on high $c$, which is relevant when the cost of rejecting a creditworthy applicant is politically salient, model B wins. AUC alone cannot resolve this and gives a single number that averages the two regimes with a classifier-specific weighting.
+**Graphic 1: the ROC crossing.** Left panel shows the full ROC, right panel zooms into the low-FPR corner. Model A's ROC lifts vertically in the first 1% of FPR, reaching about 0.5 TPR almost for free. Beyond that it is essentially random: the non-obvious positives are pure noise. Model B's ROC is boring but steady, overtaking A once enough FPR budget is available.
+
+```{python}
+#| label: fig-h-rankflip-roc
+#| fig-cap: "Crossing ROCs from two classifiers with nearly equal AUC. Model A dominates in the low-FPR corner (high-$c$ regime). Model B dominates everywhere else."
+#| fig-height: 4.2
+fpr_A, tpr_A, _ = roc_curve(y_toy2, sA)
+fpr_B, tpr_B, _ = roc_curve(y_toy2, sB)
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4.2))
+for ax in axes:
+    ax.plot([0, 1], [0, 1], color="grey", ls="--", lw=0.8)
+    ax.plot(fpr_A, tpr_A, color="#1f77b4", lw=2,
+            label=f"A (top-loaded, AUC={auc_A:.3f})")
+    ax.plot(fpr_B, tpr_B, color="#d62728", lw=2,
+            label=f"B (uniform, AUC={auc_B:.3f})")
+    ax.set_xlabel("FPR"); ax.set_ylabel("TPR")
+axes[0].set_title("Full ROC")
+axes[0].legend(loc="lower right", fontsize=8)
+axes[1].set_xlim(0, 0.12); axes[1].set_ylim(0, 0.75)
+axes[1].set_title("Zoom: low-FPR corner")
+plt.tight_layout(); plt.show()
+```
+
+**Graphic 2: Bayes loss as a function of cost ratio.** The H-measure integrand is $L(c)$. Compute it for both models on the same cost grid, overlay the trivial-rule tent $L_{\max}(c)$, and mark the two priors' centers of mass.
+
+```{python}
+#| label: fig-h-rankflip-loss
+#| fig-cap: "$L(c)$ for the two classifiers, with the trivial-rule ceiling $L_{\\max}(c)$ and the two priors' means. A beats B in the right tail (high $c$), B beats A almost everywhere else."
+#| fig-height: 4.2
+def bayes_loss(y_true, y_score, cs):
+    y = np.asarray(y_true).astype(int)
+    s = np.asarray(y_score, dtype=float)
+    p1 = y.mean(); p0 = 1.0 - p1
+    sp = np.sort(s[y == 1]); sn = np.sort(s[y == 0])
+    thr = np.sort(np.unique(s))
+    F1 = np.searchsorted(sp, thr, side="right") / max(len(sp), 1)
+    F0 = np.searchsorted(sn, thr, side="right") / max(len(sn), 1)
+    F1e = np.concatenate([[0.0], F1, [1.0]])
+    F0e = np.concatenate([[0.0], F0, [1.0]])
+    loss = (p0 * cs[:, None] * (1 - F0e)[None, :]
+            + p1 * (1 - cs)[:, None] * F1e[None, :])
+    return loss.min(axis=1)
+
+cs = np.linspace(1e-3, 1 - 1e-3, 501)
+L_A = bayes_loss(y_toy2, sA, cs)
+L_B = bayes_loss(y_toy2, sB, cs)
+pi0_toy = 1.0 - pi1_toy
+L_triv = np.minimum(pi0_toy * cs, pi1_toy * (1 - cs))
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4.2))
+
+axes[0].plot(cs, L_triv, color="black", ls=":", lw=1.2, label=r"$L_{\max}(c)$ (trivial)")
+axes[0].plot(cs, L_A, color="#1f77b4", lw=2, label="$L_A(c)$")
+axes[0].plot(cs, L_B, color="#d62728", lw=2, label="$L_B(c)$")
+axes[0].fill_between(cs, L_A, L_B, where=(L_A < L_B), color="#1f77b4", alpha=0.15,
+                    label="A better")
+axes[0].fill_between(cs, L_A, L_B, where=(L_B < L_A), color="#d62728", alpha=0.15,
+                    label="B better")
+axes[0].set_xlabel("cost ratio $c$ (= cost of FP)")
+axes[0].set_ylabel("expected loss")
+axes[0].set_title("Bayes loss $L(c)$")
+axes[0].legend(loc="upper right", fontsize=8)
+
+# Priors on a twin axis.
+w_hi = beta_dist.pdf(cs, 10, 2)
+w_lo = beta_dist.pdf(cs, 2, 10)
+axes[1].plot(cs, w_hi, color="#2ca02c", lw=2, label=r"Beta(10, 2), mean $c=0.83$")
+axes[1].plot(cs, w_lo, color="#9467bd", lw=2, label=r"Beta(2, 10), mean $c=0.17$")
+axes[1].fill_between(cs, 0, w_hi, color="#2ca02c", alpha=0.15)
+axes[1].fill_between(cs, 0, w_lo, color="#9467bd", alpha=0.15)
+axes[1].set_xlabel("cost ratio $c$")
+axes[1].set_ylabel("prior density $w(c)$")
+axes[1].set_title("Two priors over $c$")
+axes[1].legend(loc="upper center", fontsize=8)
+
+plt.tight_layout(); plt.show()
+```
+
+The left panel tells the story. $L_A(c)$ drops well below $L_{\max}$ in the right tail (high $c$), because A's obvious-positives block means you can flag defaulters without flagging any negatives, exactly what you want when FP is expensive. But $L_A(c)$ hugs $L_{\max}$ in the middle and left. Once the obvious positives are taken, A's remaining score is random, so no improvement is available. $L_B(c)$ sits below $L_{\max}$ across the interior but never as low as $L_A$ in the right tail.
+
+The right panel shows the two priors that will weight these $L(c)$ curves. Beta(10, 2) concentrates mass near $c = 0.83$ (right tail, where A wins), Beta(2, 10) near $c = 0.17$ (left tail, where B wins).
+
+**Graphic 3: the integrand.** The H-measure is not just $L(c)$ but $L(c) w(c)$ integrated, then normalized. Plotting the integrand makes the flip unmistakable.
+
+```{python}
+#| label: fig-h-rankflip-integrand
+#| fig-cap: "Integrand $L(c) w(c)$. Area under the curves is what the H-measure numerator integrates. Lower is better."
+#| fig-height: 3.8
+fig, axes = plt.subplots(1, 2, figsize=(10, 3.8), sharey=True)
+
+axes[0].plot(cs, L_A * w_hi, color="#1f77b4", lw=2, label="A")
+axes[0].plot(cs, L_B * w_hi, color="#d62728", lw=2, label="B")
+axes[0].set_title("Weighted by Beta(10, 2)")
+axes[0].set_xlabel("$c$"); axes[0].set_ylabel("$L(c)\\,w(c)$")
+axes[0].legend()
+
+axes[1].plot(cs, L_A * w_lo, color="#1f77b4", lw=2, label="A")
+axes[1].plot(cs, L_B * w_lo, color="#d62728", lw=2, label="B")
+axes[1].set_title("Weighted by Beta(2, 10)")
+axes[1].set_xlabel("$c$")
+axes[1].legend()
+
+plt.tight_layout(); plt.show()
+```
+
+Under Beta(10, 2), the blue curve ($L_A w$) sits well below the red curve ($L_B w$) where the prior has mass, so A integrates to less loss and wins H. Under Beta(2, 10), the same comparison reverses.
+
+**Graphic 4: H under a sweep of priors.** To drive it home, sweep the Beta prior's mean across $(0, 1)$ and plot $H_A$ and $H_B$ as functions of the mean. The crossover is where the ranking flips.
+
+```{python}
+#| label: fig-h-rankflip-sweep
+#| fig-cap: "H-measure of A and B as a function of the Beta prior's mean (at fixed concentration $\\alpha + \\beta = 12$). The two lines cross in the low-$c$ tail, B wins only when the prior puts nearly all its mass below $c \\approx 0.15$. AUC (dashed Gini transform) ignores the prior entirely."
+#| fig-height: 3.5
+means = np.linspace(0.1, 0.9, 25)
+H_A, H_B = [], []
+for m in means:
+    a = m * 12
+    b = (1 - m) * 12
+    H_A.append(h_measure(y_toy2, sA, alpha=a, beta=b))
+    H_B.append(h_measure(y_toy2, sB, alpha=a, beta=b))
+
+plt.figure(figsize=(7, 3.5))
+plt.plot(means, H_A, color="#1f77b4", lw=2, marker="o", ms=4, label="Model A")
+plt.plot(means, H_B, color="#d62728", lw=2, marker="s", ms=4, label="Model B")
+plt.axhline(2 * auc_A - 1, color="#1f77b4", ls="--", lw=1,
+            label=f"Gini A = {2*auc_A-1:.3f}")
+plt.axhline(2 * auc_B - 1, color="#d62728", ls="--", lw=1,
+            label=f"Gini B = {2*auc_B-1:.3f}")
+plt.xlabel("prior mean $\\mathbb{E}[c]$")
+plt.ylabel("H-measure")
+plt.legend(fontsize=8, loc="lower center")
+plt.tight_layout(); plt.show()
+```
+
+Three observations from this last figure:
+
+1.  **AUC lives on a horizontal line.** The dashed lines are Gini = $2\text{AUC}-1$ (a monotone transform of AUC). They ignore the prior: AUC gives one number regardless of which cost regime the business operates in. On this dataset Gini ranks B above A.
+2.  **H ranks A above B across most of the prior-mean axis.** For any prior with $\mathbb{E}[c] \gtrsim 0.15$, including the symmetric Beta(2, 2), H prefers A. That already contradicts the AUC ranking.
+3.  **Crossover is in the low-**$c$ tail. Only when the prior concentrates very heavily on $c < 0.15$ does H agree with AUC that B is better. A bank with a symmetric or FP-costly prior should pick A; a lender operating in an extreme FN-costly regime (mid-tier subprime, for example) should pick B.
+
+**Numerical summary.**
+
+```{python}
+#| label: h-rankflip-numbers
+rows = []
+for name, s in [("A (top-loaded)", sA), ("B (uniform)", sB)]:
+    rows.append({
+        "model": name,
+        "AUC": roc_auc_score(y_toy2, s),
+        "H(Beta(2,2))":  h_measure(y_toy2, s, alpha=2,  beta=2),
+        "H(Beta(10,2))": h_measure(y_toy2, s, alpha=10, beta=2),
+        "H(Beta(2,10))": h_measure(y_toy2, s, alpha=2,  beta=10),
+    })
+pd.DataFrame(rows).round(4)
+```
+
+**Why the regimes map to priors the way they do.** The cost ratio $c$ is the cost of a false positive (flagging a good applicant as bad). Two concrete scenarios:
+
+-   A politically constrained prime lender with a low default rate, audited on fair-lending, pays a high reputational cost every time it rejects a creditworthy applicant. For this lender, $c$ is large and the right prior is Beta(10, 2), concentrated near 0.83. The lender will only flag applicants it is very confident about (operating at low FPR). **Model A's obvious-positives block wins**, because it lets the lender flag roughly half of the defaulters while flagging virtually no goods.
+-   A subprime lender on a near-break-even book of loans with a 20% default rate cannot afford to accept defaulters; each one wipes out the margin on many good loans. For this lender $1 - c$ is large (FN is expensive), so $c$ is small and the right prior is Beta(2, 10), concentrated near 0.17. The lender tolerates a high FPR in exchange for catching almost every defaulter. **Model B's uniform separation wins**, because its ROC keeps rising past the point where A's ROC flattens at the diagonal.
+
+AUC reports a single number that averages these two regimes under a weighting each classifier gets to pick for itself [@hand2009measuring]. H measure forces the bank to state its weighting up front and answers the question *that* bank actually has.
 
 ### Implementation notes
 
-The `hmeasure` R package is the reference implementation. A Python port is pip-installable under the same name but is not available in all builds. The implementation above has been validated against the derivation and against AUC limits. A principled choice of prior in credit scoring: $\alpha = 2,\ \beta = \tfrac{2 \pi_0}{\pi_1}$ centres the prior around the prior class ratio and is the recommendation in @hand2009measuring. For a Taiwan-like $\pi_1 \approx 0.22$, that is $\alpha = 2,\ \beta \approx 7.1$.
+**Existing packages.** The R `hmeasure` package on CRAN is the reference implementation. For Python, `pip install hmeasure` (PyPI: `hmeasure` 0.1.6, last updated 2021) gets you a direct translation of the R code. Its public API is
 
-Two further subtleties are worth surfacing. First, the H-measure is not a strict improvement over AUC in every regime. When the ROC curves of two classifiers are well separated, AUC and H-measure agree on the ordering and the extra complexity of the prior is not buying much. The H-measure earns its keep in the regime where two ROC curves cross, which is precisely the regime where AUC's implicit weighting is most misleading. The rank-flip example earlier in this section shows the crossing case clearly.
+``` python
+from hmeasure import h_score
+h_score(y_true, y_score, severity_ratio=None, pos_label=None)
+```
 
-Second, H-measure is a ratio. The denominator is the integrated loss of the trivial classifier under the prior, and it vanishes as the prior concentrates on the corners $c=0$ or $c=1$. A prior too narrowly peaked at one corner produces an unstable H. The Beta(2, 2) and Beta(2, 7.1) defaults are away from the corners and behave well. For high class imbalance ($\pi_1 < 0.01$, typical of fraud detection), the $\beta$ parameter blows up and Hand's default is no longer reasonable; in that regime the H-measure should be reported under several priors, not one.
+Two things to know before relying on it:
+
+1.  **Constrained score range.** The package requires `y_score` to fall in the label range: for 0/1 labels, `y_score ∈ [0, 1]`. Raw logits, z-scores, or any score outside that interval are rejected. You must rescale first.
+2.  **One-parameter Beta family.** The only prior control is `severity_ratio` $= \text{cost}_{FN}/\text{cost}_{FP} = (1-c)/c$. Internally it maps to $\alpha = 2,\ \beta = 1 + 1/\text{severity\_ratio}$, so the prior is always in the family Beta$(2, b)$ with $b \ge 1$. Symmetric priors like Beta(10, 2) used in the rank-flip demo cannot be expressed. The default `severity_ratio=None` sets the ratio to $\pi_1/\pi_0$, giving Beta$(2, 1+\pi_0/\pi_1)$.
+
+The custom `h_measure(y_true, y_score, alpha, beta)` above takes arbitrary $\alpha, \beta$ and accepts any real-valued score, which is why we used it for the rank-flip example. It produces identical numbers to the pip package on the priors the package can express:
+
+```{python}
+#| label: h-package-validation
+try:
+    from hmeasure import h_score as pkg_h_score
+    have_pkg = True
+except ImportError:
+    have_pkg = False
+    print("`pip install hmeasure` to run this cell.")
+
+if have_pkg:
+    rows = []
+    for sr in [0.25, 0.5, 1.0, 2.0, 4.0]:
+        b_equiv = 1.0 + 1.0 / sr
+        ours   = h_measure(y_te, p_lr, alpha=2.0, beta=b_equiv)
+        theirs = float(pkg_h_score(y_te.astype(float), p_lr, severity_ratio=sr))
+        rows.append({
+            "severity_ratio": sr,
+            "Beta(2, b)": f"Beta(2, {b_equiv:.3f})",
+            "ours":         round(ours,   6),
+            "hmeasure pkg": round(theirs, 6),
+            "|diff|":       f"{abs(ours - theirs):.1e}",
+        })
+    print(pd.DataFrame(rows).to_string(index=False))
+```
+
+The differences are at the $10^{-6}$ level, attributable to our grid-based trapezoid integration versus the package's closed-form cdf evaluation. Either implementation is fine in practice.
+
+**Three "default" priors in the literature.** Be careful to cite which one you report.
+
+| Default | $(\alpha, \beta)$ | Rationale | Source |
+|------------------|------------------|------------------|------------------|
+| Symmetric | $(2, 2)$ | No prior opinion on $c$ | @hand2009measuring, §5 |
+| Mean-at-$\pi_1$ | $(2,\ 2\pi_0/\pi_1)$ | Prior mean equals base rate; costs proportional to priors | @hand2009measuring, §5.1 |
+| Severity-ratio | $(2,\ 1+\pi_0/\pi_1)$ | Package default; mode-at-$\pi_1$-adjacent | R/Python `hmeasure` default |
+
+For Taiwan-like $\pi_1 = 0.22$: Beta(2, 2), Beta(2, 7.09), Beta(2, 4.55). The three disagree by a few percent on the same scorecard, so consistency matters more than the specific choice. If you have a *calibrated* cost ratio, use it and skip the family altogether.
 
 ```{python}
 #| label: h-hand-prior
 pi1_te = y_te.mean()
-beta_hand = 2 * (1 - pi1_te) / pi1_te
-print(f"pi1 = {pi1_te:.3f}, Hand's default Beta(2, {beta_hand:.2f})")
-print(f"H(logistic)  = {h_measure(y_te, p_lr, alpha=2, beta=beta_hand):.4f}")
-print(f"H(boosting)  = {h_measure(y_te, p_gb, alpha=2, beta=beta_hand):.4f}")
+beta_mean_at_pi1 = 2 * (1 - pi1_te) / pi1_te
+beta_sr_default  = 1 + (1 - pi1_te) / pi1_te
+print(f"pi1 = {pi1_te:.3f}")
+print(f"Beta(2, 2)                  -> logistic H = "
+      f"{h_measure(y_te, p_lr, alpha=2, beta=2):.4f}, "
+      f"boosting H = {h_measure(y_te, p_gb, alpha=2, beta=2):.4f}")
+print(f"Beta(2, {beta_mean_at_pi1:.2f})   (mean = pi1) -> "
+      f"logistic H = {h_measure(y_te, p_lr, alpha=2, beta=beta_mean_at_pi1):.4f}, "
+      f"boosting H = {h_measure(y_te, p_gb, alpha=2, beta=beta_mean_at_pi1):.4f}")
+print(f"Beta(2, {beta_sr_default:.2f})   (sev-ratio)   -> "
+      f"logistic H = {h_measure(y_te, p_lr, alpha=2, beta=beta_sr_default):.4f}, "
+      f"boosting H = {h_measure(y_te, p_gb, alpha=2, beta=beta_sr_default):.4f}")
 ```
+
+**Two further subtleties.** First, the H-measure is not a strict improvement over AUC in every regime. When the ROC curves of two classifiers are well separated (one Pareto-dominates the other), AUC and H agree and the extra complexity of the prior is not buying anything. H earns its keep when ROCs cross, which is precisely the regime where AUC's implicit weighting is most misleading. The rank-flip example above is the clean demonstration.
+
+Second, H is a ratio, and ratios misbehave when the denominator shrinks. Recall the construction:
+
+$$
+H \;=\; 1 \;-\; \frac{\int L(c)\, w(c)\, dc}{\int L_{\max}(c)\, w(c)\, dc},
+$$
+
+where the numerator is the model's expected loss under the prior $w(c)$ and the denominator is the expected loss of the *trivial* benchmark (classify everyone the same way). A standard form of the benchmark loss is $L_{\max}(c) = \min\{\pi_0 c,\; \pi_1 (1-c)\}$: at small $c$, rejecting no one is optimal and the loss is $\pi_1(1-c)$; at large $c$, rejecting everyone is optimal and the loss is $\pi_0 c$. Either way, $L_{\max}(c) \to 0$ as $c \to 0$ or $c \to 1$. The function is pinned to zero at both corners.
+
+That is where trouble starts. If the prior $w(c)$ concentrates almost all of its mass near a corner, it is integrating $L_{\max}$ precisely over the region where $L_{\max}$ is nearly zero. The denominator then shrinks toward zero, and H becomes a small number divided by a small number: tiny numerical perturbations in the numerator (bin edges, grid spacing, a single extra observation near the cut) can swing H by a lot. Concretely:
+
+-   **Beta(2, 2), Beta(2, 7), Beta(2, 4.5)**: the three defaults tabled above, all put substantial mass in the interior of $(0,1)$, so the denominator is comfortably away from zero and H is stable.
+-   **Beta(2, 200)** has mean $\approx 0.01$ and puts essentially all mass in $c \in (0, 0.05)$. The denominator integrates $L_{\max}$ over a region where $L_{\max} \le \pi_1 \cdot 0.05$, a very small number. H computed from such a prior is numerically fragile; reporting it to three decimals is false precision.
+
+Extreme class imbalance is the regime where this bites. For fraud detection with $\pi_1 = 0.005$:
+
+-   Mean-at-$\pi_1$ gives $\beta = 2\pi_0/\pi_1 = 2 \cdot 0.995 / 0.005 \approx 398$, i.e., Beta(2, 398) with prior mean $\approx 0.005$.
+-   Severity-ratio gives $\beta = 1 + \pi_0/\pi_1 \approx 200$, i.e., Beta(2, 200) with mean $\approx 0.01$.
+
+Both formulas push the prior hard into the left corner, exactly where the denominator is near-zero and H loses stability. The mechanical rule "just plug $\pi_1$ into the default formula" stops being safe here. The robust practice in very-imbalanced settings is to **report H under several priors** (e.g., the package default, a symmetric Beta(2, 2), and one prior derived from a business-stated cost ratio) and treat large disagreements among them as information about the comparison, not as a number to be averaged away. If a single-number summary is required, justify the choice of prior explicitly rather than inheriting a default that happens to land in the unstable region.
 
 ## Brier score, reliability, and calibration {#sec-ch04-brier}
 
@@ -407,7 +782,7 @@ $$
 \mathrm{BS} = \frac{1}{N}\sum_{i=1}^{N}\bigl(p_i - y_i\bigr)^2,
 $$ {#eq-brier}
 
-where $p_i = \Pr(Y=1 \mid \mathbf{x}_i)$ is the forecast probability and $y_i \in \{0,1\}$ is the realised label. Brier is a strictly proper scoring rule [@gneiting2007strictly]: it is minimised when the forecaster reports her true conditional probability.
+where $p_i = \Pr(Y=1 \mid \mathbf{x}_i)$ is the forecast probability and $y_i \in \{0,1\}$ is the realized label. Brier is a strictly proper scoring rule [@gneiting2007strictly]: it is minimized when the forecaster reports her true conditional probability.
 
 ### The Murphy decomposition
 
@@ -419,7 +794,23 @@ $$
 + \underbrace{\bar{o}(1-\bar{o})}_{\text{uncertainty}}.
 $$ {#eq-murphy}
 
-Reliability is the calibration penalty: small when forecasts match observed rates. Resolution is the discrimination reward: large when bins have different observed rates. Uncertainty is the base-rate variance, a property of the data alone, not the model. Two classifiers on the same data differ only in reliability and resolution. A model can have low Brier because it is calibrated to the base rate and has no resolution, which is useless operationally. The decomposition makes this trade-off visible [@degroot1983comparison; @dawid1982well].
+-   **Reliability** (calibration penalty, *lower is better*) measures the squared gap between what the model *says* and what actually *happens* inside each bin. For bin $k$, if the model predicts $\bar{p}_k = 0.30$, but the observed default rate is $\bar{o}_k = 0.45$, that bin contributes $n_k (0.30 - 0.45)^2$ to reliability. A perfectly calibrated model has $\bar{p}_k = \bar{o}_k$ for every bin, so reliability $= 0$. In credit scoring this directly controls whether a predicted PD of 5% really loses 5% of principal on average (i.e., the quantity pricing, provisioning, and IFRS 9/CECL rely on).
+    -   *Intuition:* "Do my probabilities mean what they say?"
+    -   *What increases it:* overconfident scores, covariate shift, training on a different base rate than production sees.
+-   **Resolution** (discrimination reward, *higher is better*) measures how much the bin-conditional rates $\bar{o}_k$ spread around the overall base rate $\bar{o}$. If every bin has $\bar{o}_k \approx \bar{o}$, the model is not separating good borrowers from bad, and resolution $\approx 0$. If low-score bins default at 1% and high-score bins at 40%, the variance across bins is large and resolution is high. Note the minus sign in @eq-murphy: more resolution *subtracts* from Brier, so a model that sorts risk well is rewarded.
+    -   *Intuition:* "Do my probabilities actually vary with the truth?"
+    -   *What increases it:* informative features, flexible-enough models, adequate sample size in the tail bins.
+-   **Uncertainty** ($\bar{o}(1-\bar{o})$) is the Bernoulli variance of the labels. It depends only on the *mix* of defaulters and non-defaulters in the data, not on the model. A portfolio with a 2% default rate has uncertainty $0.02 \times 0.98 = 0.0196$; a balanced 50/50 sample has the maximum possible uncertainty of $0.25$. It is the Brier score of the constant forecast $p_i = \bar{o}$ for all $i$.
+    -   *Intuition:* "How hard is this problem inherently?"
+    -   *Why it matters:* raw Brier scores are not comparable across portfolios with different base rates, because uncertainty alone will make them look different.
+
+**The trade-off the decomposition exposes.** Rearranging @eq-murphy, $\mathrm{BS} = \text{uncertainty} - (\text{resolution} - \text{reliability})$. Two classifiers evaluated on the *same* dataset share the uncertainty term exactly, so their Brier gap is entirely driven by (resolution $-$ reliability). This is why the decomposition is diagnostic, not just descriptive:
+
+-   A model that predicts the constant base rate $\bar{p}_i = \bar{o}$ is perfectly calibrated (reliability $= 0$) but has zero resolution. Its Brier equals uncertainty. Operationally it is useless: every applicant gets the same PD, so no one can be ranked, priced, or cut off.
+
+-   A model that sorts risk well but is miscalibrated (say, every PD is inflated by $3\times$) can still beat the constant forecast on AUC yet have a *worse* Brier than a calibrated but less discriminating model. Recalibration (isotonic regression, Platt scaling) fixes reliability without touching the ranking (i.e. without touching resolution), which is why it is an almost-free improvement when available.
+
+-   Because reliability and resolution move independently, report both alongside the headline Brier. A single Brier number hides whether you need better features (raise resolution) or better calibration (lower reliability) [@degroot1983comparison; @dawid1982well].
 
 ### From-scratch implementation
 
@@ -463,7 +854,9 @@ for name, p in [("logistic", p_lr), ("boosting", p_gb)]:
           f"BS={d['brier']:.4f}   (sklearn BS={brier_score_loss(y_te, p):.4f})")
 ```
 
-The reconstructed Brier agrees with the sklearn value up to the bucketing error. Boosting wins on resolution and loses slightly on reliability, a typical pattern because a tree-boosted model has peakier conditional distributions than a logistic regression.
+The reconstructed Brier agrees with the `sklearn` value up to the bucketing error. On this run boosting wins on *both* terms: higher resolution (0.0368 vs. 0.0298) because it captures nonlinear interactions the linear logit misses, and slightly lower reliability (0.0005 vs. 0.0034) because the logistic model is mildly underfit so its bin-average predictions drift from the bin-observed rates.
+
+This outcome is not the norm. Gradient-boosted classifiers trained with log-loss are usually *less* well-calibrated than logistic regression (i.e., shallow ensembles shrink probabilities toward $0.5$, and deep ensembles push them toward $0$ and $1$ [@niculescu2005predicting]), which is why Platt scaling or isotonic regression on a held-out fold is standard practice for boosted models. Logistic regression, by contrast, is calibrated-in-the-large on its training data by construction of the MLE. The typical decomposition pattern is therefore *boosting wins resolution, loses reliability*, with the Brier winner determined by which term dominates; always inspect both columns rather than reading the headline Brier alone.
 
 ### Reliability diagrams
 
@@ -488,25 +881,63 @@ plt.tight_layout()
 plt.show()
 ```
 
+**Reading the diagram.** The dashed 45-degree line is perfect calibration. A curve *above* the diagonal means the model is **under-confident** (it predicts, say, 0.40 but the true default rate in that bin is 0.48); *below* the diagonal means **over-confident**. Three things stand out in the Taiwan split:
+
+-   **Support.** Boosting's squares reach out to predicted probability $\approx 0.74$ while logistic's circles stop near $0.61$. Boosting is willing to issue sharper forecasts, the visual signature of the higher resolution we saw in the decomposition.
+
+-   **Boosting (orange).** The curve sits essentially on the diagonal across the full range, with a small dip only in the top bin (predicted $\approx 0.74$, observed $\approx 0.70$). This is the near-zero reliability term (REL=0.0005) made visible.
+
+-   **Logistic (blue).** The curve is jagged and non-monotone in the $0.05$-$0.25$ region: bins at predicted $\approx 0.20$ default at only $\approx 0.12$-$0.13$ (over-confident, below the diagonal), while the top bin at predicted $\approx 0.61$ defaults at $\approx 0.68$ (under-confident, above the diagonal). The model is simultaneously too bold in the middle and too timid at the top: a classic symptom of a linear-in-the-logit fit trying to approximate a nonlinear default surface. That wiggle is exactly what shows up as the larger REL=0.0034.
+
+Operationally, the logistic mis-shape would under-price the middle-risk segment (charging as if PD were $20\%$ when realized losses are closer to $12\%$) and reject too aggressively at the top (turning down applicants whose true PD is $68\%$ after pricing for $61\%$). Boosting's curve hugs the diagonal, so PDs can be fed into pricing and provisioning with no post-hoc correction; the logistic model would benefit from Platt or isotonic recalibration, which is exactly what the next sections cover.
+
+### Post-hoc recalibration: the general idea
+
+The reliability diagram shows that a model's raw score $s_i$ may sort risk well (good resolution / AUC) while still mapping to the wrong *level* of probability (poor reliability). **Recalibration** is a cheap post-hoc fix: leave the model alone, learn a scalar map $\hat{p} = g(s)$ on a held-out slice, and deploy $g$ in front of the scorer. Because $g$ is monotone (or near-monotone), it preserves the ranking of applicants (i.e., AUC and resolution are essentially unchanged), while bending the probabilities onto the diagonal. Two canonical choices differ in how much shape they allow $g$ to take.
+
+::: callout-tip
+## Why a held-out slice is non-negotiable
+
+Fitting $g$ on the same data used to train the underlying model would let $g$ absorb the model's training-set overfitting and report fake calibration. Standard practice is an out-of-bag fold from the training data (sklearn's `CalibratedClassifierCV` does this via cross-validation), never the test set; the test set is still for final evaluation.
+:::
+
 ### Platt scaling
 
-@platt1999probabilistic proposed fitting a one-dimensional logistic to the scores of a held-out set,
+@platt1999probabilistic proposed the parametric route: assume the miscalibration is a simple squash-or-stretch along the logit axis, and learn it with a *one-dimensional logistic regression* whose only feature is the raw score,
 
 $$
 \hat{p}_i = \sigma(A s_i + B), \quad \sigma(z) = \frac{1}{1+e^{-z}},
 $$ {#eq-platt}
 
-with $A, B$ estimated by maximum likelihood on an out-of-bag slice of the training data. It is the right choice when the score distribution is sigmoidal-ish, which is typical for SVMs and for many logistic-like models after decision-threshold shifting. Platt himself uses smoothed labels $y^+ = (N_+ + 1)/(N_+ + 2)$ and $y^- = 1/(N_- + 2)$ to avoid the degenerate zero-one MLE, an important practical detail.
+with $A, B$ estimated by maximum likelihood on an out-of-bag slice of the training data. The two parameters have clean interpretations: $A$ controls *sharpness* (\|$A$\| $>1$ stretches probabilities toward $\{0,1\}$, $|A|<1$ pulls them toward the base rate), and $B$ is an intercept shift that re-centers the score on the observed prevalence. Two parameters is also its limitation: Platt can fix a global sigmoidal bias, but it cannot repair the kind of local non-monotone wiggle we saw in the logistic reliability curve.
+
+This shape assumption is why Platt is the natural choice for models whose raw scores are already sigmoidal-looking. Classical SVM decision values, boosted-tree margins before the logistic link, and logistic regressions whose only problem is the wrong intercept after sampling correction or threshold shifting. On models with fundamentally non-sigmoidal score distributions (e.g. Naive Bayes with its characteristic push toward 0 and 1), Platt is usually outperformed by the non-parametric alternative below.
+
+One practical detail from the original paper: Platt replaces the hard labels $\{0,1\}$ with the smoothed targets
+
+$$
+y^+ = \frac{N_+ + 1}{N_+ + 2}, \qquad y^- = \frac{1}{N_- + 2},
+$$
+
+where $N_+$ and $N_-$ are the positive and negative counts in the calibration set. Without this smoothing the MLE can blow up toward infinite $A$ when the scores separate the classes perfectly; the Laplace-style prior keeps the estimate finite. Implementations that omit the smoothing (rare but not unheard of) tend to produce over-confident $\hat{p}$ at the extremes.
 
 ### Isotonic regression
 
-@zadrozny2002transforming proposed isotonic regression, which fits a monotone step function,
+@zadrozny2002transforming took the non-parametric route: instead of assuming a sigmoidal shape, only assume **monotonicity** (i.e., if the model ranks A as riskier than B, the recalibrated probability of A should not be lower). That is the bare minimum any reasonable calibration map must satisfy, and it is enough to identify a unique fit by least squares,
 
 $$
 \hat{p} = \arg\min_{\text{mono}}\sum_i (y_i - g(s_i))^2 \quad \text{subject to } g \text{ non-decreasing}.
 $$ {#eq-isotonic}
 
-Isotonic is non-parametric and more flexible than Platt, at the cost of overfitting on small calibration sets. @niculescu2005predicting benchmark both and find isotonic wins when the calibration set exceeds a few thousand observations.
+The solution is a monotone step function computed in $O(N \log N)$ by the pool-adjacent-violators algorithm: sort by score, walk left to right, and whenever an adjacent block has a lower mean than its predecessor, merge the two and replace both with their pooled mean. The result looks like a staircase hugging the reliability curve: flat over regions where the raw scores are well-ordered but at the wrong level, and stepping up wherever the observed rate jumps.
+
+Because isotonic adapts locally, it can repair exactly the non-monotone wiggle that Platt cannot, which is why, on the Taiwan logistic model, we expect isotonic to drive REL closer to zero than Platt does. The price is flexibility cost: with few calibration points, isotonic tends to overfit into a coarse staircase that memorizes noise. @niculescu2005predicting benchmark the two across a range of base classifiers and find isotonic wins once the calibration set exceeds a few thousand observations, while Platt is more robust on smaller samples. A reasonable default: use Platt below \$\sim\$1,000 calibration points, isotonic above \$\sim\$5,000, and either-or (compare via held-out Brier) in between.
+
+::: callout-note
+## What recalibration does *not* fix
+
+Neither method adds information. If the model's resolution is low (bins don't separate defaulters from non-defaulters), recalibration cannot raise it: the monotone map can only slide existing bin centers along the diagonal, not spread them further apart. Recalibration is a remedy for reliability problems, not for a weak feature set or an under-fit model.
+:::
 
 ### Calibrating with sklearn
 
@@ -546,7 +977,15 @@ plt.tight_layout()
 plt.show()
 ```
 
-Platt and isotonic both close the gap between the logistic line and the diagonal at the high-probability end of the curve. AUC is unchanged because both methods are monotone. Brier improves a few basis points. The improvement looks modest because the base logistic model is already close to calibrated on this data. For boosted trees and random forests, the uncalibrated probabilities are usually far worse and the gain from calibration is much larger [@niculescu2005predicting].
+Three things to read off the figure:
+
+-   **Platt (orange) almost perfectly overlays the uncalibrated curve (blue).** The top bin stays at $(\approx 0.61, \approx 0.68)$ and the mid-range wiggle at predicted $\approx 0.15$-$0.25$ is untouched. This is the *expected* behavior, not a failure: logistic regression fit by MLE is calibrated-in-the-large on its training data by construction, so Platt's two parameters land near the identity map $A \approx 1, B \approx 0$ and Platt has no local flexibility to fix the middle-range non-monotonicity even if $A, B$ had moved. Platt earns its keep when the underlying model is *globally* sigmoidally miscalibrated (SVM margins, boosted-tree raw scores); it has little to offer a logistic regression.
+
+-   **Isotonic (green) is the only curve that visibly changes.** Its top bin extends to $(\approx 0.71, \approx 0.69)$. This is much closer to the diagonal, and the staircase pools the jagged middle bins into a monotone sequence. This is the pool-adjacent-violators algorithm doing exactly what it was designed for: repairing local, non-sigmoidal mis-shape that a parametric form cannot touch.
+
+-   **AUC is unchanged for both.** Platt and isotonic are monotone maps, so the *ordering* of applicants by $\hat{p}$ is the same as by $s$. Rank-based metrics (AUC, KS, Gini) are invariant under monotone transformations; only probability-level metrics (Brier, log-loss, ECE) move.
+
+Brier improves by only a few basis points here. That modest gain is consistent with the starting point: the base logistic model's REL was already $0.0034$, leaving little room for any recalibrator to work. The picture is very different for boosted trees and random forests, whose raw probabilities are typically pushed toward $0.5$ (shallow ensembles) or toward $\{0,1\}$ (deep ensembles), producing much larger reliability gaps and correspondingly larger post-calibration Brier improvements [@niculescu2005predicting]. A useful rule of thumb: the size of the calibration gain is roughly proportional to the pre-calibration REL term; if REL is already small, no method will move Brier much, and you should look to better features (resolution) rather than better calibration to improve the model.
 
 ### Calibration error as a separate metric
 
@@ -556,7 +995,29 @@ $$
 \mathrm{ECE} = \sum_{k=1}^{K} \frac{n_k}{N}\bigl|\bar p_k - \bar o_k\bigr|,
 $$ {#eq-ece}
 
-and the reliability component of the Brier decomposition from @eq-murphy, which is the squared analogue. ECE is sensitive to bin count and the binning strategy, so quantile bins with $K = 10$ or $K = 15$ are standard. Both ECE and reliability share the weakness that in the extreme tails of the score distribution the bins are sparse and the estimator is noisy. A common fix is to require a minimum bin count, say 50, and to drop or merge bins below the threshold.
+and the reliability component of the Brier decomposition from @eq-murphy, which is the squared analog. ECE is sensitive to bin count and the binning strategy, so quantile bins with $K = 10$ or $K = 15$ are standard.
+
+**Why the tails are the weak spot.** Both ECE and reliability estimate $\bar o_k$ by averaging $y_i \in \{0,1\}$ over the $n_k$ observations in bin $k$. The standard error of that estimate is
+
+$$
+\mathrm{SE}(\bar o_k) = \sqrt{\frac{\bar o_k (1-\bar o_k)}{n_k}},
+$$
+
+so the noise scales as $1/\sqrt{n_k}$. In the body of the score distribution, equal-frequency binning puts hundreds or thousands of observations into each bin and $\mathrm{SE}$ is negligible. In the tails, two things go wrong at once:
+
+1.  **Sparsity.** The top and bottom quantile bins often contain only a handful of observations, especially with quantile binning on a score that is itself concentrated near $0$, which is typical for a 2-3% default portfolio. A bin with $n_k = 20$ has $\mathrm{SE} \approx 0.10$ even under perfect calibration, so the observed rate can land $\pm 0.20$ from the true rate by pure sampling noise.
+2.  **Label scarcity.** The tails are precisely where one class dominates. A "top-risk" bin may have only $2$ or $3$ actual defaults out of $30$ applicants; flip one label and the estimated $\bar o_k$ jumps by 3 percentage points. The estimator is most unstable exactly where the decisions are most expensive (approve/decline at the cutoff, price the riskiest applicants).
+
+The combination means that a tail bin can look wildly miscalibrated when the model is actually fine: inflating ECE and reliability, and producing the alarming spikes at the edges of the reliability diagram that practitioners learn to distrust.
+
+**Practical remedies.**
+
+-   **Minimum-count thresholding.** Require $n_k \ge n_{\min}$ (typical choices: $n_{\min} = 50$-$100$). Bins below the threshold are either dropped from the ECE sum (and the $n_k/N$ weights renormalized over the survivors) or merged into the adjacent bin until the threshold is met. Merging is preferable because dropping biases the estimator toward the body of the distribution.
+-   **Equal-frequency (quantile) bins** over equal-width bins, so every bin has the same $n_k = N/K$ by construction and no bin is automatically sparse.
+-   **Confidence intervals on** $\bar o_k$, drawn as vertical error bars on the reliability diagram, so the reader can see which deviations are real signal and which are $\pm 2\,\mathrm{SE}$ sampling noise.
+-   **Adaptive / debiased estimators** such as the debiased ECE of @kumar2019verified, which subtract the expected-under-null bias, or kernel-smoothed calibration curves that borrow strength across neighboring score values instead of treating each bin independently.
+
+The upshot: a reliability spike in a sparse tail bin is not automatically a calibration problem; it may be a sample-size problem. Always report $n_k$ alongside $\bar p_k$ and $\bar o_k$ before acting on tail miscalibration.
 
 ```{python}
 #| label: ece-scalar
@@ -583,9 +1044,48 @@ for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
 
 Calibration should be done on a held-out slice that the classifier has not seen during training. `CalibratedClassifierCV` handles this by refitting the base estimator on inner folds and calibrating on the complement. Calibrating on the training set, or on the same fold used to pick hyperparameters, is a common bug and produces over-confident, miscalibrated probabilities.
 
-A second rule: do not calibrate before you have exhausted feature engineering. If the input features are miscalibrated (for example missing indicators that modify the relationship between a feature and default), calibrating the output only hides the problem without fixing it. @gelman2017prior goes further and argues that weakly informative priors on logistic coefficients are themselves a calibration device.
+The bug is subtle because it produces a calibration map that looks excellent *in-sample* and fails out-of-sample. On the training set the base model has already overfit (its high-risk predictions are systematically too high and its low-risk predictions systematically too low because it has memorized some noise), so a recalibrator fit on that same data learns the *inverse of the overfit*, not the inverse of the true miscalibration. Applied to unseen data it pushes probabilities in the wrong direction. The effect is most visible for flexible models such as gradient boosting. The following block contrasts the two workflows on the Taiwan boosting model:
 
-The right sequence is: fit the model, inspect reliability on the validation fold, fix model misspecification if the gap is structural, and only then apply Platt or isotonic post-processing as a cheap final correction.
+```{python}
+#| label: calibration-leak-demo
+from sklearn.base import clone
+
+# Base booster (the p_gb object reused from the earlier chunk).
+gb_base = GradientBoostingClassifier(
+    n_estimators=150, max_depth=3, learning_rate=0.1, random_state=42
+).fit(X_tr, y_tr)
+
+# (a) WRONG: Platt fit on training-set predictions of a model that has
+#     already seen those labels, leakage.
+p_tr_leak = gb_base.predict_proba(X_tr)[:, 1]
+platt_leak = LogisticRegression().fit(p_tr_leak.reshape(-1, 1), y_tr)
+p_te_leak = platt_leak.predict_proba(
+    gb_base.predict_proba(X_te)[:, 1].reshape(-1, 1)
+)[:, 1]
+
+# (b) RIGHT: CalibratedClassifierCV retrains the booster on inner folds
+#     and fits Platt on the held-out complement of each fold.
+gb_cv = CalibratedClassifierCV(
+    clone(gb_base), cv=5, method="sigmoid"
+).fit(X_tr, y_tr)
+p_te_cv = gb_cv.predict_proba(X_te)[:, 1]
+
+print(f"{'method':22s}  Brier    REL      RES      AUC")
+for name, p in [("uncalibrated", p_gb),
+                ("Platt-leaky (BUG)", p_te_leak),
+                ("Platt-held-out (CV)", p_te_cv)]:
+    bs = brier_score_loss(y_te, p)
+    d = brier_decomposition(y_te, p)
+    auc = roc_auc_score(y_te, p)
+    print(f"{name:22s}  {bs:.4f}  {d['reliability']:.4f}  "
+          f"{d['resolution']:.4f}  {auc:.4f}")
+```
+
+Two diagnostics to watch in the output. First, the leaky variant's REL is *lower on training* (not shown, it would be nearly zero there) but higher on test than the CV variant: classic symptom of fitting the calibration map to in-sample noise. Second, AUC is unchanged across all three rows (both Platt variants are monotone), so the only thing that differentiates "good calibration" from "bad calibration" in a leakage bug is the reliability term. A team that monitors only AUC or only raw Brier will not catch this; a team that tracks the REL component of the Murphy decomposition will.
+
+A second rule: do not calibrate before you have exhausted feature engineering. If the input features are miscalibrated (for example a missing indicator that modifies the relationship between a feature and default, such as an unemployment flag that changes the slope on income) calibrating the output only hides the problem without fixing it. The recalibrator will squash or stretch the average, but segment-level biases (the unemployed sub-population systematically under-predicted) remain. @gelman2017prior goes further and argues that weakly informative priors on logistic coefficients are themselves a calibration device, by shrinking over-extrapolated coefficients toward a plausible scale before any post-hoc fix is needed.
+
+The right sequence is: fit the model, inspect reliability on the validation fold, fix model misspecification if the gap is structural (missing features, wrong functional form, segment-specific slopes), and only then apply Platt or isotonic post-processing as a cheap final correction.
 
 ## Financial impact: cost matrices, profit curves, and EMP {#sec-ch04-profit}
 
@@ -597,7 +1097,7 @@ $$
 E[\text{loss}] = c_{10} \pi_0 (1-p) \mathbf{1}_{p > t} + c_{01} \pi_1 p \mathbf{1}_{p \le t},
 $$ {#eq-elkan-loss}
 
-and the minimising threshold is $t^* = c_{10}/(c_{01} + c_{10})$, a result that depends only on cost ratios. Credit lenders rarely state costs, they state yields and loss-given-default. The Verbraken family of metrics reframes the same object in profit units [@verbraken2013novel; @verbraken2014novel].
+and the minimizing threshold is $t^* = c_{10}/(c_{01} + c_{10})$, a result that depends only on cost ratios. Credit lenders rarely state costs, they state yields and loss-given-default. The Verbraken family of metrics reframes the same object in profit units [@verbraken2013novel; @verbraken2014novel].
 
 ### Profit curve
 
@@ -607,7 +1107,7 @@ $$
 \Pi(t) = \pi_0 r (1 - F_0(t)) - \pi_1 L (1 - F_1(t)).
 $$ {#eq-profit-curve}
 
-Observe the thresholding convention: we accept applicants with $S \le t$ because we are now thinking of $S$ as risk, high risk on top. The profit curve traces $\Pi(t)$ as $t$ sweeps. The threshold that maximises $\Pi$ is the operational cut-off under the assumed $(r, L)$. It is distinct from the threshold that maximises KS or that sits at the point of tangency between ROC and a cost-sensitive iso-loss line [@provost2001robust; @drummond2006cost].
+Observe the thresholding convention: we accept applicants with $S \le t$ because we are now thinking of $S$ as risk, high risk on top. The profit curve traces $\Pi(t)$ as $t$ sweeps. The threshold that maximizes $\Pi$ is the operational cut-off under the assumed $(r, L)$. It is distinct from the threshold that maximizes KS or that sits at the point of tangency between ROC and a cost-sensitive iso-loss line [@provost2001robust; @drummond2006cost].
 
 ```{python}
 #| label: profit-curve
@@ -690,7 +1190,7 @@ print(f"EMP(boosting) = {emp_credit(y_te, p_gb):.4f}")
 
 The EMP gap between logistic and boosted trees maps cleanly to the profit curve gap at the maximum, weighted by the LGD distribution.
 
-### Threshold optimisation under business constraints
+### Threshold optimization under business constraints
 
 Real lenders rarely pick the unconstrained optimum. They add constraints: minimum acceptance rate to satisfy loan growth targets, maximum exposure to a risk segment, and fairness floors to meet ECOA obligations. The constrained optimum is found by sweeping the profit curve and taking the first feasible point. The following pattern is defensive and explicit. @sec-ch23 extends the formalism to fairness-constrained thresholds, where one enforces approximate equality of either acceptance rate or of true-positive rate across protected groups.
 
@@ -736,7 +1236,7 @@ def psi_from_scratch(expected, actual, buckets=10, eps=1e-6):
 
 
 print(f"PSI scratch = {psi_from_scratch(p_lr[:3000], p_lr[3000:]):.4f}")
-print(f"PSI csutils = {psi(p_lr[:3000], p_lr[3000:]):.4f}")
+print(f"PSI creditutils = {psi(p_lr[:3000], p_lr[3000:]):.4f}")
 ```
 
 ### PSI under intentional drift
@@ -831,11 +1331,11 @@ plt.show()
 
 ### Holdout
 
-A single train/test split is the cheapest design and the weakest. The estimator of generalisation error has the variance of a single draw. It is only adequate when data are abundant and the question is whether model A beats model B by a large margin.
+A single train/test split is the cheapest design and the weakest. The estimator of generalization error has the variance of a single draw. It is only adequate when data are abundant and the question is whether model A beats model B by a large margin.
 
 ### k-fold cross-validation
 
-@stone1974cross defines cross-validation as the rotation of $k$ non-overlapping folds. The point estimate is the average of the $k$ held-out scores. Its bias-variance properties are analysed in @arlot2010survey. For credit scoring $k=5$ or $k=10$ is standard, stratified by the rare class when the default base rate is low.
+@stone1974cross defines cross-validation as the rotation of $k$ non-overlapping folds. The point estimate is the average of the $k$ held-out scores. Its bias-variance properties are analyzed in @arlot2010survey. For credit scoring $k=5$ or $k=10$ is standard, stratified by the rare class when the default base rate is low.
 
 ```{python}
 #| label: cv-demo
@@ -854,9 +1354,9 @@ For a production credit model, k-fold shuffles through time and hides temporal d
 
 ### Walk-forward validation
 
-Walk-forward generalises OOT: roll the train/test window forward month by month and evaluate on each step. The resulting sequence is the performance time series. Degradation is visible immediately, as is the effect of retraining. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation.
+Walk-forward generalizes OOT: roll the train/test window forward month by month and evaluate on each step. The resulting sequence is the performance time series. Degradation is visible immediately, as is the effect of retraining. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation.
 
-Since neither UCI file carries timestamps, we synthesise a cohort with a mild temporal shift.
+Since neither UCI file carries timestamps, we synthesize a cohort with a mild temporal shift.
 
 ```{python}
 #| label: walk-forward
@@ -906,7 +1406,7 @@ The shorter window tracks the drift faster but is noisier. The longer window is 
 
 ### Nested cross-validation
 
-When hyperparameters are tuned, the outer loop evaluates generalisation and the inner loop selects hyperparameters. Reusing the same fold for both overstates performance by roughly 0.5 to 2 percent of AUC in credit-scoring benchmarks [@lessmann2015benchmarking]. Nested CV is the default when the training budget allows. In practice, a cheap substitute in high-signal regimes is to fix hyperparameters from prior experience and use a single CV for estimation.
+When hyperparameters are tuned, the outer loop evaluates generalization and the inner loop selects hyperparameters. Reusing the same fold for both overstates performance by roughly 0.5 to 2 percent of AUC in credit-scoring benchmarks [@lessmann2015benchmarking]. Nested CV is the default when the training budget allows. In practice, a cheap substitute in high-signal regimes is to fix hyperparameters from prior experience and use a single CV for estimation.
 
 ```{python}
 #| label: nested-cv
@@ -1033,7 +1533,7 @@ $$
 \mathrm{CD} = q_\alpha \sqrt{\frac{K(K+1)}{6N}},
 $$ {#eq-nemenyi-cd}
 
-with $q_\alpha$ the Studentised-range-based critical value. Two classifiers are declared significantly different when $|\bar R_i - \bar R_j| > \mathrm{CD}$.
+with $q_\alpha$ the Studentized-range-based critical value. Two classifiers are declared significantly different when $|\bar R_i - \bar R_j| > \mathrm{CD}$.
 
 ```{python}
 #| label: friedman-nemenyi
@@ -1122,7 +1622,7 @@ print(f"sklearn AUC         = {auc_ref :.6f}   ({dt_ref :.2f} s)")
 print(f"absolute error      = {abs(auc_dask - auc_ref):.2e}")
 ```
 
-The histogram approximation matches sklearn to the fifth decimal place at $B=2000$ bins on 10M rows, and runs in a fraction of the sklearn time because it never materialises the full sort. In a true distributed setting, replace the in-memory chunks with Dask Bag or Spark RDD partitions and the logic is unchanged.
+The histogram approximation matches sklearn to the fifth decimal place at $B=2000$ bins on 10M rows, and runs in a fraction of the sklearn time because it never materializes the full sort. In a true distributed setting, replace the in-memory chunks with Dask Bag or Spark RDD partitions and the logic is unchanged.
 
 ### Polars for joins, Dask for reductions
 
@@ -1130,7 +1630,7 @@ In a production pipeline the typical split is: Polars for data prep (joins, filt
 
 ## Deployment hooks for metrics
 
-Metrics are worthless without a governance layer that surfaces them. MLflow logs every metric at every evaluation step, together with the model artefact and the dataset fingerprint required by SR 11-7. A minimal wrapper:
+Metrics are worthless without a governance layer that surfaces them. MLflow logs every metric at every evaluation step, together with the model artifact and the dataset fingerprint required by SR 11-7. A minimal wrapper:
 
 ```{python}
 #| label: mlflow-example
@@ -1140,7 +1640,7 @@ import mlflow
 with mlflow.start_run(run_name="taiwan-logistic"):
     mlflow.log_param("solver", "lbfgs")
     mlflow.log_metric("auc",   roc_auc_score(y_te, p_lr))
-    mlflow.log_metric("ks",    ks_statistic(y_te, p_lr))
+    mlflow.log_metric("ks",    ks_2samp(p_lr[y_te == 1], p_lr[y_te == 0]).statistic)
     mlflow.log_metric("brier", brier_score_loss(y_te, p_lr))
     mlflow.log_metric("emp",   emp_credit(y_te, p_lr))
     mlflow.sklearn.log_model(lr, "model")
@@ -1166,9 +1666,9 @@ Evaluation metrics in Vietnam operate inside a specific supervisory and data con
 
 ### Application considerations
 
-The metric toolkit ports cleanly, with four concrete adjustments. First, sample size bounds on AUC confidence intervals bind harder. A typical monthly cohort for a consumer-finance lender is 20,000 to 80,000 accounts with a bad rate of 3 to 8 percent, which yields a few thousand positives at most; DeLong intervals around AUC 0.72 can reach plus-or-minus 0.02 or more. The chapter's Friedman-Nemenyi machinery across multiple cohorts is therefore more valuable in Vietnam than in a US setting because it aggregates power across thin panels. Second, PSI thresholds set on Western books (0.10 investigate, 0.25 retrain) are too loose for a Vietnamese portfolio that sees sharp seasonal shifts around Tet. A calendar-aware PSI, computed against a same-period-prior-year baseline rather than a rolling three-month baseline, is the pragmatic fix. Third, profit-curve and EMP parameters have to be re-anchored. Vietnamese consumer-finance funding cost, regulated maximum interest rate under Circular 43/2016/TT-NHNN on consumer lending by finance companies, and realised LGD on unsecured personal loans differ from US credit-card norms, and the default Verbraken-style prior on LGD from @verbraken2014novel will mis-weight the Vietnamese profit curve if used unedited. Fourth, calibration drift is the metric that moves capital. Under Circular 41/2016 as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios, PD miscalibration flows through the standardised or IRB capital formula [@sbv_circular22_2023]; a Brier-skill drop of a few tenths over a year is a capital signal, not just a modelling signal.
+The metric toolkit ports cleanly, with four concrete adjustments. First, sample size bounds on AUC confidence intervals bind harder. A typical monthly cohort for a consumer-finance lender is 20,000 to 80,000 accounts with a bad rate of 3 to 8 percent, which yields a few thousand positives at most; DeLong intervals around AUC 0.72 can reach plus-or-minus 0.02 or more. The chapter's Friedman-Nemenyi machinery across multiple cohorts is therefore more valuable in Vietnam than in a US setting because it aggregates power across thin panels. Second, PSI thresholds set on Western books (0.10 investigate, 0.25 retrain) are too loose for a Vietnamese portfolio that sees sharp seasonal shifts around Tet. A calendar-aware PSI, computed against a same-period-prior-year baseline rather than a rolling three-month baseline, is the pragmatic fix. Third, profit-curve and EMP parameters have to be re-anchored. Vietnamese consumer-finance funding cost, regulated maximum interest rate under Circular 43/2016/TT-NHNN on consumer lending by finance companies, and realized LGD on unsecured personal loans differ from US credit-card norms, and the default Verbraken-style prior on LGD from @verbraken2014novel will mis-weight the Vietnamese profit curve if used unedited. Fourth, calibration drift is the metric that moves capital. Under Circular 41/2016 as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios, PD miscalibration flows through the standardized or IRB capital formula [@sbv_circular22_2023]; a Brier-skill drop of a few tenths over a year is a capital signal, not just a modeling signal.
 
-Reject-inference-driven bias matters more in Vietnam than the point estimates of AUC and KS suggest. Historical approval rules at most Vietnamese banks are heavily judgemental on SME and near-prime consumer segments, so the approved-only AUC overstates the discriminative power of the model in the full applicant pool. The chapter's statistics assume the evaluation sample is representative; in Vietnam, teams should report AUC and KS separately for the scored-through channel and for randomly-approved control cohorts where those exist.
+Reject-inference-driven bias matters more in Vietnam than the point estimates of AUC and KS suggest. Historical approval rules at most Vietnamese banks are heavily judgmental on SME and near-prime consumer segments, so the approved-only AUC overstates the discriminative power of the model in the full applicant pool. The chapter's statistics assume the evaluation sample is representative; in Vietnam, teams should report AUC and KS separately for the scored-through channel and for randomly-approved control cohorts where those exist.
 
 ### Rationalization
 
@@ -1178,28 +1678,28 @@ Where simpler methods dominate: for most Vietnamese lenders below roughly one mi
 
 ### Practical notes
 
-Concrete practical notes for a Vietnamese scorecard team. Evaluation data should be drawn from the CIC performance-tape join, which provides a 90+ dpd flag consistent with the SBV default definition under Circular 41. PCB can supplement for lenders that subscribe, primarily to widen the feature evaluation base rather than the outcome tape. Reporting lines for validation metrics run to the SBV Banking Supervision Agency for commercial banks and to the SBV Department of Credit for licensed finance companies, with IFRS-9-style forward-looking validation increasingly expected alongside the domestic accounting-standard reports. An internal model-risk-management function built to the substance (if not the letter) of SR 11-7 is now industry practice at the top-tier Vietnamese banks, and the metric package in this chapter is the baseline deliverable for a quarterly model-performance review. Teams should budget for an annual re-estimation of cost-matrix parameters against realised LGD and funding cost, not a one-time calibration at model launch.
+Concrete practical notes for a Vietnamese scorecard team. Evaluation data should be drawn from the CIC performance-tape join, which provides a 90+ dpd flag consistent with the SBV default definition under Circular 41. PCB can supplement for lenders that subscribe, primarily to widen the feature evaluation base rather than the outcome tape. Reporting lines for validation metrics run to the SBV Banking Supervision Agency for commercial banks and to the SBV Department of Credit for licensed finance companies, with IFRS-9-style forward-looking validation increasingly expected alongside the domestic accounting-standard reports. An internal model-risk-management function built to the substance (if not the letter) of SR 11-7 is now industry practice at the top-tier Vietnamese banks, and the metric package in this chapter is the baseline deliverable for a quarterly model-performance review. Teams should budget for an annual re-estimation of cost-matrix parameters against realized LGD and funding cost, not a one-time calibration at model launch.
 
 ## Takeaways
 
-- AUC measures ranking, KS measures the best operating point, Brier measures calibration, profit curves measure money. Any serious credit model reports all four.
-- AUC is incoherent as a cost-weighted metric because the implicit weight depends on the classifier [@hand2009measuring]. Use the H-measure when you want a single scalar that respects a user-specified cost prior.
-- Calibration is cheap to fix with Platt or isotonic post-processing and expensive to ignore. Miscalibration translates one-for-one into mis-stated capital and reserves.
-- EMP is the right objective for a credit book because it integrates the profit curve over uncertainty in loss-given-default [@verbraken2014novel]. Pick the prior, justify it, and report the number alongside AUC.
-- PSI on the score and CSI on features are the monitoring workhorses. A 0.10 threshold triggers investigation and 0.25 triggers retraining in almost every bank.
-- Walk-forward validation is the honest estimator of production performance. Shuffled k-fold should be used only when data are plainly iid, which a credit portfolio almost never is.
-- For comparing classifiers, DeLong is the parametric answer on one dataset and Friedman-Nemenyi is the rank-based answer across many.
+-   AUC measures ranking, KS measures the best operating point, Brier measures calibration, profit curves measure money. Any serious credit model reports all four.
+-   AUC is incoherent as a cost-weighted metric because the implicit weight depends on the classifier [@hand2009measuring]. Use the H-measure when you want a single scalar that respects a user-specified cost prior.
+-   Calibration is cheap to fix with Platt or isotonic post-processing and expensive to ignore. Miscalibration translates one-for-one into mis-stated capital and reserves.
+-   EMP is the right objective for a credit book because it integrates the profit curve over uncertainty in loss-given-default [@verbraken2014novel]. Pick the prior, justify it, and report the number alongside AUC.
+-   PSI on the score and CSI on features are the monitoring workhorses. A 0.10 threshold triggers investigation and 0.25 triggers retraining in almost every bank.
+-   Walk-forward validation is the honest estimator of production performance. Shuffled k-fold should be used only when data are plainly iid, which a credit portfolio almost never is.
+-   For comparing classifiers, DeLong is the parametric answer on one dataset and Friedman-Nemenyi is the rank-based answer across many.
 
 ## Further reading
 
-- @hand2009measuring: the original H-measure paper and the cleanest critique of AUC.
-- @verbraken2014novel: development of the profit-based EMP measure for credit scoring.
-- @gneiting2007strictly: the modern reference on strictly proper scoring rules.
-- @niculescu2005predicting: comprehensive empirical study of probability calibration across classifiers.
-- @demsar2006statistical: the canonical framework for statistical comparison of classifiers.
-- @delong1988comparing: nonparametric variance for AUC differences, with the fast @sun2014fast variant for large samples.
-- @lessmann2015benchmarking: the definitive benchmark of classifiers in credit scoring, a useful calibration for what to expect.
-- @provost2001robust: ROC convex hull and the link between thresholds and cost ratios.
-- @drummond2006cost: cost curves, a complement to ROC that surfaces the cost dependence directly.
-- @bergmeir2012use: when time-series cross-validation is valid and when it is not.
-- @gama2014survey: concept drift taxonomy and adaptation strategies, framing for PSI and CSI.
+-   @hand2009measuring: the original H-measure paper and the cleanest critique of AUC.
+-   @verbraken2014novel: development of the profit-based EMP measure for credit scoring.
+-   @gneiting2007strictly: the modern reference on strictly proper scoring rules.
+-   @niculescu2005predicting: comprehensive empirical study of probability calibration across classifiers.
+-   @demsar2006statistical: the canonical framework for statistical comparison of classifiers.
+-   @delong1988comparing: nonparametric variance for AUC differences, with the fast @sun2014fast variant for large samples.
+-   @lessmann2015benchmarking: the definitive benchmark of classifiers in credit scoring, a useful calibration for what to expect.
+-   @provost2001robust: ROC convex hull and the link between thresholds and cost ratios.
+-   @drummond2006cost: cost curves, a complement to ROC that surfaces the cost dependence directly.
+-   @bergmeir2012use: when time-series cross-validation is valid and when it is not.
+-   @gama2014survey: concept drift taxonomy and adaptation strategies, framing for PSI and CSI.

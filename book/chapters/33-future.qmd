@@ -44,12 +44,12 @@ from sklearn.metrics import roc_auc_score, brier_score_loss
 from sklearn.model_selection import train_test_split
 warnings.filterwarnings("ignore")
 np.random.seed(7)
-from csutils import load_german_credit, gini, ks_statistic
+from creditutils import load_german_credit, gini, ks_statistic
 ```
 
 ## Federated learning in credit {#sec-ch33-future}
 
-Credit data never sits in one place. A prime-card issuer sees spending patterns but not mortgages; a mortgage originator sees loan-to-value and payment history but not revolving utilisation; a telco sees prepaid top-ups that predict default among thin-file borrowers [@bjorkegren2020behavior] but has no loan performance data at all. In principle, pooling these sources would yield a richer feature space and better calibration. In practice, data protection law, competitive dynamics, and cost sharing disputes make pooling difficult or illegal. Federated learning (FL) is the response. A model is trained across the parties without the raw data ever leaving the institution that holds it [@mcmahan2017communication; @kairouz2021advances; @yang2019federated].
+Credit data never sits in one place. A prime-card issuer sees spending patterns but not mortgages; a mortgage originator sees loan-to-value and payment history but not revolving utilization; a telco sees prepaid top-ups that predict default among thin-file borrowers [@bjorkegren2020behavior] but has no loan performance data at all. In principle, pooling these sources would yield a richer feature space and better calibration. In practice, data protection law, competitive dynamics, and cost sharing disputes make pooling difficult or illegal. Federated learning (FL) is the response. A model is trained across the parties without the raw data ever leaving the institution that holds it [@mcmahan2017communication; @kairouz2021advances; @yang2019federated].
 
 There are two dominant architectures. Horizontal FL (HFL) partitions the sample space: bank $A$ and bank $B$ hold different customers with the same features. This is the setting McMahan et al. originally studied for on-device learning across millions of phones [@mcmahan2017communication]; it also fits a consortium of regional banks fitting a common default model. Vertical FL (VFL) partitions the feature space: the same customers are held by bank $A$ and telco $B$, and the challenge is to train a joint model on $x^A \oplus x^B$ without either party revealing $x^A$ or $x^B$ to the other [@hardy2017private; @cheng2021secureboost].
 
@@ -91,7 +91,7 @@ where $\kappa = L/\mu$ is the condition number, $B$ aggregates the initial dista
 
 ### Differential privacy in the federation
 
-Sending raw gradients reveals information. Gradient inversion attacks can reconstruct training examples from a single gradient update [@fredrikson2015model; @shokri2017membership]. Differential privacy (DP) [@dwork2006calibrating; @dwork2014algorithmic] provides a principled guarantee. A randomized mechanism $\mathcal{M}$ is $(\varepsilon, \delta)$-DP if for any two neighbouring datasets $D, D'$ (differing by one record) and any measurable set $S$,
+Sending raw gradients reveals information. Gradient inversion attacks can reconstruct training examples from a single gradient update [@fredrikson2015model; @shokri2017membership]. Differential privacy (DP) [@dwork2006calibrating; @dwork2014algorithmic] provides a principled guarantee. A randomized mechanism $\mathcal{M}$ is $(\varepsilon, \delta)$-DP if for any two neighboring datasets $D, D'$ (differing by one record) and any measurable set $S$,
 $$
 \Pr[\mathcal{M}(D) \in S] \le e^\varepsilon \Pr[\mathcal{M}(D') \in S] + \delta.
 $$ {#eq-dp-def}
@@ -394,7 +394,7 @@ print(f"utility gap (AUC) = {auc_rr - auc_sr:+.3f}")
 
 A CTGAN-trained synthetic set typically closes the gap to 2 to 4 AUC points on German Credit; the GMM fallback loses more because it ignores cross-column dependencies. The main lesson is not the number but the diagnostic: always evaluate synthetic data by training on synthetic and testing on real, not by visual inspection of histograms.
 
-Privacy check. A minimal membership inference: for each training row, compute distance to its nearest synthetic neighbour; compare against hold-out rows.
+Privacy check. A minimal membership inference: for each training row, compute distance to its nearest synthetic neighbor; compare against hold-out rows.
 
 ```{python}
 #| label: synth-mi
@@ -431,7 +431,7 @@ A membership-inference AUC near 0.5 is good; much above 0.6 indicates the synthe
 
 TabDDPM [@kotelnikov2023tabddpm] treats continuous columns with Gaussian diffusion and categorical columns with a discrete multinomial diffusion. The reverse process denoises both streams jointly, with a shared transformer-style backbone. Empirically, it surpasses CTGAN on Adult, Churn, and the California housing benchmarks; on credit-specific datasets, published results show roughly 1 to 3 AUC points of improvement when the downstream model is non-linear. On the SDV side, the `TVAE` and `CTGAN` synthesizers are joined by a diffusion variant in recent releases (`TabularPreset` or the research `TabDDPM` implementation); calls are analogous to the CTGAN fit shown above. Training time is the main practical cost: TabDDPM needs $\mathcal{O}(T)$ denoising steps per sample, typically 10 to 100 times slower than CTGAN to train.
 
-A regulatory note worth making here. Synthetic data regulated under GDPR is not automatically anonymous. The Article 29 Working Party (WP29) Opinion 05/2014 stipulates that anonymization requires resistance to singling out, linkability, and inference. A CTGAN trained without DP fails all three tests against a capable attacker; PATE-GAN or DP-CTGAN passes the first two; only careful, formally-DP generators bounded for inference protection clearly pass the third. The EDPB has signalled that this position will tighten in post-AI-Act guidance.
+A regulatory note worth making here. Synthetic data regulated under GDPR is not automatically anonymous. The Article 29 Working Party (WP29) Opinion 05/2014 stipulates that anonymization requires resistance to singling out, linkability, and inference. A CTGAN trained without DP fails all three tests against a capable attacker; PATE-GAN or DP-CTGAN passes the first two; only careful, formally-DP generators bounded for inference protection clearly pass the third. The EDPB has signaled that this position will tighten in post-AI-Act guidance.
 
 ## Real-time streaming credit scoring {#sec-ch33-streaming}
 
@@ -659,7 +659,7 @@ Regulation (EU) 2024/1689 [@euaiact2024] classifies credit scoring as a high-ris
 
 Timeline. Prohibited practices (Article 5) entered into force in February 2025. High-risk obligations for new high-risk systems apply from August 2026; for systems embedded in already regulated products (banking), a transitional window extends to August 2027. Conformity assessment is performed primarily by internal assessment for banking providers, with third-party notified body involvement where biometric or remote biometric identification is in scope.
 
-The Act operates over regulated financial activity without displacing the banking regulators. The European Banking Authority, the European Securities and Markets Authority, and the national competent authorities retain their roles. The EBA has stated it will align its model-risk expectations with the AI Act where they overlap, reducing duplication. The ECB has signalled [@ecb2024guideonai] that supervisory expectations on ML in IRB models include reproducibility, adequate challenger models, and the ability to decompose predictions into interpretable drivers. In practical terms, an IRB-qualifying ML model must satisfy both the AI Act (high-risk system with conformity assessment) and the ECB's guide (statistical validation, benchmarking against a scorecard).
+The Act operates over regulated financial activity without displacing the banking regulators. The European Banking Authority, the European Securities and Markets Authority, and the national competent authorities retain their roles. The EBA has stated it will align its model-risk expectations with the AI Act where they overlap, reducing duplication. The ECB has signaled [@ecb2024guideonai] that supervisory expectations on ML in IRB models include reproducibility, adequate challenger models, and the ability to decompose predictions into interpretable drivers. In practical terms, an IRB-qualifying ML model must satisfy both the AI Act (high-risk system with conformity assessment) and the ECB's guide (statistical validation, benchmarking against a scorecard).
 
 ### CFPB and U.S. federal posture
 
@@ -675,7 +675,7 @@ The EBA's 2023 follow-up report [@eba2023ml] lays out expectations for banks usi
 
 ### Global convergence, with fault lines
 
-The BIS Financial Stability Institute's 2024 survey [@bis2024fsi] catalogues regulatory approaches across 24 jurisdictions. The convergence points are explainability, non-discrimination, and governance. The divergence points are prescriptive rules about specific techniques (the EU tends to prescriptive, the U.S. principle-based) and the treatment of synthetic data. Non-aligned regimes include the U.K.'s post-Brexit approach (sectoral, principle-based, distinct from the EU AI Act), Singapore's FEAT principles, and Hong Kong's HKMA circulars. Banks operating cross-border must maintain a matrix of compliance positions.
+The BIS Financial Stability Institute's 2024 survey [@bis2024fsi] catalogs regulatory approaches across 24 jurisdictions. The convergence points are explainability, non-discrimination, and governance. The divergence points are prescriptive rules about specific techniques (the EU tends to prescriptive, the U.S. principle-based) and the treatment of synthetic data. Non-aligned regimes include the U.K.'s post-Brexit approach (sectoral, principle-based, distinct from the EU AI Act), Singapore's FEAT principles, and Hong Kong's HKMA circulars. Banks operating cross-border must maintain a matrix of compliance positions.
 
 ## Ten open research problems {#sec-ch33-open}
 
@@ -755,9 +755,9 @@ Against this, the case for caution is also real. Model risk governance in Vietna
 
 ### Practical notes
 
-Five operational lessons from Vietnamese pilots through 2025. First, data residency is non-negotiable for retail scoring that touches payment data: train inside a domestic cloud (Viettel IDC, VNG Cloud, FPT Smart Cloud) rather than on hyperscaler regions abroad. Second, language coverage matters end to end: OCR, reason codes, adverse-action letters, and model cards must all work in Vietnamese with diacritics handled correctly. Third, label quality at long horizons is weaker than in mature markets; rely on rating transitions from the CIC public registry to anchor through-the-cycle estimates [@cic_vietnam2023]. Fourth, budget for supervisory dialogue: SBV engagement during sandbox admission is substantive, and the review cycle is shorter and less predictable than its EU analogs. Fifth, track the CBDC pilot. When a retail instrument launches, scoring teams that already have a feature pipeline keyed on programmable-money events will have an informational advantage over teams that begin integration only after launch.
+Five operational lessons from Vietnamese pilots through 2025. First, data residency is non-negotiable for retail scoring that touches payment data: train inside a domestic cloud (Viettel IDC, VNG Cloud, FPT Smart Cloud) rather than on hyperscaler regions abroad. Second, language coverage matters end to end: OCR, reason codes, adverse-action letters, and model cards must all work in Vietnamese with diacritics handled correctly. Third, label quality at long horizons is weaker than in mature markets; rely on rating transitions from the CIC public registry to anchor through-the-cycle estimates [@cic_vietnam2023]. Fourth, budget for supervisory dialog: SBV engagement during sandbox admission is substantive, and the review cycle is shorter and less predictable than its EU analogs. Fifth, track the CBDC pilot. When a retail instrument launches, scoring teams that already have a feature pipeline keyed on programmable-money events will have an informational advantage over teams that begin integration only after launch.
 
-@tbl-vn-frontier-map summarizes the mapping from the frontier themes developed earlier in this chapter to the Vietnamese policy instruments that gate them. Teams planning pilots should start from the policy column and work backwards to the method, not the reverse.
+@tbl-vn-frontier-map summarizes the mapping from the frontier themes developed earlier in this chapter to the Vietnamese policy instruments that gate them. Teams planning pilots should start from the policy column and work backward to the method, not the reverse.
 
 | Frontier theme | Vietnamese instrument | Near-term constraint |
 |---|---|---|

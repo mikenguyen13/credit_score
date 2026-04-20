@@ -78,7 +78,7 @@ Sesame's input feature set is public at the taxonomic level. It draws on five ca
 
 1. **Credit history (信用历史)**, mainly credit card repayment and utility bill payment records. This overlaps with bureau data but is supplemented by Alipay billing cycles.
 2. **Behavior and preferences (行为偏好)**, derived from Alipay transaction patterns: categories, frequency, ticket sizes, stability over time.
-3. **Fulfilment capacity (履约能力)**, a measure of financial robustness proxied by asset and deposit balances visible to Alipay, including Yu'e Bao money market balances.
+3. **Fulfillment capacity (履约能力)**, a measure of financial robustness proxied by asset and deposit balances visible to Alipay, including Yu'e Bao money market balances.
 4. **Identity (身份特质)**, including education, employment, and residence stability, partly self-reported and partly inferred.
 5. **Network (人脉关系)**, a social-graph signal computed from the Ant payment network and verified peers.
 
@@ -166,7 +166,7 @@ import xgboost as xgb
 import lightgbm as lgb
 import shap
 
-from csutils import ks_statistic, gini
+from creditutils import ks_statistic, gini
 
 RNG = np.random.default_rng(2026)
 
@@ -444,7 +444,7 @@ As shown in @fig-collateral, two things stand out. First, the bank's acceptance 
 
 ### Small-business credit access in practice
 
-The empirical analogue in real data has been documented in multiple settings. @huang2020fintech report that Chinese SMEs served by MYbank are, on average, younger, smaller, and less collateralizable than the typical bank SME borrower. @hau2021fintech match MYbank borrowers to employment and growth outcomes and find that MYbank credit is associated with higher subsequent employment growth among small firms. @agarwal2020bigdata show similar patterns in Singapore for mobile wallet-driven entrepreneurship.
+The empirical analog in real data has been documented in multiple settings. @huang2020fintech report that Chinese SMEs served by MYbank are, on average, younger, smaller, and less collateralizable than the typical bank SME borrower. @hau2021fintech match MYbank borrowers to employment and growth outcomes and find that MYbank credit is associated with higher subsequent employment growth among small firms. @agarwal2020bigdata show similar patterns in Singapore for mobile wallet-driven entrepreneurship.
 
 The counter-story is not absent. @deyoung2011small documented long before BigTech that statistical scoring, disconnected from local relationship lending, can lead to higher defaults among informationally opaque borrowers. The distinction is that the @deyoung2011small scoring used bureau-style hard information, while BigTech scoring uses operational hard information, which is a much richer signal. The empirical question is whether the signal is rich enough to avoid the relationship-lending trap documented by @petersen1994benefits. The @gambacorta2024data evidence is that it is, at least within the narrow time window of the study.
 
@@ -838,15 +838,15 @@ The EU AI Act classifies creditworthiness assessment as a high-risk AI system. R
 
 ### Cross-jurisdictional issues
 
-Chinese BigTechs operate under PBOC-led rules that are quite different from Western frameworks. The 2020 "Draft Measures on Online Micro-Lending" set a hard cap on loan size relative to borrower income and forced joint funding. The 2021 "Personal Information Protection Law" (PIPL) is modelled on GDPR with stricter data localization. For a BigTech operating across China, the EU, and emerging markets, the regulatory stack is the operational constraint, not the modeling problem.
+Chinese BigTechs operate under PBOC-led rules that are quite different from Western frameworks. The 2020 "Draft Measures on Online Micro-Lending" set a hard cap on loan size relative to borrower income and forced joint funding. The 2021 "Personal Information Protection Law" (PIPL) is modeled on GDPR with stricter data localization. For a BigTech operating across China, the EU, and emerging markets, the regulatory stack is the operational constraint, not the modeling problem.
 
 ## Benchmark on public data
 
-We close with a benchmark on a public dataset that approximates the BigTech setting. The Taiwan default dataset (the `load_taiwan_default` helper in `csutils`) is a credit-card-customer panel with thirty thousand borrowers, payment history, and behavioral features that are BigTech-adjacent. We compare bureau-style versus behavioral-style feature splits.
+We close with a benchmark on a public dataset that approximates the BigTech setting. The Taiwan default dataset (the `load_taiwan_default` helper in `creditutils`) is a credit-card-customer panel with thirty thousand borrowers, payment history, and behavioral features that are BigTech-adjacent. We compare bureau-style versus behavioral-style feature splits.
 
 ```{python}
 #| label: taiwan-benchmark
-from csutils import load_taiwan_default
+from creditutils import load_taiwan_default
 
 tw = load_taiwan_default()
 tw = tw.dropna().reset_index(drop=True)
@@ -878,13 +878,13 @@ print("bureau-like  :", score_model(y_te, p_bur))
 print("behavioral   :", score_model(y_te, p_beh))
 ```
 
-The behavioral block, which is the closest public analogue to platform data, outperforms the bureau-like block by a meaningful margin, consistent with the @gambacorta2024data ordering.
+The behavioral block, which is the closest public analog to platform data, outperforms the bureau-like block by a meaningful margin, consistent with the @gambacorta2024data ordering.
 
 ### A cross-dataset sanity check on German data
 
 ```{python}
 #| label: german-sanity
-from csutils import load_german_credit
+from creditutils import load_german_credit
 gc = load_german_credit()
 gc = pd.get_dummies(gc, drop_first=True)
 y_g = gc["default"].to_numpy()
@@ -948,9 +948,9 @@ The counter-evidence is that BigTech credit has not obviously lowered the price 
 
 ### Market context
 
-Vietnam's BigTech credit landscape is organized around four platforms. MoMo is the largest e-wallet, widely used for bill payments, peer-to-peer transfers, and merchant QR. ZaloPay is embedded in the Zalo super-app ecosystem operated by VNG, combining messaging with payments and mini-apps. VNPay anchors bank-issued QR payments through a partnership model with most Vietnamese commercial banks and is interconnected through NAPAS, the national payment switch [@napas2023report]. Shopee Pay, operated by SeaMoney inside the Shopee marketplace, is the closest local analogue to the Mercado Libre checkout-plus-credit stack. Grab Financial Group, operating across Southeast Asia, adds a transport-and-delivery data moat in Vietnam similar to its regional footprint.
+Vietnam's BigTech credit landscape is organized around four platforms. MoMo is the largest e-wallet, widely used for bill payments, peer-to-peer transfers, and merchant QR. ZaloPay is embedded in the Zalo super-app ecosystem operated by VNG, combining messaging with payments and mini-apps. VNPay anchors bank-issued QR payments through a partnership model with most Vietnamese commercial banks and is interconnected through NAPAS, the national payment switch [@napas2023report]. Shopee Pay, operated by SeaMoney inside the Shopee marketplace, is the closest local analog to the Mercado Libre checkout-plus-credit stack. Grab Financial Group, operating across Southeast Asia, adds a transport-and-delivery data moat in Vietnam similar to its regional footprint.
 
-None of these platforms holds a banking license. Credit is extended either through partner banks (as co-lender or channel) or through finance-company licenses acquired by affiliates. The regulatory perimeter is set by SBV Circular 41/2016 standardised capital for the bank partner as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios [@sbv_circular41_2016; @sbv_circular22_2023], Circular 43/2016/TT-NHNN on consumer lending by finance companies, Circular 16/2020 eKYC for account opening [@sbv_circular16_2020], Decision 2345/QD-NHNN for authentication on online payments [@sbv_decision2345_2023], Decree 13/2023 for personal data protection [@vn_decree13_2023], and Decree 94/2025 for the fintech sandbox [@vn_decree94_2025]. The ADB and IMF assessments frame the system-level picture [@adb2022vnfin, @imf_vietnam_fsap2024].
+None of these platforms holds a banking license. Credit is extended either through partner banks (as co-lender or channel) or through finance-company licenses acquired by affiliates. The regulatory perimeter is set by SBV Circular 41/2016 standardized capital for the bank partner as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios [@sbv_circular41_2016; @sbv_circular22_2023], Circular 43/2016/TT-NHNN on consumer lending by finance companies, Circular 16/2020 eKYC for account opening [@sbv_circular16_2020], Decision 2345/QD-NHNN for authentication on online payments [@sbv_decision2345_2023], Decree 13/2023 for personal data protection [@vn_decree13_2023], and Decree 94/2025 for the fintech sandbox [@vn_decree94_2025]. The ADB and IMF assessments frame the system-level picture [@adb2022vnfin, @imf_vietnam_fsap2024].
 
 ### Application considerations
 
@@ -966,7 +966,7 @@ The Mercado Libre comparison is instructive. Mercado Credito extends working cap
 
 ### Practical notes
 
-A Vietnamese BigTech scorecard should be built with five constraints front of mind. First, consent provenance under Decree 13/2023 for every cross-platform feature (wallet to marketplace, marketplace to bank partner). Second, authentication gating under Decision 2345 for high-value consumer flows. Third, capital and provisioning governance under Circular 41/2016 and Circular 11/2021 for the bank partner's balance sheet [@sbv_circular41_2016, @sbv2021circular11]. Fourth, Tet-adjusted vintage design: transaction velocity, checkout cadence, and delinquency curves move significantly around Lunar New Year [@leboulanger2021tet]. Fifth, a sandbox-ready model-risk package under Decree 94/2025 if the product is new to market [@vn_decree94_2025]. The operational template from @sec-ch20-fromscratch carries with minor adjustments: feature engineering on the four Vs, LightGBM baseline, calibration overlay for standardised-capital PD, SHAP reason codes aligned to Circular 43/2016/TT-NHNN consumer-protection expectations for finance-company lending. The profit-threshold framework in @sec-ch20-decision should be recomputed using Vietnamese LGD estimates rather than US or Chinese priors, and the feedback-loop diagnostics in @sec-ch20-platform are particularly relevant given the small number of dominant platforms.
+A Vietnamese BigTech scorecard should be built with five constraints front of mind. First, consent provenance under Decree 13/2023 for every cross-platform feature (wallet to marketplace, marketplace to bank partner). Second, authentication gating under Decision 2345 for high-value consumer flows. Third, capital and provisioning governance under Circular 41/2016 and Circular 11/2021 for the bank partner's balance sheet [@sbv_circular41_2016, @sbv2021circular11]. Fourth, Tet-adjusted vintage design: transaction velocity, checkout cadence, and delinquency curves move significantly around Lunar New Year [@leboulanger2021tet]. Fifth, a sandbox-ready model-risk package under Decree 94/2025 if the product is new to market [@vn_decree94_2025]. The operational template from @sec-ch20-fromscratch carries with minor adjustments: feature engineering on the four Vs, LightGBM baseline, calibration overlay for standardized-capital PD, SHAP reason codes aligned to Circular 43/2016/TT-NHNN consumer-protection expectations for finance-company lending. The profit-threshold framework in @sec-ch20-decision should be recomputed using Vietnamese LGD estimates rather than US or Chinese priors, and the feedback-loop diagnostics in @sec-ch20-platform are particularly relevant given the small number of dominant platforms.
 
 ## Takeaways
 

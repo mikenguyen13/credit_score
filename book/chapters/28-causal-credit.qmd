@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, '../code')
-from csutils import ks_statistic, gini
+from creditutils import ks_statistic, gini
 
 rng = np.random.default_rng(7)
 n = 20000
@@ -828,7 +828,7 @@ where $\widehat{\mu}_d(x) = \widehat{\mathbb{E}}[Y \mid X, D = d]$ and $\widehat
 
 ### A causal monitoring dashboard
 
-A practical causal monitor has four pieces. First, distributional drift: PSI on every feature (the `psi` helper in `csutils`), flagged when above a threshold. Second, calibration on a random-holdout slice: a Brier decomposition between reliability and resolution. Third, a policy-shift test: an out-of-time AIPW contrast between two rolling windows, with the current model as the outcome estimator. Fourth, a DML-based sensitivity probe: perturb a bureau feature in the training data, re-fit, and check that the production PD moves in the expected direction. The last piece catches subtle input-data pipeline breaks that surface as a sign-flip in a key coefficient without changing overall AUC.
+A practical causal monitor has four pieces. First, distributional drift: PSI on every feature (the `psi` helper in `creditutils`), flagged when above a threshold. Second, calibration on a random-holdout slice: a Brier decomposition between reliability and resolution. Third, a policy-shift test: an out-of-time AIPW contrast between two rolling windows, with the current model as the outcome estimator. Fourth, a DML-based sensitivity probe: perturb a bureau feature in the training data, re-fit, and check that the production PD moves in the expected direction. The last piece catches subtle input-data pipeline breaks that surface as a sign-flip in a key coefficient without changing overall AUC.
 
 ## Feedback loop simulation and bias amplification
 
@@ -1039,7 +1039,7 @@ The three estimators give a coherent picture. The DiD quantifies the regional po
 A real-data demonstration grounds the simulations. The UCI Taiwan Credit Card dataset has no randomized intervention, so a rigorous causal analysis is not available. What is available is a pseudo-policy analysis: compare two synthetic treatment arms defined by a credit-limit cut, estimate the observational association with OLS, and then apply DML with gradient-boosted nuisance estimators. The point is methodological: DML adjusts for high-dimensional nonlinear controls in a way that OLS cannot.
 
 ```{python}
-from csutils import load_taiwan_default
+from creditutils import load_taiwan_default
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -1140,7 +1140,7 @@ Each of these is a direct upgrade path from the basic methods in this chapter. T
 
 ### Market context
 
-Vietnam runs two credit-policy levers that most developed-market regulators no longer use. The first is the annual credit-growth ceiling, known in practice as the credit room, allocated bank by bank by the State Bank of Vietnam at the start of each year and revised mid-year when aggregate growth drifts. The second is a set of nominal interest-rate caps on short-term lending to priority sectors and on consumer finance, most recently tightened for finance companies under Circular 43/2016/TT-NHNN on consumer lending by finance companies after the 2022 to 2023 corporate bond and real-estate stress [@imf_vietnam_fsap2024, @imf2023vietnamart4]. Both levers make credit supply a policy variable rather than a market outcome. A scorecard estimated on the approved book confounds the effect of the policy with the effect of borrower quality, because the approval rule itself moves with the room allocation.
+Vietnam runs two credit-policy levers that most developed-market regulators no longer use. The first is the annual credit-growth ceiling, known in practice as the credit room, allocated bank by bank by the State Bank of Vietnam at the start of each year and revised mid-year when aggregate growth drifts. The second is a set of nominal interest-rate caps on short-term priority-sector lending and on consumer finance, most recently tightened for finance companies under Circular 43/2016/TT-NHNN after the 2022 to 2023 corporate bond and real-estate stress [@imf_vietnam_fsap2024, @imf2023vietnamart4]. Both levers make credit supply a policy variable rather than a market outcome. A scorecard estimated on the approved book confounds the effect of the policy with the effect of borrower quality, because the approval rule itself moves with the room allocation.
 
 The cross-sectional variation in how these levers bind is unusually rich. Credit room allocations differ across the four state-owned commercial banks (BIDV, Vietcombank, VietinBank, Agribank), the joint-stock banks, and the finance company subsidiaries. Within the same year, a bank that hits its room in August tightens credit standards for the rest of the year while a bank with spare room does not. The rate cap on priority-sector lending under @sbv_circular39_2016 binds for some provinces and some sectors but not others. The staggered bite of the policy gives the credit analyst something close to a DiD design without needing a legislative change.
 
@@ -1156,13 +1156,13 @@ Fourth, DML with macro controls. The macro environment in 2022 to 2023 shifted s
 
 ### Rationalization
 
-Why bother with causal identification for a domestic policy that the central bank can simply evaluate internally? Three reasons. The first is governance. The SBV and the banking supervision agency now ask regulated credit institutions for forward-looking assessments of policy impact during the annual credit-room negotiation. A bank that can point to a quantitative estimate of how a 100 basis-point rate cap change affects its 12-month default rate has a stronger hand than a bank that cannot. The second is capital planning. Under Circular 41/2016, banks use the Basel II standardised approach, and the risk-weighted asset calculation depends on retail and corporate PDs that are sensitive to the policy environment. A causal decomposition of the current default rate into borrower-quality and policy components lets the risk committee rebalance origination without waiting for the next supervisory review. The third is portfolio pricing. Finance companies that face the Circular 43/2016/TT-NHNN rate constraints on consumer lending cannot reprice distressed cohorts; they can only refuse renewals. The decision rule needs a CATE estimator on the roll-off population, not a PD estimator on the approved book.
+Why bother with causal identification for a domestic policy that the central bank can simply evaluate internally? Three reasons. The first is governance. The SBV and the banking supervision agency now ask regulated credit institutions for forward-looking assessments of policy impact during the annual credit-room negotiation. A bank that can point to a quantitative estimate of how a 100 basis-point rate cap change affects its 12-month default rate has a stronger hand than a bank that cannot. The second is capital planning. Under Circular 41/2016, banks use the Basel II standardized approach, and the risk-weighted asset calculation depends on retail and corporate PDs that are sensitive to the policy environment. A causal decomposition of the current default rate into borrower-quality and policy components lets the risk committee rebalance origination without waiting for the next supervisory review. The third is portfolio pricing. Finance companies that face the Circular 43/2016/TT-NHNN rate constraints on consumer lending cannot reprice distressed cohorts; they can only refuse renewals. The decision rule needs a CATE estimator on the roll-off population, not a PD estimator on the approved book.
 
 ### Practical notes
 
 Data access is the first obstacle. Loan-level panels at Vietnamese banks are rarely exported outside the core banking system. An analyst running the DiD and RDD designs described above typically runs the code inside the bank's secure analytics environment on a shadow copy of the data warehouse. The runtime budget is tight; most production environments cap analytical jobs at a few gigabytes of memory. The DML cross-fitting procedure in this chapter, with 5 folds and XGBoost nuisances, runs in under 10 minutes on a 2 million row panel on a standard analytics VM.
 
-The Credit Information Center (CIC) under the SBV is the closest domestic analogue to a credit bureau. Findex 2021: 56% of Vietnamese adults formally banked; CIC holds records on roughly 55 million individuals and businesses as of 2023 [@worldbank2021findex, @cic_vietnam2023]. CIC pulls are mandatory for regulated lenders but cover only on-bureau exposures; off-bureau informal credit (pawnshops, rotating savings associations, employer loans) is invisible. An IV design that uses CIC coverage as an instrument for formal-credit access is not defensible because coverage is endogenous to the bank's own reporting behavior. A DiD design using the 2018 expansion of CIC reporting mandates to consumer finance subsidiaries is defensible and has been used in internal bank studies.
+The Credit Information Center (CIC) under the SBV is the closest domestic analog to a credit bureau. Findex 2021: 56% of Vietnamese adults formally banked; CIC holds records on roughly 55 million individuals and businesses as of 2023 [@worldbank2021findex, @cic_vietnam2023]. CIC pulls are mandatory for regulated lenders but cover only on-bureau exposures; off-bureau informal credit (pawnshops, rotating savings associations, employer loans) is invisible. An IV design that uses CIC coverage as an instrument for formal-credit access is not defensible because coverage is endogenous to the bank's own reporting behavior. A DiD design using the 2018 expansion of CIC reporting mandates to consumer finance subsidiaries is defensible and has been used in internal bank studies.
 
 Write-up conventions matter at the supervisory meeting. SBV examiners respond well to event-study plots that show a visible pre-trend placebo, plus a summary table with cluster-robust standard errors at the bank-province level. They are skeptical of DML point estimates unless the nuisance models are documented and the orthogonalization is explicit. The rule for a Hanoi audit room is the same as for a Washington one: show the identifying variation first, the point estimate second, and the robustness checks third [@sr117, @ecb2019guide].
 
