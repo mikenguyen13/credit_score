@@ -1082,7 +1082,7 @@ b_j = \frac{\#\{i: x_i \in A_j, y_i = 1\}}{\#\{i: y_i = 1\}}.
 </section>
 <section id="a-worked-example-by-hand" class="level3" data-number="3.3.3">
 <h3 data-number="3.3.3" class="anchored" data-anchor-id="a-worked-example-by-hand"><span class="header-section-number">3.3.3</span> A worked example by hand</h3>
-<p>Before invoking <code>optbinning</code>, it helps to compute the formulas in <a href="#eq-shares" class="quarto-xref">Eq.&nbsp;<span>3.1</span></a><a href="../appendices/A-math-prereqs.html#eq-iv" class="quarto-xref"><span>A.27</span></a> on a toy portfolio with three bins. Suppose 1,000 applicants split across an <code>income_bucket</code> feature with <span class="math inline">\(G = 900\)</span> goods and <span class="math inline">\(B = 100\)</span> bads in total:</p>
+<p>Before invoking <code>optbinning</code>, it helps to compute the formulas in <a href="#eq-shares" class="quarto-xref">Eq.&nbsp;<span>3.1</span></a> and <a href="../appendices/A-math-prereqs.html#eq-iv" class="quarto-xref">Eq.&nbsp;<span>A.27</span></a> on a toy portfolio with three bins. Suppose 1,000 applicants split across an <code>income_bucket</code> feature with <span class="math inline">\(G = 900\)</span> goods and <span class="math inline">\(B = 100\)</span> bads in total:</p>
 <div id="woe-by-hand" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1322,7 +1322,7 @@ D_{\mathrm{KL}}(P \parallel Q) + D_{\mathrm{KL}}(Q \parallel P)
 <p><code>optbinning</code> <span class="citation" data-cites="navas2022optbinning">(<a href="11-trees-rules.html#ref-navas2022optbinning" role="doc-biblioref">Navas-Palencia, 2022</a>)</span> uses a mixed-integer programming formulation to find an optimal monotone binning that maximizes IV subject to monotonicity and bin-size constraints. The algorithm extends classical supervised discretization <span class="citation" data-cites="fayyad1993multi">(<a href="11-trees-rules.html#ref-fayyad1993multi" role="doc-biblioref">Fayyad &amp; Irani, 1993</a>)</span> by enforcing risk monotonicity, which is what underwriters expect from a scorecard. The highest-IV feature in the Taiwan data is the most recent delinquency code (<code>PAY_0</code>), followed by older payment codes, which matches the domain intuition.</p>
 <p>The <code>summary()</code> table includes two additional ranking columns alongside <code>iv</code>, both computed on the same binned distributions and sometimes preferred when IV is unstable.</p>
 <ul>
-<li><strong><code>js</code>: Jensen-Shannon divergence.</strong> A bounded, symmetric variant of the KL divergences from <a href="#eq-kl-pq" class="quarto-xref">Eq.&nbsp;<span>3.4</span></a><a href="#eq-kl-qp" class="quarto-xref"><span>3.5</span></a>. With <span class="math inline">\(M = (P + Q)/2\)</span> the bin-share midpoint, <span class="math inline">\(\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)\)</span>. Always lies in <span class="math inline">\([0, \ln 2]\)</span>, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.</li>
+<li><strong><code>js</code>: Jensen-Shannon divergence.</strong> A bounded, symmetric variant of the KL divergences from <a href="#eq-kl-pq" class="quarto-xref">Eq.&nbsp;<span>3.4</span></a> and <a href="#eq-kl-qp" class="quarto-xref">Eq.&nbsp;<span>3.5</span></a>. With <span class="math inline">\(M = (P + Q)/2\)</span> the bin-share midpoint, <span class="math inline">\(\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)\)</span>. Always lies in <span class="math inline">\([0, \ln 2]\)</span>, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.</li>
 <li><strong><code>gini</code>: bin-level Gini coefficient.</strong> Twice the area between the bin-ordered cumulative-goods and cumulative-bads curves; equivalently <span class="math inline">\(2 \cdot \mathrm{AUC} - 1\)</span> computed using the bin-ordered WoE as the score. Reported on <span class="math inline">\([0, 1]\)</span>. Same monotone direction as IV but scaled like the discriminative AUC measure used in <a href="04-metrics.html" class="quarto-xref"><span>Chapter 4</span></a>, so it lets the scorecard team compare a feature’s marginal predictive contribution against the overall model AUC in the same units. The full treatment of AUC, Gini, KS, and Brier sits in <a href="04-metrics.html" class="quarto-xref"><span>Chapter 4</span></a>.</li>
 </ul>
 <p>In practice, these three columns rank features almost identically; large disagreements are a flag that one bin is dominating IV, in which case a coarser binning or a JS-based ranking is the safer choice.</p>
@@ -3696,13 +3696,13 @@ CUSUM-of-residuals: stat=1.179  p=0.1243</code></pre>
 <tr class="odd">
 <th data-quarto-table-cell-role="th">0</th>
 <td>pandas</td>
-<td>0.103</td>
+<td>0.105</td>
 <td>1000000</td>
 </tr>
 <tr class="even">
 <th data-quarto-table-cell-role="th">1</th>
 <td>polars</td>
-<td>0.058</td>
+<td>0.059</td>
 <td>1000000</td>
 </tr>
 </tbody>
@@ -4971,7 +4971,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb43-210"><a href="#cb43-210" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb43-211"><a href="#cb43-211" aria-hidden="true" tabindex="-1"></a><span class="fu">### A worked example by hand</span></span>
 <span id="cb43-212"><a href="#cb43-212" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb43-213"><a href="#cb43-213" aria-hidden="true" tabindex="-1"></a>Before invoking <span class="in">`optbinning`</span>, it helps to compute the formulas in @eq-shares-@eq-iv on a toy portfolio with three bins. Suppose 1,000 applicants split across an <span class="in">`income_bucket`</span> feature with $G = 900$ goods and $B = 100$ bads in total:</span>
+<span id="cb43-213"><a href="#cb43-213" aria-hidden="true" tabindex="-1"></a>Before invoking <span class="in">`optbinning`</span>, it helps to compute the formulas in @eq-shares and @eq-iv on a toy portfolio with three bins. Suppose 1,000 applicants split across an <span class="in">`income_bucket`</span> feature with $G = 900$ goods and $B = 100$ bads in total:</span>
 <span id="cb43-214"><a href="#cb43-214" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb43-217"><a href="#cb43-217" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
 <span id="cb43-218"><a href="#cb43-218" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: woe-by-hand</span></span>
@@ -5070,7 +5070,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb43-313"><a href="#cb43-313" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb43-314"><a href="#cb43-314" aria-hidden="true" tabindex="-1"></a>The <span class="in">`summary()`</span> table includes two additional ranking columns alongside <span class="in">`iv`</span>, both computed on the same binned distributions and sometimes preferred when IV is unstable.</span>
 <span id="cb43-315"><a href="#cb43-315" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb43-316"><a href="#cb43-316" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>**`js`: Jensen-Shannon divergence.** A bounded, symmetric variant of the KL divergences from @eq-kl-pq-@eq-kl-qp. With $M = (P + Q)/2$ the bin-share midpoint, $\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)$. Always lies in $<span class="co">[</span><span class="ot">0, \ln 2</span><span class="co">]</span>$, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.</span>
+<span id="cb43-316"><a href="#cb43-316" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>**`js`: Jensen-Shannon divergence.** A bounded, symmetric variant of the KL divergences from @eq-kl-pq and @eq-kl-qp. With $M = (P + Q)/2$ the bin-share midpoint, $\mathrm{JS}(P, Q) = \tfrac{1}{2} D_{\mathrm{KL}}(P \parallel M) + \tfrac{1}{2} D_{\mathrm{KL}}(Q \parallel M)$. Always lies in $<span class="co">[</span><span class="ot">0, \ln 2</span><span class="co">]</span>$, so it cannot blow up the way IV can when a bin is nearly empty. Read the same way as IV: bigger means more class separation. Often used as a robustness check on the IV ranking.</span>
 <span id="cb43-317"><a href="#cb43-317" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>**`gini`: bin-level Gini coefficient.** Twice the area between the bin-ordered cumulative-goods and cumulative-bads curves; equivalently $2 \cdot \mathrm{AUC} - 1$ computed using the bin-ordered WoE as the score. Reported on $<span class="co">[</span><span class="ot">0, 1</span><span class="co">]</span>$. Same monotone direction as IV but scaled like the discriminative AUC measure used in @sec-ch04, so it lets the scorecard team compare a feature's marginal predictive contribution against the overall model AUC in the same units. The full treatment of AUC, Gini, KS, and Brier sits in @sec-ch04.</span>
 <span id="cb43-318"><a href="#cb43-318" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb43-319"><a href="#cb43-319" aria-hidden="true" tabindex="-1"></a>In practice, these three columns rank features almost identically; large disagreements are a flag that one bin is dominating IV, in which case a coarser binning or a JS-based ranking is the safer choice.</span>

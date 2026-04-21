@@ -971,13 +971,13 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 \tag{22.1}\]</span></span></p>
 <p>which measures the expected change in output when the features in <span class="math inline">\(S\)</span> are fixed to their observed values at <span class="math inline">\(x\)</span> and the remaining features <span class="math inline">\(X_{-S}\)</span> are drawn from a reference distribution. The reference distribution is a modeling choice, discussed in depth below. The value function satisfies <span class="math inline">\(v_x(\emptyset) = 0\)</span> and <span class="math inline">\(v_x([d]) = f(x) - \mathbb{E}[f(X)]\)</span>.</p>
 <p>The Shapley value of feature <span class="math inline">\(j\)</span> in the game <span class="math inline">\(v_x\)</span> is</p>
-<p><span id="eq-shapley"><span class="math display">\[
+<p><span id="eq-ch22-shapley"><span class="math display">\[
 \phi_j(v_x) = \sum_{S \subseteq [d] \setminus \{j\}} \frac{|S|! (d-|S|-1)!}{d!} \bigl[ v_x(S \cup \{j\}) - v_x(S) \bigr].
 \tag{22.2}\]</span></span></p>
 <p>Equivalently, <span class="math inline">\(\phi_j\)</span> is the expected marginal contribution of <span class="math inline">\(j\)</span> over a uniformly random permutation of the features. The weights <span class="math inline">\(w(S) = |S|!(d-|S|-1)!/d!\)</span> are the probabilities under that permutation that exactly the features in <span class="math inline">\(S\)</span> appear before <span class="math inline">\(j\)</span>.</p>
 <section id="sec-ch22-axioms" class="level3" data-number="22.2.1">
 <h3 data-number="22.2.1" class="anchored" data-anchor-id="sec-ch22-axioms"><span class="header-section-number">22.2.1</span> Axioms</h3>
-<p><span class="citation" data-cites="shapley1953value">Shapley (<a href="11-trees-rules.html#ref-shapley1953value" role="doc-biblioref">1953</a>)</span> proved that <span class="math inline">\(\phi\)</span> defined by <a href="#eq-shapley" class="quarto-xref">Eq.&nbsp;<span>22.2</span></a> is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.</p>
+<p><span class="citation" data-cites="shapley1953value">Shapley (<a href="11-trees-rules.html#ref-shapley1953value" role="doc-biblioref">1953</a>)</span> proved that <span class="math inline">\(\phi\)</span> defined by <a href="#eq-ch22-shapley" class="quarto-xref">Eq.&nbsp;<span>22.2</span></a> is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.</p>
 <p><strong>Efficiency.</strong> The attributions sum to the total gain of the game:</p>
 <p><span id="eq-efficiency"><span class="math display">\[
 \sum_{j=1}^{d} \phi_j(v_x) = v_x([d]) - v_x(\emptyset) = f(x) - \mathbb{E}[f(X)].
@@ -1014,15 +1014,15 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 </section>
 <section id="kernelshap-as-weighted-least-squares" class="level3" data-number="22.2.4">
 <h3 data-number="22.2.4" class="anchored" data-anchor-id="kernelshap-as-weighted-least-squares"><span class="header-section-number">22.2.4</span> KernelSHAP as weighted least squares</h3>
-<p><span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span> recast <a href="#eq-shapley" class="quarto-xref">Eq.&nbsp;<span>22.2</span></a> as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate <span class="math inline">\(g(z) = \phi_0 + \sum_j \phi_j z_j\)</span> on <span class="math inline">\(z \in \{0, 1\}^d\)</span>, where <span class="math inline">\(z_j = 1\)</span> means feature <span class="math inline">\(j\)</span> is present in the coalition. Define the Shapley kernel</p>
-<p><span id="eq-shapkernel"><span class="math display">\[
+<p><span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span> recast <a href="#eq-ch22-shapley" class="quarto-xref">Eq.&nbsp;<span>22.2</span></a> as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate <span class="math inline">\(g(z) = \phi_0 + \sum_j \phi_j z_j\)</span> on <span class="math inline">\(z \in \{0, 1\}^d\)</span>, where <span class="math inline">\(z_j = 1\)</span> means feature <span class="math inline">\(j\)</span> is present in the coalition. Define the Shapley kernel</p>
+<p><span id="eq-ch22-shapkernel"><span class="math display">\[
 \pi_x(z) = \frac{d - 1}{\binom{d}{|z|} |z| (d - |z|)},
 \tag{22.8}\]</span></span></p>
 <p>and the map <span class="math inline">\(h_x : \{0,1\}^d \to \mathbb{R}^d\)</span> that replaces absent features by draws from a reference distribution. Solve</p>
-<p><span id="eq-kernelshap"><span class="math display">\[
+<p><span id="eq-ch22-kernelshap"><span class="math display">\[
 \min_{\phi} \sum_{z \in \{0,1\}^d} \pi_x(z) \left[ f\!\left(h_x(z)\right) - g(z) \right]^2.
 \tag{22.9}\]</span></span></p>
-<p>Theorem 2 of <span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span> shows that the minimizer of <a href="#eq-kernelshap" class="quarto-xref">Eq.&nbsp;<span>22.9</span></a> coincides with the Shapley values under the value function in <a href="#eq-valuefn" class="quarto-xref">Eq.&nbsp;<span>22.1</span></a>, provided <span class="math inline">\(h_x\)</span> implements the interventional game. The kernel in <a href="#eq-shapkernel" class="quarto-xref">Eq.&nbsp;<span>22.8</span></a> is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.</p>
+<p>Theorem 2 of <span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span> shows that the minimizer of <a href="#eq-ch22-kernelshap" class="quarto-xref">Eq.&nbsp;<span>22.9</span></a> coincides with the Shapley values under the value function in <a href="#eq-valuefn" class="quarto-xref">Eq.&nbsp;<span>22.1</span></a>, provided <span class="math inline">\(h_x\)</span> implements the interventional game. The kernel in <a href="#eq-ch22-shapkernel" class="quarto-xref">Eq.&nbsp;<span>22.8</span></a> is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.</p>
 <p>Because <span class="math inline">\(\pi_x(z) \to \infty\)</span> for <span class="math inline">\(|z| = 0\)</span> and <span class="math inline">\(|z| = d\)</span>, the normal equations enforce two boundary conditions: <span class="math inline">\(g(\mathbf{0}) = \mathbb{E}[f(X)]\)</span> and <span class="math inline">\(g(\mathbf{1}) = f(x)\)</span>. Substituting these into the weighted least squares problem reduces it to a constrained quadratic in <span class="math inline">\(\phi_1, \dots, \phi_d\)</span>. The closed-form solution, after algebraic manipulation of <span class="math inline">\(\binom{d}{|z|}\)</span> weightings, is the Shapley vector. In practice the infinite weights are handled by using those two constraints directly and solving a finite-weight problem on the interior coalitions.</p>
 <p>KernelSHAP with a sample <span class="math inline">\(\mathcal{Z} \subset \{0,1\}^d\)</span> of size <span class="math inline">\(M\)</span> is the empirical analog. The bias from sampling is zero if <span class="math inline">\(\mathcal{Z}\)</span> is drawn i.i.d. from the kernel <span class="math inline">\(\pi_x\)</span> up to the boundary corrections; the variance is <span class="math inline">\(O(1/M)\)</span>.</p>
 </section>
@@ -1030,7 +1030,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 <h3 data-number="22.2.5" class="anchored" data-anchor-id="treeshap"><span class="header-section-number">22.2.5</span> TreeSHAP</h3>
 <p>KernelSHAP is model-agnostic but expensive: each of <span class="math inline">\(M\)</span> coalitions requires one model evaluation per reference point. For a tree ensemble, <span class="citation" data-cites="lundberg2020local">Lundberg et al. (<a href="11-trees-rules.html#ref-lundberg2020local" role="doc-biblioref">2020</a>)</span> derives an algorithm whose cost is polynomial in the model size and in <span class="math inline">\(d\)</span>. Let <span class="math inline">\(T\)</span> be a single decision tree with <span class="math inline">\(L\)</span> leaves and maximum depth <span class="math inline">\(D\)</span>. For a given <span class="math inline">\(x\)</span> and coalition <span class="math inline">\(S\)</span>, define the tree’s conditional expectation under the “path” rule: traverse the tree; at a node splitting on feature <span class="math inline">\(j \in S\)</span>, follow <span class="math inline">\(x_j\)</span>’s branch; at a node splitting on <span class="math inline">\(j \notin S\)</span>, descend both branches with weights equal to the training fraction that each received.</p>
 <p>Interventional TreeSHAP uses a supplied background dataset instead of the training fractions. For each background row <span class="math inline">\(x^{\text{bg}}\)</span>, it effectively runs the path rule but with the branch probabilities at each split determined by whether <span class="math inline">\(x^{\text{bg}}_j\)</span> or <span class="math inline">\(x_j\)</span> routes to that branch. <span class="citation" data-cites="lundberg2020local">Lundberg et al. (<a href="11-trees-rules.html#ref-lundberg2020local" role="doc-biblioref">2020</a>)</span> prove that averaging TreeSHAP attributions over a background dataset yields the Shapley values under the interventional game.</p>
-<p>The naive path-enumeration cost is <span class="math inline">\(O(T 2^d)\)</span> per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to <span class="math inline">\(O(T L D^2)\)</span> per row per tree and <span class="math inline">\(O(N_{\text{bg}} T L D^2)\)</span> when averaged over a background set of size <span class="math inline">\(N_{\text{bg}}\)</span>. For a typical XGBoost credit model with <span class="math inline">\(T = 500\)</span> trees of depth 6 and <span class="math inline">\(L \approx 50\)</span> leaves, the per-row cost is dominated by <span class="math inline">\(T L D \approx 90{,}000\)</span> operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.</p>
+<p>The naive path-enumeration cost is <span class="math inline">\(O(T 2^d)\)</span> per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to <span class="math inline">\(O(T L D^2)\)</span> per row per tree and <span class="math inline">\(O(N_{\text{bg}} T L D^2)\)</span> when averaged over a background set of size <span class="math inline">\(N_{\text{bg}}\)</span>. For a typical XGBoost credit model with <span class="math inline">\(T = 500\)</span> trees of depth 6 and <span class="math inline">\(L \approx 50\)</span> leaves, the per-row cost is dominated by <span class="math inline">\(T L D \approx 90,000\)</span> operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.</p>
 </section>
 <section id="baseline-choice" class="level3" data-number="22.2.6">
 <h3 data-number="22.2.6" class="anchored" data-anchor-id="baseline-choice"><span class="header-section-number">22.2.6</span> Baseline choice</h3>
@@ -1065,7 +1065,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 <p>Before implementing, three derivation steps deserve additional attention because they govern the correctness of the production pipeline.</p>
 <section id="the-shapley-kernel-weight-at-the-boundaries" class="level3" data-number="22.3.1">
 <h3 data-number="22.3.1" class="anchored" data-anchor-id="the-shapley-kernel-weight-at-the-boundaries"><span class="header-section-number">22.3.1</span> The Shapley kernel weight at the boundaries</h3>
-<p>The weight <span class="math inline">\(\pi_x(z)\)</span> in <a href="#eq-shapkernel" class="quarto-xref">Eq.&nbsp;<span>22.8</span></a> has a subtle behavior at <span class="math inline">\(|z| = 0\)</span> and <span class="math inline">\(|z| = d\)</span>, where the denominator contains <span class="math inline">\(|z| \cdot (d - |z|) = 0\)</span>. Treating these as infinite weights in the least-squares problem is the standard presentation in <span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span>, but a cleaner formulation enforces them as equality constraints. Let <span class="math inline">\(Z \in \{0, 1\}^{M \times d}\)</span> be the sample of coalitions excluding the all-zero and all-one rows. Let <span class="math inline">\(W\)</span> be the diagonal matrix of finite kernel weights and <span class="math inline">\(\mathbf{f}\)</span> the vector of masked-model outputs. The Lagrangian for the constrained problem is</p>
+<p>The weight <span class="math inline">\(\pi_x(z)\)</span> in <a href="21-xai.html#eq-shapkernel" class="quarto-xref">Eq.&nbsp;<span>21.6</span></a> has a subtle behavior at <span class="math inline">\(|z| = 0\)</span> and <span class="math inline">\(|z| = d\)</span>, where the denominator contains <span class="math inline">\(|z| \cdot (d - |z|) = 0\)</span>. Treating these as infinite weights in the least-squares problem is the standard presentation in <span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span>, but a cleaner formulation enforces them as equality constraints. Let <span class="math inline">\(Z \in \{0, 1\}^{M \times d}\)</span> be the sample of coalitions excluding the all-zero and all-one rows. Let <span class="math inline">\(W\)</span> be the diagonal matrix of finite kernel weights and <span class="math inline">\(\mathbf{f}\)</span> the vector of masked-model outputs. The Lagrangian for the constrained problem is</p>
 <p><span class="math display">\[
 \mathcal{L}(\phi, \lambda_0, \lambda_1) = \|W^{1/2}(Z \phi - \mathbf{f})\|_2^2 + \lambda_0 (\phi_0 - \mathbb{E}[f(X)]) + \lambda_1 (\mathbf{1}^\top \phi - f(x) + \mathbb{E}[f(X)]).
 \]</span></p>
@@ -1088,7 +1088,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 <section id="from-scratch-kernelshap-in-numpy" class="level2" data-number="22.4">
 <h2 data-number="22.4" class="anchored" data-anchor-id="from-scratch-kernelshap-in-numpy"><span class="header-section-number">22.4</span> From-scratch KernelSHAP in NumPy</h2>
 <p>The implementation below builds KernelSHAP end to end on a small linear model and compares the result to the <code>shap</code> library and to the closed form in <a href="#eq-linshap" class="quarto-xref">Eq.&nbsp;<span>22.7</span></a>. The code runs in under two seconds on a laptop.</p>
-<div id="713dc840" class="cell" data-execution_count="1">
+<div id="3688a2e0" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
@@ -1109,7 +1109,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 </details>
 </div>
 <p>The small test model is a linear function of five features, for which <a href="#eq-linshap" class="quarto-xref">Eq.&nbsp;<span>22.7</span></a> gives the exact answer. The KernelSHAP implementation approximates the Shapley values by sampling coalitions under the kernel <span class="math inline">\(\pi_x\)</span> and solving the weighted regression.</p>
-<div id="442bcddb" class="cell" data-execution_count="2">
+<div id="d27de23d" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> itertools <span class="im">import</span> combinations</span>
@@ -1176,7 +1176,7 @@ Efficiency: sum(phi) = f(x) - f(baseline)? -0.1658 vs -0.1658</code></pre>
 </div>
 <p>The from-scratch KernelSHAP matches the closed-form solution to machine precision on a linear model. The efficiency check confirms that the attributions add up to the deviation of the output from the baseline, as required by <a href="#eq-efficiency" class="quarto-xref">Eq.&nbsp;<span>22.3</span></a>.</p>
 <p>Now compare against the production library. The <code>shap.KernelExplainer</code> samples coalitions rather than enumerating them, so we expect a small Monte Carlo discrepancy.</p>
-<div id="52c42ecc" class="cell" data-execution_count="3">
+<div id="661e9bec" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
@@ -1195,7 +1195,7 @@ Max abs diff vs closed   : 1.6653345369377348e-16</code></pre>
 <section id="sampled-kernelshap-for-larger-d" class="level3" data-number="22.4.1">
 <h3 data-number="22.4.1" class="anchored" data-anchor-id="sampled-kernelshap-for-larger-d"><span class="header-section-number">22.4.1</span> Sampled KernelSHAP for larger <span class="math inline">\(d\)</span></h3>
 <p>For a model with thirty features, <span class="math inline">\(2^{30}\)</span> is a billion, and enumeration fails. A sampled implementation, based on the antithetic sampling scheme of <span class="citation" data-cites="covert2021explaining">Covert et al. (<a href="11-trees-rules.html#ref-covert2021explaining" role="doc-biblioref">2021</a>)</span>, produces stable attributions with a few thousand samples. The implementation below samples coalitions proportional to <span class="math inline">\(\pi_x\)</span>, pairs each with its complement (antithetic variance reduction), and solves the weighted regression.</p>
-<div id="31257f37" class="cell" data-execution_count="4">
+<div id="003f71c9" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sample_kernelshap(x, f, baseline, d, n_samples<span class="op">=</span><span class="dv">1024</span>, seed<span class="op">=</span><span class="dv">0</span>):</span>
@@ -1265,7 +1265,7 @@ Efficiency gap: 4.44089e-16</code></pre>
 <section id="treeshap-on-xgboost-lightgbm-catboost" class="level2" data-number="22.5">
 <h2 data-number="22.5" class="anchored" data-anchor-id="treeshap-on-xgboost-lightgbm-catboost"><span class="header-section-number">22.5</span> TreeSHAP on XGBoost, LightGBM, CatBoost</h2>
 <p>For tree ensembles, TreeSHAP is faster, exact on the tree structure, and native to every major boosting library. Each of XGBoost, LightGBM, and CatBoost exposes a <code>pred_contribs</code> (or equivalent) flag that returns the attributions together with the bias term. The additivity check below is mandatory every time a new model is deployed.</p>
-<div id="df8105fe" class="cell" data-execution_count="5">
+<div id="0c12c975" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> xgboost <span class="im">as</span> xgb</span>
@@ -1290,7 +1290,7 @@ Efficiency gap: 4.44089e-16</code></pre>
 </div>
 <section id="xgboost" class="level3" data-number="22.5.1">
 <h3 data-number="22.5.1" class="anchored" data-anchor-id="xgboost"><span class="header-section-number">22.5.1</span> XGBoost</h3>
-<div id="e19098d0" class="cell" data-execution_count="6">
+<div id="c08b3c7c" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>xgb_mod <span class="op">=</span> xgb.XGBClassifier(</span>
@@ -1321,7 +1321,7 @@ XGBoost additivity OK; base log-odds = -1.2636</code></pre>
 </section>
 <section id="lightgbm" class="level3" data-number="22.5.2">
 <h3 data-number="22.5.2" class="anchored" data-anchor-id="lightgbm"><span class="header-section-number">22.5.2</span> LightGBM</h3>
-<div id="798dcb78" class="cell" data-execution_count="7">
+<div id="57291817" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>lgb_mod <span class="op">=</span> lgb.LGBMClassifier(</span>
@@ -1355,7 +1355,7 @@ LightGBM additivity OK; base log-odds = -1.5115</code></pre>
 </section>
 <section id="catboost" class="level3" data-number="22.5.3">
 <h3 data-number="22.5.3" class="anchored" data-anchor-id="catboost"><span class="header-section-number">22.5.3</span> CatBoost</h3>
-<div id="51ec6616" class="cell" data-execution_count="8">
+<div id="e0b2d916" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>cb_mod <span class="op">=</span> cb.CatBoostClassifier(</span>
@@ -1386,7 +1386,7 @@ CatBoost additivity OK; base log-odds = -1.5304</code></pre>
 </section>
 <section id="agreement-across-libraries" class="level3" data-number="22.5.4">
 <h3 data-number="22.5.4" class="anchored" data-anchor-id="agreement-across-libraries"><span class="header-section-number">22.5.4</span> Agreement across libraries</h3>
-<div id="a09e87e6" class="cell" data-execution_count="9">
+<div id="0b177a63" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> global_importance(shap_mat):</span>
@@ -1424,7 +1424,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="global-and-local-plots" class="level2" data-number="22.6">
 <h2 data-number="22.6" class="anchored" data-anchor-id="global-and-local-plots"><span class="header-section-number">22.6</span> Global and local plots</h2>
 <p>SHAP exposes three plot families. The global bar plot ranks features by mean absolute attribution. The dependence plot relates a feature’s value to its SHAP value, with color to expose interactions. The waterfall plot (the static analog of the JavaScript force plot) is the per-applicant view. We use matplotlib only, avoiding any JS widgets, so the output embeds cleanly in PDF and HTML.</p>
-<div id="91e77b11" class="cell" data-execution_count="10">
+<div id="7a8c31fd" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>expl_xgb <span class="op">=</span> shap.Explanation(</span>
@@ -1442,7 +1442,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <pre><code>saved /tmp/ch22_bar.png</code></pre>
 </div>
 </div>
-<div id="074f59cf" class="cell" data-execution_count="11">
+<div id="e89f8c52" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1454,7 +1454,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <pre><code>saved /tmp/ch22_dep.png</code></pre>
 </div>
 </div>
-<div id="79690cb2" class="cell" data-execution_count="12">
+<div id="9c03f341" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>pred_class <span class="op">=</span> (xgb_mod.predict_proba(Xte_expl)[:, <span class="dv">1</span>] <span class="op">&gt;=</span> <span class="fl">0.5</span>).astype(<span class="bu">int</span>)</span>
@@ -1470,7 +1470,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 </div>
 </div>
 <p>The force plot idea (a compact horizontal bar showing push/pull forces per feature) is produced with matplotlib directly to avoid the <code>shap.plots.force</code> JS widget.</p>
-<div id="a438863a" class="cell" data-execution_count="13">
+<div id="aa1fe974" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> force_plot_matplotlib(shap_row, feat_names, base, pred, top_k<span class="op">=</span><span class="dv">8</span>, path<span class="op">=</span><span class="st">"/tmp/ch22_force.png"</span>):</span>
@@ -1501,7 +1501,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="beeswarm-plot" class="level3" data-number="22.7.1">
 <h3 data-number="22.7.1" class="anchored" data-anchor-id="beeswarm-plot"><span class="header-section-number">22.7.1</span> Beeswarm plot</h3>
 <p>The beeswarm plot is the population-level analog of the bar plot. It keeps one dot per applicant per feature and positions dots on the x-axis by their SHAP value. Color encodes the raw feature value (red high, blue low). A beeswarm reveals direction of effect and spread, which the bar plot collapses. For credit, the beeswarm of <code>PAY_0</code> shows the near-bimodal pattern: a cluster of non-delinquent applicants at negative SHAP (protective) and a tail of late applicants at positive SHAP (adverse).</p>
-<div id="ffe6978a" class="cell" data-execution_count="14">
+<div id="3e20eec1" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">6.5</span>, <span class="fl">4.5</span>))</span>
@@ -1517,7 +1517,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="summary-bar-with-cohort-split" class="level3" data-number="22.7.2">
 <h3 data-number="22.7.2" class="anchored" data-anchor-id="summary-bar-with-cohort-split"><span class="header-section-number">22.7.2</span> Summary bar with cohort split</h3>
 <p>A bar plot split by a cohort variable surfaces differential feature reliance across segments. Below, the bar plot is computed separately for applicants above and below the median credit limit. The ranking of top features can shift: for high-limit applicants, <code>PAY_0</code> dominates; for low-limit applicants, <code>LIMIT_BAL</code> itself can move into the top three.</p>
-<div id="b5aed447" class="cell" data-execution_count="15">
+<div id="a371eb3b" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>limit_hi <span class="op">=</span> Xte_expl[<span class="st">"LIMIT_BAL"</span>].values <span class="op">&gt;=</span> Xte_expl[<span class="st">"LIMIT_BAL"</span>].median()</span>
@@ -1540,7 +1540,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="heatmap-plot" class="level3" data-number="22.7.3">
 <h3 data-number="22.7.3" class="anchored" data-anchor-id="heatmap-plot"><span class="header-section-number">22.7.3</span> Heatmap plot</h3>
 <p>The heatmap plot arranges applicants on the x-axis (sorted by model output) and features on the y-axis, coloring each cell by SHAP. A line at the top traces the model output. Heatmaps expose three production patterns: clustering of applicants by explanation profile (visible as vertical banding), features that switch sign across the score distribution (horizontal gradient), and near-cutoff applicants whose explanations are numerically volatile.</p>
-<div id="17670e44" class="cell" data-execution_count="16">
+<div id="0c79e243" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">7</span>, <span class="dv">5</span>))</span>
@@ -1556,7 +1556,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="decision-plot" class="level3" data-number="22.7.4">
 <h3 data-number="22.7.4" class="anchored" data-anchor-id="decision-plot"><span class="header-section-number">22.7.4</span> Decision plot</h3>
 <p>The decision plot traces each applicant as a line from the model’s base value (bottom) through each feature’s SHAP contribution to the final prediction (top). Applicants that reach similar predictions by very different feature paths produce visibly crossing lines, a useful diagnostic for pipeline heterogeneity. The plot is most informative on a small sample (10 to 30 rows); with more than 100 the lines overwhelm the eye.</p>
-<div id="a09c491c" class="cell" data-execution_count="17">
+<div id="b4bac3dd" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>sample_idx <span class="op">=</span> np.r_[denied_idx[:<span class="dv">5</span>], np.where(pred_class <span class="op">==</span> <span class="dv">0</span>)[<span class="dv">0</span>][:<span class="dv">5</span>]]</span>
@@ -1579,7 +1579,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="dependence-plot-with-interaction-color" class="level3" data-number="22.7.5">
 <h3 data-number="22.7.5" class="anchored" data-anchor-id="dependence-plot-with-interaction-color"><span class="header-section-number">22.7.5</span> Dependence plot with interaction color</h3>
 <p><code>shap.plots.scatter</code> accepts a <code>color=</code> argument to overlay a second feature. The resulting plot shows the main effect of the x-axis feature and the interaction with the colored feature. For Taiwan, coloring <code>PAY_0</code> by <code>LIMIT_BAL</code> reveals that a given delinquency level produces stronger adverse SHAP at lower credit limits. The same plot with <code>color="auto"</code> lets <code>shap</code> pick the feature with the largest approximate interaction.</p>
-<div id="902be90e" class="cell" data-execution_count="18">
+<div id="03cc5844" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">6.5</span>, <span class="fl">4.5</span>))</span>
@@ -1599,7 +1599,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="interaction-plot" class="level3" data-number="22.7.6">
 <h3 data-number="22.7.6" class="anchored" data-anchor-id="interaction-plot"><span class="header-section-number">22.7.6</span> Interaction plot</h3>
 <p><code>pred_interactions=True</code> in XGBoost returns a <span class="math inline">\((n, d+1, d+1)\)</span> tensor decomposing each applicant’s log-odds into main effects on the diagonal and pairwise interactions off-diagonal. The interaction scatter plot puts a pair <span class="math inline">\((j, k)\)</span> on the axes, colors by the interaction SHAP, and exposes nonlinear structure that the main-effect scatter hides.</p>
-<div id="69b9dc90" class="cell" data-execution_count="19">
+<div id="cca9e8a8" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>inter_xgb <span class="op">=</span> xgb_mod.get_booster().predict(</span>
@@ -1630,7 +1630,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="violin-plot-for-a-single-feature" class="level3" data-number="22.7.7">
 <h3 data-number="22.7.7" class="anchored" data-anchor-id="violin-plot-for-a-single-feature"><span class="header-section-number">22.7.7</span> Violin plot for a single feature</h3>
 <p>The violin is a compact per-feature view that overlays the kernel density of SHAP values on the bar. It is useful for boards that prefer a single-figure summary of each feature’s contribution.</p>
-<div id="1d86f9a0" class="cell" data-execution_count="20">
+<div id="1785ebde" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1653,7 +1653,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="per-applicant-bar-local-summary" class="level3" data-number="22.7.8">
 <h3 data-number="22.7.8" class="anchored" data-anchor-id="per-applicant-bar-local-summary"><span class="header-section-number">22.7.8</span> Per-applicant bar (local summary)</h3>
 <p>The per-applicant bar is <code>shap.plots.bar(expl_xgb[i])</code> and renders the same information as the waterfall without the stepped baseline. It is the format many call-center tools show a rep because it takes less vertical space than the waterfall.</p>
-<div id="75fe0ca9" class="cell" data-execution_count="21">
+<div id="3d059366" class="cell" data-execution_count="21">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1669,7 +1669,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="partial-dependence-with-shap-overlay" class="level3" data-number="22.7.9">
 <h3 data-number="22.7.9" class="anchored" data-anchor-id="partial-dependence-with-shap-overlay"><span class="header-section-number">22.7.9</span> Partial dependence with SHAP overlay</h3>
 <p><code>shap.plots.partial_dependence</code> plots the classical partial dependence curve <span class="citation" data-cites="friedman2001greedy">(<a href="11-trees-rules.html#ref-friedman2001greedy" role="doc-biblioref">Friedman, 2001</a>)</span> and overlays SHAP for a given applicant, aligning the two attributions on the same axis. This is the single most effective visualization for challenging a compliance reviewer who is suspicious that SHAP and PDP disagree: on a correctly behaving model they coincide on main effects and diverge only where interactions dominate.</p>
-<div id="3c99afa1" class="cell" data-execution_count="22">
+<div id="8b067ba0" class="cell" data-execution_count="22">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> predict_log_odds(X):</span>
@@ -1703,7 +1703,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="ice-plot-individual-conditional-expectation" class="level3" data-number="22.7.10">
 <h3 data-number="22.7.10" class="anchored" data-anchor-id="ice-plot-individual-conditional-expectation"><span class="header-section-number">22.7.10</span> ICE plot (individual conditional expectation)</h3>
 <p>ICE keeps one line per applicant, exposing heterogeneity that PDP averages away <span class="citation" data-cites="goldstein2015peeking">(<a href="11-trees-rules.html#ref-goldstein2015peeking" role="doc-biblioref">Goldstein et al., 2015</a>)</span>. An ICE plot of <code>PAY_0</code> that shows a subset of lines sloping flat while most slope upward is a signal that the model predicts default on payment delinquency only for some segments. In credit, this usually traces to an interaction with <code>LIMIT_BAL</code> or <code>AGE</code>.</p>
-<div id="f01d9166" class="cell" data-execution_count="23">
+<div id="21c26a1a" class="cell" data-execution_count="23">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.arange(<span class="op">-</span><span class="dv">2</span>, <span class="dv">9</span>)</span>
@@ -1742,7 +1742,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.810</code></pre>
 <section id="taiwan-reason-codes" class="level3" data-number="22.8.1">
 <h3 data-number="22.8.1" class="anchored" data-anchor-id="taiwan-reason-codes"><span class="header-section-number">22.8.1</span> Taiwan reason codes</h3>
 <p>Use the XGBoost TreeSHAP output from the previous section. The reason-code table groups raw features into compliance-friendly phrases.</p>
-<div id="a07e856b" class="cell" data-execution_count="24">
+<div id="ba7f9edc" class="cell" data-execution_count="24">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a>reason_table_tw <span class="op">=</span> {</span>
@@ -1812,7 +1812,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 <section id="german-reason-codes" class="level3" data-number="22.8.2">
 <h3 data-number="22.8.2" class="anchored" data-anchor-id="german-reason-codes"><span class="header-section-number">22.8.2</span> German reason codes</h3>
 <p>The German dataset is smaller and has a different feature taxonomy, but the pipeline is identical. We one-hot-encode the categorical variables for XGBoost and re-aggregate the SHAP values back to the original feature groups so that the reason-code table matches the data dictionary.</p>
-<div id="0add44fe" class="cell" data-execution_count="25">
+<div id="35339e4a" class="cell" data-execution_count="25">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>g <span class="op">=</span> load_german_credit().copy()</span>
@@ -1852,7 +1852,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 </div>
 </div>
 <p>For German, reason-code groups reflect the original (pre-dummy) variables. A helper folds the dummy-column SHAP values back to the parent feature.</p>
-<div id="09bf3e93" class="cell" data-execution_count="26">
+<div id="6cb007eb" class="cell" data-execution_count="26">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb49"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fold_dummies(shap_mat, feats_enc, cat_cols, num_cols):</span>
@@ -1926,7 +1926,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 <section id="fidelity-diagnostics" class="level3" data-number="22.8.3">
 <h3 data-number="22.8.3" class="anchored" data-anchor-id="fidelity-diagnostics"><span class="header-section-number">22.8.3</span> Fidelity diagnostics</h3>
 <p>Two diagnostics are run on the XGBoost Taiwan model: top-<span class="math inline">\(k\)</span> ablation fidelity (replacing the top-<span class="math inline">\(k\)</span> features by the training median must drop the margin more than replacing the bottom-<span class="math inline">\(k\)</span>), and seed stability (retraining with three seeds and comparing global rank).</p>
-<div id="42434e4e" class="cell" data-execution_count="27">
+<div id="d709d8a9" class="cell" data-execution_count="27">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a>medians_tw <span class="op">=</span> Xtr_tw.median().to_dict()</span>
@@ -1957,7 +1957,7 @@ Ratio (higher = SHAP picks important features): 14.7x</code></pre>
 </div>
 </div>
 <p>The ratio typically exceeds 10x on Taiwan, confirming that SHAP’s top features are indeed the ones the model relies on. If the ratio is below 2x on a production model, SHAP attributions are not discriminating, and the reason-code pipeline should not be trusted until the model is debugged.</p>
-<div id="0a9ce18c" class="cell" data-execution_count="28">
+<div id="d3661c0a" class="cell" data-execution_count="28">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb53"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> train_seed(s):</span>
@@ -2002,7 +2002,7 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.954</code></pre>
 <section id="advanced-attribution-dependence-and-interactions" class="level2" data-number="22.10">
 <h2 data-number="22.10" class="anchored" data-anchor-id="advanced-attribution-dependence-and-interactions"><span class="header-section-number">22.10</span> Advanced attribution: dependence and interactions</h2>
 <p>TreeSHAP also supports pairwise interaction attributions via <code>pred_interactions=True</code>. The returned matrix <span class="math inline">\(\Phi \in \mathbb{R}^{n \times (d+1) \times (d+1)}\)</span> decomposes each row’s log-odds margin into a sum of main effects and interactions.</p>
-<div id="541266a8" class="cell" data-execution_count="29">
+<div id="4ddddd9a" class="cell" data-execution_count="29">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>inter <span class="op">=</span> xgb_mod.get_booster().predict(</span>
@@ -2039,7 +2039,7 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.954</code></pre>
 <section id="sampled-treeshap" class="level3" data-number="22.11.1">
 <h3 data-number="22.11.1" class="anchored" data-anchor-id="sampled-treeshap"><span class="header-section-number">22.11.1</span> Sampled TreeSHAP</h3>
 <p>The full TreeSHAP path-enumeration cost is <span class="math inline">\(O(T L D^2)\)</span> per row. For very deep trees, <span class="citation" data-cites="lundberg2020local">Lundberg et al. (<a href="11-trees-rules.html#ref-lundberg2020local" role="doc-biblioref">2020</a>)</span> discuss a sampled variant (<code>feature_perturbation="interventional"</code> with a background subsample) whose variance shrinks as <span class="math inline">\(O(1/N_{\text{bg}})\)</span>. The practitioner tunes <span class="math inline">\(N_{\text{bg}}\)</span> to trade latency for stability.</p>
-<div id="c64249d5" class="cell" data-execution_count="30">
+<div id="20a94c1f" class="cell" data-execution_count="30">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb57"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
@@ -2072,7 +2072,7 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.954</code></pre>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>path-dependent TreeSHAP (native, 200 rows): 0.024s
-interventional TreeSHAP (bg=100, loop): 2.32s
+interventional TreeSHAP (bg=100, loop): 2.33s
 mean |sv_path - sv_int| = 0.0000</code></pre>
 </div>
 </div>
@@ -2081,7 +2081,7 @@ mean |sv_path - sv_int| = 0.0000</code></pre>
 <section id="parallel-kernelshap-with-dask" class="level3" data-number="22.11.2">
 <h3 data-number="22.11.2" class="anchored" data-anchor-id="parallel-kernelshap-with-dask"><span class="header-section-number">22.11.2</span> Parallel KernelSHAP with Dask</h3>
 <p>For a non-tree model (a neural network, an SVM, a blended ensemble), KernelSHAP is the fallback. The per-row cost is <span class="math inline">\(M\)</span> model evaluations, and rows are independent, so the embarrassingly parallel pattern is to distribute rows across workers.</p>
-<div id="361ad816" class="cell" data-execution_count="31">
+<div id="502137c7" class="cell" data-execution_count="31">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb59"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
@@ -3090,13 +3090,13 @@ Young, H. P. (1985). Monotonic solutions of cooperative games. <em>International
 <span id="cb63-63"><a href="#cb63-63" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-64"><a href="#cb63-64" aria-hidden="true" tabindex="-1"></a>$$</span>
 <span id="cb63-65"><a href="#cb63-65" aria-hidden="true" tabindex="-1"></a>\phi_j(v_x) = \sum_{S \subseteq <span class="co">[</span><span class="ot">d</span><span class="co">]</span> \setminus <span class="sc">\{</span>j<span class="sc">\}</span>} \frac{|S|! (d-|S|-1)!}{d!} \bigl<span class="co">[</span><span class="ot"> v_x(S \cup \{j\}) - v_x(S) \bigr</span><span class="co">]</span>.</span>
-<span id="cb63-66"><a href="#cb63-66" aria-hidden="true" tabindex="-1"></a>$$ {#eq-shapley}</span>
+<span id="cb63-66"><a href="#cb63-66" aria-hidden="true" tabindex="-1"></a>$$ {#eq-ch22-shapley}</span>
 <span id="cb63-67"><a href="#cb63-67" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-68"><a href="#cb63-68" aria-hidden="true" tabindex="-1"></a>Equivalently, $\phi_j$ is the expected marginal contribution of $j$ over a uniformly random permutation of the features. The weights $w(S) = |S|!(d-|S|-1)!/d!$ are the probabilities under that permutation that exactly the features in $S$ appear before $j$.</span>
 <span id="cb63-69"><a href="#cb63-69" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-70"><a href="#cb63-70" aria-hidden="true" tabindex="-1"></a><span class="fu">### Axioms {#sec-ch22-axioms}</span></span>
 <span id="cb63-71"><a href="#cb63-71" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb63-72"><a href="#cb63-72" aria-hidden="true" tabindex="-1"></a>@shapley1953value proved that $\phi$ defined by @eq-shapley is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.</span>
+<span id="cb63-72"><a href="#cb63-72" aria-hidden="true" tabindex="-1"></a>@shapley1953value proved that $\phi$ defined by @eq-ch22-shapley is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.</span>
 <span id="cb63-73"><a href="#cb63-73" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-74"><a href="#cb63-74" aria-hidden="true" tabindex="-1"></a>**Efficiency.** The attributions sum to the total gain of the game:</span>
 <span id="cb63-75"><a href="#cb63-75" aria-hidden="true" tabindex="-1"></a></span>
@@ -3148,19 +3148,19 @@ Young, H. P. (1985). Monotonic solutions of cooperative games. <em>International
 <span id="cb63-121"><a href="#cb63-121" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-122"><a href="#cb63-122" aria-hidden="true" tabindex="-1"></a><span class="fu">### KernelSHAP as weighted least squares</span></span>
 <span id="cb63-123"><a href="#cb63-123" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb63-124"><a href="#cb63-124" aria-hidden="true" tabindex="-1"></a>@lundberg2017unified recast @eq-shapley as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate $g(z) = \phi_0 + \sum_j \phi_j z_j$ on $z \in <span class="sc">\{</span>0, 1<span class="sc">\}</span>^d$, where $z_j = 1$ means feature $j$ is present in the coalition. Define the Shapley kernel</span>
+<span id="cb63-124"><a href="#cb63-124" aria-hidden="true" tabindex="-1"></a>@lundberg2017unified recast @eq-ch22-shapley as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate $g(z) = \phi_0 + \sum_j \phi_j z_j$ on $z \in <span class="sc">\{</span>0, 1<span class="sc">\}</span>^d$, where $z_j = 1$ means feature $j$ is present in the coalition. Define the Shapley kernel</span>
 <span id="cb63-125"><a href="#cb63-125" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-126"><a href="#cb63-126" aria-hidden="true" tabindex="-1"></a>$$</span>
 <span id="cb63-127"><a href="#cb63-127" aria-hidden="true" tabindex="-1"></a>\pi_x(z) = \frac{d - 1}{\binom{d}{|z|} |z| (d - |z|)},</span>
-<span id="cb63-128"><a href="#cb63-128" aria-hidden="true" tabindex="-1"></a>$$ {#eq-shapkernel}</span>
+<span id="cb63-128"><a href="#cb63-128" aria-hidden="true" tabindex="-1"></a>$$ {#eq-ch22-shapkernel}</span>
 <span id="cb63-129"><a href="#cb63-129" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-130"><a href="#cb63-130" aria-hidden="true" tabindex="-1"></a>and the map $h_x : <span class="sc">\{</span>0,1<span class="sc">\}</span>^d \to \mathbb{R}^d$ that replaces absent features by draws from a reference distribution. Solve</span>
 <span id="cb63-131"><a href="#cb63-131" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-132"><a href="#cb63-132" aria-hidden="true" tabindex="-1"></a>$$</span>
 <span id="cb63-133"><a href="#cb63-133" aria-hidden="true" tabindex="-1"></a>\min_{\phi} \sum_{z \in <span class="sc">\{</span>0,1<span class="sc">\}</span>^d} \pi_x(z) \left<span class="co">[</span><span class="ot"> f\!\left(h_x(z)\right) - g(z) \right</span><span class="co">]</span>^2.</span>
-<span id="cb63-134"><a href="#cb63-134" aria-hidden="true" tabindex="-1"></a>$$ {#eq-kernelshap}</span>
+<span id="cb63-134"><a href="#cb63-134" aria-hidden="true" tabindex="-1"></a>$$ {#eq-ch22-kernelshap}</span>
 <span id="cb63-135"><a href="#cb63-135" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb63-136"><a href="#cb63-136" aria-hidden="true" tabindex="-1"></a>Theorem 2 of @lundberg2017unified shows that the minimizer of @eq-kernelshap coincides with the Shapley values under the value function in @eq-valuefn, provided $h_x$ implements the interventional game. The kernel in @eq-shapkernel is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.</span>
+<span id="cb63-136"><a href="#cb63-136" aria-hidden="true" tabindex="-1"></a>Theorem 2 of @lundberg2017unified shows that the minimizer of @eq-ch22-kernelshap coincides with the Shapley values under the value function in @eq-valuefn, provided $h_x$ implements the interventional game. The kernel in @eq-ch22-shapkernel is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.</span>
 <span id="cb63-137"><a href="#cb63-137" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-138"><a href="#cb63-138" aria-hidden="true" tabindex="-1"></a>Because $\pi_x(z) \to \infty$ for $|z| = 0$ and $|z| = d$, the normal equations enforce two boundary conditions: $g(\mathbf{0}) = \mathbb{E}<span class="co">[</span><span class="ot">f(X)</span><span class="co">]</span>$ and $g(\mathbf{1}) = f(x)$. Substituting these into the weighted least squares problem reduces it to a constrained quadratic in $\phi_1, \dots, \phi_d$. The closed-form solution, after algebraic manipulation of $\binom{d}{|z|}$ weightings, is the Shapley vector. In practice the infinite weights are handled by using those two constraints directly and solving a finite-weight problem on the interior coalitions.</span>
 <span id="cb63-139"><a href="#cb63-139" aria-hidden="true" tabindex="-1"></a></span>
@@ -3172,7 +3172,7 @@ Young, H. P. (1985). Monotonic solutions of cooperative games. <em>International
 <span id="cb63-145"><a href="#cb63-145" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-146"><a href="#cb63-146" aria-hidden="true" tabindex="-1"></a>Interventional TreeSHAP uses a supplied background dataset instead of the training fractions. For each background row $x^{\text{bg}}$, it effectively runs the path rule but with the branch probabilities at each split determined by whether $x^{\text{bg}}_j$ or $x_j$ routes to that branch. @lundberg2020local prove that averaging TreeSHAP attributions over a background dataset yields the Shapley values under the interventional game.</span>
 <span id="cb63-147"><a href="#cb63-147" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb63-148"><a href="#cb63-148" aria-hidden="true" tabindex="-1"></a>The naive path-enumeration cost is $O(T 2^d)$ per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to $O(T L D^2)$ per row per tree and $O(N_{\text{bg}} T L D^2)$ when averaged over a background set of size $N_{\text{bg}}$. For a typical XGBoost credit model with $T = 500$ trees of depth 6 and $L \approx 50$ leaves, the per-row cost is dominated by $T L D \approx 90{,}000$ operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.</span>
+<span id="cb63-148"><a href="#cb63-148" aria-hidden="true" tabindex="-1"></a>The naive path-enumeration cost is $O(T 2^d)$ per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to $O(T L D^2)$ per row per tree and $O(N_{\text{bg}} T L D^2)$ when averaged over a background set of size $N_{\text{bg}}$. For a typical XGBoost credit model with $T = 500$ trees of depth 6 and $L \approx 50$ leaves, the per-row cost is dominated by $T L D \approx 90,000$ operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.</span>
 <span id="cb63-149"><a href="#cb63-149" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb63-150"><a href="#cb63-150" aria-hidden="true" tabindex="-1"></a><span class="fu">### Baseline choice</span></span>
 <span id="cb63-151"><a href="#cb63-151" aria-hidden="true" tabindex="-1"></a></span>

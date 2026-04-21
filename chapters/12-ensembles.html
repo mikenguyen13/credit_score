@@ -1117,7 +1117,7 @@ w_j^{\star} = -\frac{G_j}{H_j + \lambda}, \qquad \tilde{\mathcal{L}}^{\star} = -
 <section id="implementation-from-scratch-gradient-boosting-on-logistic-loss" class="level2" data-number="12.9">
 <h2 data-number="12.9" class="anchored" data-anchor-id="implementation-from-scratch-gradient-boosting-on-logistic-loss"><span class="header-section-number">12.9</span> Implementation from scratch: gradient boosting on logistic loss</h2>
 <p>We implement the minimal Friedman 2001 gradient booster for binary classification, then check it against sklearn’s GradientBoostingClassifier on the same data. The base learner is a depth-limited CART regressor. Leaf values use the Newton update in (<a href="#eq-newton-leaf" class="quarto-xref">Eq.&nbsp;<span>12.11</span></a>).</p>
-<div id="54bbfc5f" class="cell" data-execution_count="1">
+<div id="a94e91d8" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
@@ -1200,7 +1200,7 @@ w_j^{\star} = -\frac{G_j}{H_j + \lambda}, \qquad \tilde{\mathcal{L}}^{\star} = -
 </details>
 </div>
 <p>Now we benchmark against <code>sklearn.ensemble.GradientBoostingClassifier</code> on the Taiwan default data. We fix the same hyperparameters. The scratch model should land within a fraction of a percentage point of sklearn AUC.</p>
-<div id="605fe4d4" class="cell" data-execution_count="2">
+<div id="cabc7806" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>tw <span class="op">=</span> load_taiwan_default()</span>
@@ -1247,7 +1247,7 @@ sklearn KS: 0.4343</code></pre>
 <section id="why-shrinkage-matters" class="level3" data-number="12.9.1">
 <h3 data-number="12.9.1" class="anchored" data-anchor-id="why-shrinkage-matters"><span class="header-section-number">12.9.1</span> Why shrinkage matters</h3>
 <p>The same scratch implementation with shrinkage disabled (<code>learning_rate = 1.0</code>) overfits rapidly.</p>
-<div id="13e9c17f" class="cell" data-execution_count="3">
+<div id="3d862847" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>no_shrink <span class="op">=</span> ScratchGBLogistic(</span>
@@ -1270,7 +1270,7 @@ No-shrinkage Brier: 0.1484</code></pre>
 <section id="the-standard-library-calls" class="level2" data-number="12.10">
 <h2 data-number="12.10" class="anchored" data-anchor-id="the-standard-library-calls"><span class="header-section-number">12.10</span> The standard library calls</h2>
 <p>We show the main production APIs side by side on the Taiwan data. Same split, same hyperparameter budget, seed 42. Each block finishes within a few seconds on a laptop.</p>
-<div id="90a9bd43" class="cell" data-execution_count="4">
+<div id="adfa7aac" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
@@ -1351,20 +1351,20 @@ No-shrinkage Brier: 0.1484</code></pre>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>         model      AUC       KS    Brier  fit_s
-      catboost 0.779474 0.431108 0.133110   0.68
-    sklearn-GB 0.777522 0.432713 0.133737  17.75
-sklearn-HistGB 0.776306 0.427080 0.133641   1.07
-       xgboost 0.774199 0.424752 0.134189   0.39
- random-forest 0.774165 0.427760 0.134110   5.92
-      lightgbm 0.769192 0.408031 0.135649   1.31
-  bagging-tree 0.765515 0.418156 0.134711   5.13</code></pre>
+      catboost 0.779474 0.431108 0.133110   0.82
+    sklearn-GB 0.777522 0.432713 0.133737  17.87
+sklearn-HistGB 0.776306 0.427080 0.133641   0.67
+       xgboost 0.774199 0.424752 0.134189   0.40
+ random-forest 0.774165 0.427760 0.134110   5.91
+      lightgbm 0.769192 0.408031 0.135649   1.26
+  bagging-tree 0.765515 0.418156 0.134711   5.31</code></pre>
 </div>
 </div>
 <p>Seven models, one consistent split. Expect random forest and XGBoost to be within a single AUC point of each other on Taiwan, with HistGB and LightGBM close behind. CatBoost runs longer because of its default permutation machinery.</p>
 <section id="stacking" class="level3" data-number="12.10.1">
 <h3 data-number="12.10.1" class="anchored" data-anchor-id="stacking"><span class="header-section-number">12.10.1</span> Stacking</h3>
 <p>Stacking, due to <span class="citation" data-cites="wolpert1992stacked">Wolpert (<a href="11-trees-rules.html#ref-wolpert1992stacked" role="doc-biblioref">1992</a>)</span> and <span class="citation" data-cites="breiman1996stacked">Breiman (<a href="11-trees-rules.html#ref-breiman1996stacked" role="doc-biblioref">1996c</a>)</span>, fits a meta-model on the out-of-fold predictions of a base layer. The right way to fit the base layer is with cross-validated predictions, not in-sample predictions, otherwise the meta-model learns to trust the base learners’ training fit. <code>StackingClassifier</code> in sklearn enforces cross-validation by default.</p>
-<div id="6da7a757" class="cell" data-execution_count="5">
+<div id="b1a754d4" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> StackingClassifier</span>
@@ -1390,7 +1390,7 @@ sklearn-HistGB 0.776306 0.427080 0.133641   1.07
 <span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"stack AUC: </span><span class="sc">{</span>roc_auc_score(yte, p_stack)<span class="sc">:.4f}</span><span class="ss">  time: </span><span class="sc">{</span>time<span class="sc">.</span>time()<span class="op">-</span>t0<span class="sc">:.1f}</span><span class="ss">s"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>stack AUC: 0.7765  time: 24.8s</code></pre>
+<pre><code>stack AUC: 0.7765  time: 30.4s</code></pre>
 </div>
 </div>
 <p>Stacking typically gives a small but measurable lift on credit data (0.001 to 0.003 AUC over the best individual booster), at a large cost in fitting time and a larger cost in model-risk review complexity. The common verdict in model-risk forums is that stacking is not worth it for production scorecards, and worth it only for a challenger benchmark.</p>
@@ -1400,7 +1400,7 @@ sklearn-HistGB 0.776306 0.427080 0.133641   1.07
 <section id="benchmark-on-real-data" class="level2" data-number="12.11">
 <h2 data-number="12.11" class="anchored" data-anchor-id="benchmark-on-real-data"><span class="header-section-number">12.11</span> Benchmark on real data</h2>
 <p>We extend the benchmark to include both Taiwan and German data with the same protocol, report AUC/KS/Brier, and plot calibration curves for the leading models.</p>
-<div id="e40d07bb" class="cell" data-execution_count="6">
+<div id="c46f30e6" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit</span>
@@ -1483,7 +1483,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="calibration-curves" class="level3" data-number="12.11.1">
 <h3 data-number="12.11.1" class="anchored" data-anchor-id="calibration-curves"><span class="header-section-number">12.11.1</span> Calibration curves</h3>
 <p>AUC measures ranking. Brier measures calibration plus ranking. For credit, you want both. We plot reliability curves for the Taiwan benchmark.</p>
-<div id="b5453287" class="cell" data-execution_count="7">
+<div id="bf687b63" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.calibration <span class="im">import</span> calibration_curve</span>
@@ -1539,7 +1539,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="lightgbm-distributed-training" class="level3" data-number="12.12.1">
 <h3 data-number="12.12.1" class="anchored" data-anchor-id="lightgbm-distributed-training"><span class="header-section-number">12.12.1</span> LightGBM distributed training</h3>
 <p>LightGBM supports two parallel modes. Feature parallel splits the feature space across workers, then gathers the best split. Data parallel splits the rows, builds local histograms, then all-reduces them. Voting parallel is a variant of data parallel that reduces communication by voting on top features before all-reducing. The default for large <span class="math inline">\(n\)</span> and moderate <span class="math inline">\(p\)</span> is data parallel. The practical setup is a handful of machines connected through MPI or socket. <code>lightgbm.dask</code> exposes this through Dask futures.</p>
-<div id="0f3af69d" class="cell" data-execution_count="8">
+<div id="49ae744f" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Conceptual sketch only. Do not execute in a constrained notebook block.</span></span>
@@ -1560,7 +1560,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="spark-mllib" class="level3" data-number="12.12.2">
 <h3 data-number="12.12.2" class="anchored" data-anchor-id="spark-mllib"><span class="header-section-number">12.12.2</span> Spark MLlib</h3>
 <p>Spark MLlib ships a GBTClassifier that is algorithmically close to <span class="citation" data-cites="friedman2001greedy">Friedman (<a href="11-trees-rules.html#ref-friedman2001greedy" role="doc-biblioref">2001</a>)</span> but without the second-order objective or histogram speedup. For portfolios already in a Spark lake, GBTClassifier is convenient. For most other cases, exporting the Spark sample to parquet and training with LightGBM is faster and more accurate. The same applies to Spark RandomForestClassifier.</p>
-<div id="cf096c0a" class="cell" data-execution_count="9">
+<div id="a4a3a6b9" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Spark sketch. Pseudo-code.</span></span>
@@ -1578,7 +1578,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="dask-ml" class="level3" data-number="12.12.3">
 <h3 data-number="12.12.3" class="anchored" data-anchor-id="dask-ml"><span class="header-section-number">12.12.3</span> Dask-ML</h3>
 <p>Dask-ML does not parallelize a single boosted tree fit; it parallelizes hyperparameter search over model fits. A typical credit workflow is to run Optuna or sklearn’s HalvingRandomSearchCV across a Dask cluster, training LightGBM on a feature-store sample in each worker.</p>
-<div id="ab9e3d52" class="cell" data-execution_count="10">
+<div id="c1bbb2d1" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Dask-ML and Optuna sketch.</span></span>
@@ -1615,7 +1615,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="onnx-export" class="level3" data-number="12.13.1">
 <h3 data-number="12.13.1" class="anchored" data-anchor-id="onnx-export"><span class="header-section-number">12.13.1</span> ONNX export</h3>
 <p>ONNX is the neutral serialization format supported by most ML serving stacks. <code>onnxmltools</code> converts XGBoost, LightGBM, and sklearn models to ONNX, which can then run under onnxruntime (C++/Python) or onnxruntime-web.</p>
-<div id="5e3617a8" class="cell" data-execution_count="11">
+<div id="43b4d31c" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Conceptual export. ONNX tools pin old sklearn versions and can conflict.</span></span>
@@ -1637,7 +1637,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="fastapi-wrapper" class="level3" data-number="12.13.2">
 <h3 data-number="12.13.2" class="anchored" data-anchor-id="fastapi-wrapper"><span class="header-section-number">12.13.2</span> FastAPI wrapper</h3>
 <p>For low-throughput internal scoring, a Python FastAPI wrapper around a saved booster is enough. Beyond a few hundred RPS, move to ONNX plus a Go or C++ server.</p>
-<div id="5b4db556" class="cell" data-execution_count="12">
+<div id="a9705c72" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># FastAPI sketch (do not execute here).</span></span>
@@ -1663,7 +1663,7 @@ random-forest 0.778691 0.497418 0.167351
 <section id="mlflow-logging" class="level3" data-number="12.13.3">
 <h3 data-number="12.13.3" class="anchored" data-anchor-id="mlflow-logging"><span class="header-section-number">12.13.3</span> MLflow logging</h3>
 <p>MLflow is the standard for experiment tracking and for pushing to a model registry that a serving layer can pull from.</p>
-<div id="20ba2eda" class="cell" data-execution_count="13">
+<div id="827f11ba" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># import mlflow, mlflow.lightgbm</span></span>
@@ -1692,7 +1692,7 @@ random-forest 0.778691 0.497418 0.167351
 <p>A boosted ensemble is an opaque model in the sense meant by SR 11-7 <span class="citation" data-cites="sr117ensembles">(<a href="11-trees-rules.html#ref-sr117ensembles" role="doc-biblioref">Board of Governors of the Federal Reserve System and Office of the Comptroller of the Currency, 2011</a>)</span>. The guidance does not prohibit opacity. It requires effective challenge, which translates into four operational demands.</p>
 <p>First, the model must be explainable at the individual decision level. ECOA and Regulation B require an adverse action reason code when a consumer is denied. A booster with five hundred trees cannot supply a reason code out of the box. The conventional fix is SHAP values: compute TreeSHAP at score time, take the two or three features with the largest negative contributions, and map them to reason code templates. See <a href="21-xai.html" class="quarto-xref"><span>Chapter 21</span></a> and <a href="22-shap-practice.html" class="quarto-xref"><span>Chapter 22</span></a> for the detailed treatment and the practical gotchas (colinearity, base-rate contribution, path dependence).</p>
 <p>Second, for IRB portfolios under the Basel framework and the EBA guidelines <span class="citation" data-cites="eba2017irb">(<a href="11-trees-rules.html#ref-eba2017irb" role="doc-biblioref">European Banking Authority, 2017</a>)</span>, probability of default estimates must be monotone in certain risk drivers. Utilization, past due days, and age of delinquency are examples. A vanilla gradient-boosted tree is not monotone in any feature: each tree is monotone only along its root-to-leaf path, and averaging can break monotonicity even when each tree respects it. Modern libraries expose monotonic constraints that restrict the split finder to moves that preserve a specified direction. XGBoost, LightGBM, and CatBoost all support this.</p>
-<div id="5e84366b" class="cell" data-execution_count="14">
+<div id="b68bcdf8" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Monotonic constraint example. Enforce monotone non-decreasing PD in</span></span>
@@ -1735,7 +1735,7 @@ monotone LGBM KS: 0.4294</code></pre>
 <section id="early-stopping" class="level3" data-number="12.15.1">
 <h3 data-number="12.15.1" class="anchored" data-anchor-id="early-stopping"><span class="header-section-number">12.15.1</span> Early stopping</h3>
 <p>Every production booster fit should use early stopping on a validation fold. A typical pattern: hold out 20 percent of training as validation, set <code>n_estimators</code> to a large number (1000 to 5000), and set <code>early_stopping_rounds = 50</code>. The fitted number of rounds is then driven by validation loss rather than by a fixed hyperparameter.</p>
-<div id="4fdce022" class="cell" data-execution_count="15">
+<div id="5a8fc248" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Early stopping with LightGBM.</span></span>
@@ -1783,7 +1783,7 @@ AUC: 0.7770</code></pre>
 <section id="feature-interaction-constraints" class="level3" data-number="12.15.4">
 <h3 data-number="12.15.4" class="anchored" data-anchor-id="feature-interaction-constraints"><span class="header-section-number">12.15.4</span> Feature interaction constraints</h3>
 <p>Beyond monotonicity, both XGBoost and LightGBM support feature interaction constraints: a list of feature groups such that, within a single tree, splits can only use features from one group. This helps when a regulator requires that, for instance, age never interact with income in the model’s functional form. The resulting model is additive across groups, closer in structure to a generalized additive model, and easier to explain.</p>
-<div id="6522d0b2" class="cell" data-execution_count="16">
+<div id="2d9f3178" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Illustration: disallow interactions between PAY_0 and the AMT features.</span></span>
@@ -1827,7 +1827,7 @@ AUC: 0.7770</code></pre>
 <section id="extended-benchmark-challenger-versus-scorecard-on-taiwan" class="level2" data-number="12.17">
 <h2 data-number="12.17" class="anchored" data-anchor-id="extended-benchmark-challenger-versus-scorecard-on-taiwan"><span class="header-section-number">12.17</span> Extended benchmark: challenger versus scorecard on Taiwan</h2>
 <p>To quantify the challenger-versus-scorecard decision, we fit a logistic scorecard (<a href="07-logistic-scorecard.html" class="quarto-xref"><span>Chapter 7</span></a>) on the Taiwan data and compare its AUC, KS, Brier, and calibration to the best boosted ensemble.</p>
-<div id="79b4b588" class="cell" data-execution_count="17">
+<div id="25e8d4ae" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.preprocessing <span class="im">import</span> StandardScaler</span>
@@ -1868,7 +1868,7 @@ logistic-scorecard 0.725679 0.386390 0.143491
 <section id="a-worked-example-boosted-model-with-reason-codes" class="level2" data-number="12.18">
 <h2 data-number="12.18" class="anchored" data-anchor-id="a-worked-example-boosted-model-with-reason-codes"><span class="header-section-number">12.18</span> A worked example: boosted model with reason codes</h2>
 <p>We close the benchmark section with a worked example. We fit a booster, compute TreeSHAP on a sample of high-risk applicants, and identify the top two positive-contribution features that would map to reason codes. Details of SHAP are in <a href="22-shap-practice.html" class="quarto-xref"><span>Chapter 22</span></a>; we rely only on the API here.</p>
-<div id="34bd7625" class="cell" data-execution_count="18">
+<div id="c6afcb74" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
@@ -1966,7 +1966,7 @@ applicant 5856: PD=0.907 top drivers: ['PAY_0', 'PAY_6']</code></pre>
 <p>Stacking is often presented as a black-box layered model. The meta-learner choice is in fact consequential. <span class="citation" data-cites="breiman1996stacked">Breiman (<a href="11-trees-rules.html#ref-breiman1996stacked" role="doc-biblioref">1996c</a>)</span> argued that non-negative least squares is the right meta-learner for squared-error stacking, both for theoretical and empirical reasons: it cannot exceed the convex hull of the base predictions, which ensures the meta-model does not extrapolate.</p>
 <p>For classification with logistic loss, the natural analog is a constrained logistic regression with non-negative coefficients on the logit-transformed base predictions. sklearn’s <code>StackingClassifier</code> with <code>final_estimator=LogisticRegression()</code> uses unconstrained logistic regression, which can assign negative weights and extrapolate. For regulated credit, the constrained version is preferable because it cannot flip the sign of a well-calibrated base model.</p>
 <p>An alternative is to use a simple arithmetic mean of base probabilities. This is the “poor man’s stack”: simple, interpretable, hard to over-fit. For credit benchmarks, a simple mean of three or five boosted models with different random seeds often performs within 0.001 AUC of a fitted stack, at one tenth of the model-risk overhead.</p>
-<div id="b24088eb" class="cell" data-execution_count="19">
+<div id="e4824bdd" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simple blend of three boosters.</span></span>
@@ -2002,7 +2002,7 @@ Simple blend Brier: 0.1342</code></pre>
 <section id="learning-curves" class="level3" data-number="12.26.1">
 <h3 data-number="12.26.1" class="anchored" data-anchor-id="learning-curves"><span class="header-section-number">12.26.1</span> Learning curves</h3>
 <p>LightGBM exposes the per-round validation score through <code>eval_results</code>. Pull it out and plot loss against round index. A well-behaved booster shows monotone decreasing training loss and a validation loss that descends, flattens, and then rises (overfitting) or plateaus.</p>
-<div id="9a7b5b47" class="cell" data-execution_count="20">
+<div id="8567fc0f" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
@@ -2048,7 +2048,7 @@ Early stopping, best iteration is:
 <section id="oob-estimates-for-random-forests" class="level3" data-number="12.26.2">
 <h3 data-number="12.26.2" class="anchored" data-anchor-id="oob-estimates-for-random-forests"><span class="header-section-number">12.26.2</span> OOB estimates for random forests</h3>
 <p>Random forests provide out-of-bag error almost free. Each tree is fit on a bootstrap sample; observations not in that sample are scored by that tree. Averaging gives an unbiased out-of-sample estimate per observation.</p>
-<div id="c75561a4" class="cell" data-execution_count="21">
+<div id="5952e21a" class="cell" data-execution_count="21">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>rf_oob <span class="op">=</span> RandomForestClassifier(</span>
@@ -2076,7 +2076,7 @@ OOB AUC: 0.7821</code></pre>
 <p>Split-gain importance is the sum of (<a href="#eq-xgb-gain" class="quarto-xref">Eq.&nbsp;<span>12.17</span></a>) contributions across all splits that use a feature. It is cheap. It is biased toward high-cardinality continuous features and toward features used early in the tree.</p>
 <p>Permutation importance, introduced by <span class="citation" data-cites="breiman2001random">Breiman (<a href="11-trees-rules.html#ref-breiman2001random" role="doc-biblioref">2001</a>)</span>, measures the increase in loss when one feature is randomly shuffled. It requires a hold-out set and is less biased than split gain, but it is unstable for correlated features (the shuffled feature can be recovered from its correlated neighbor).</p>
 <p>TreeSHAP, from <a href="22-shap-practice.html" class="quarto-xref"><span>Chapter 22</span></a>, provides a consistent, locally accurate per-observation decomposition. The sum of absolute SHAP values per feature is the SHAP global importance. It is closest to what auditors want to see.</p>
-<div id="07193582" class="cell" data-execution_count="22">
+<div id="b7a59c86" class="cell" data-execution_count="22">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.inspection <span class="im">import</span> permutation_importance</span>
@@ -2158,7 +2158,7 @@ dtype: float64</code></pre>
 <h2 data-number="12.27" class="anchored" data-anchor-id="calibration-of-boosted-trees-the-case-for-post-hoc-isotonic"><span class="header-section-number">12.27</span> Calibration of boosted trees: the case for post-hoc isotonic</h2>
 <p>Random forests and boosters fit to logistic loss are not automatically calibrated. A random forest averages class probabilities across trees, each of which outputs a 0 or 1 estimate with high certainty on the leaf distribution; the average is biased toward 0.5. A booster fit with logistic loss tends to be sharper but can overshoot on tails when n_estimators is high. Both benefit from post-hoc calibration.</p>
 <p>We apply isotonic regression to the Taiwan LightGBM scores and show the Brier score drops.</p>
-<div id="f26bee55" class="cell" data-execution_count="23">
+<div id="0680f38d" class="cell" data-execution_count="23">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.isotonic <span class="im">import</span> IsotonicRegression</span>
@@ -2184,7 +2184,7 @@ AUC unchanged:       0.7756</code></pre>
 <section id="a-note-on-extremely-randomized-trees" class="level2" data-number="12.28">
 <h2 data-number="12.28" class="anchored" data-anchor-id="a-note-on-extremely-randomized-trees"><span class="header-section-number">12.28</span> A note on extremely randomized trees</h2>
 <p><span class="citation" data-cites="geurts2006extremely">Geurts et al. (<a href="11-trees-rules.html#ref-geurts2006extremely" role="doc-biblioref">2006</a>)</span> proposed extra-trees: instead of choosing the best split over a random subset of features, choose a random split for each of the subset features and take the best. The effect is to lower variance further at the cost of a small bias increase. On credit data, extra-trees typically trail random forests by 0.001 to 0.003 AUC on Taiwan. They are sometimes useful as a stacking base learner for diversity.</p>
-<div id="73463e1c" class="cell" data-execution_count="24">
+<div id="8e080de6" class="cell" data-execution_count="24">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> ExtraTreesClassifier</span>
@@ -2204,7 +2204,7 @@ AUC unchanged:       0.7756</code></pre>
 <h2 data-number="12.29" class="anchored" data-anchor-id="comparing-against-a-scorecard-net-present-value-of-a-switch"><span class="header-section-number">12.29</span> Comparing against a scorecard: net present value of a switch</h2>
 <p>A fifteen-year-old production scorecard is rarely replaced on AUC alone. The decision is economic. The typical calculation asks what a 1 percent to 2 percent AUC lift translates to in loan losses and approval volume at a fixed cutoff.</p>
 <p>Set up: a portfolio of <span class="math inline">\(N\)</span> applications per year, base default rate <span class="math inline">\(\pi\)</span>, expected loss per default <span class="math inline">\(L\)</span>, and expected profit per good <span class="math inline">\(P\)</span>. Under a scorecard with cutoff chosen to approve the top <span class="math inline">\(a\)</span> fraction of applicants, the expected number of defaults on approved is <span class="math inline">\(N \cdot a \cdot \pi_{\text{approved}}\)</span>, where <span class="math inline">\(\pi_{\text{approved}}\)</span> depends on the cutoff and the score’s KS.</p>
-<p>A crude first-order approximation: doubling KS (from 0.25 to 0.50) halves <span class="math inline">\(\pi_{\text{approved}}\)</span> at a fixed approval rate. A 3 KS-point improvement translates to roughly 5 to 8 percent reduction in bad rate at the same approval cutoff. On a portfolio with 100k approvals per year at 3 percent bad rate and <span class="math inline">\(L = \$5{,}000\)</span> per bad loan, that is a savings of 150 to 240 bad loans, or <span class="math inline">\(\$750{,}000\)</span> to <span class="math inline">\(\$1.2{\text{M}}\)</span> per year. Against that are the model-risk, explainability, and monitoring costs of running a boosted ensemble in production (one to three FTE equivalents at a mid-sized lender).</p>
+<p>A crude first-order approximation: doubling KS (from 0.25 to 0.50) halves <span class="math inline">\(\pi_{\text{approved}}\)</span> at a fixed approval rate. A 3 KS-point improvement translates to roughly 5 to 8 percent reduction in bad rate at the same approval cutoff. On a portfolio with 100k approvals per year at 3 percent bad rate and <span class="math inline">\(L = \$5,000\)</span> per bad loan, that is a savings of 150 to 240 bad loans, or <span class="math inline">\(\$750,000\)</span> to <span class="math inline">\(\$1.2{\text{M}}\)</span> per year. Against that are the model-risk, explainability, and monitoring costs of running a boosted ensemble in production (one to three FTE equivalents at a mid-sized lender).</p>
 <p>The break-even rule of thumb is that a boosted challenger is worth deploying if it adds 2 or more KS points over the incumbent at the operating cutoff, with Brier degradation under 0.002 after calibration. Less than that, the risk and reward are approximately even.</p>
 <hr>
 </section>
@@ -2213,7 +2213,7 @@ AUC unchanged:       0.7756</code></pre>
 <section id="dropout-in-boosting-dart" class="level3" data-number="12.30.1">
 <h3 data-number="12.30.1" class="anchored" data-anchor-id="dropout-in-boosting-dart"><span class="header-section-number">12.30.1</span> Dropout in boosting: DART</h3>
 <p><span class="citation" data-cites="friedman2002stochastic">Friedman (<a href="11-trees-rules.html#ref-friedman2002stochastic" role="doc-biblioref">2002</a>)</span> introduced subsampling. A further variant is Dropouts meet Multiple Additive Regression Trees (DART), which randomly drops trees during each boosting round. Under dropout, the new tree is fit on the residuals after the dropped trees are temporarily removed, then the new tree is scaled so the total contribution of surviving trees plus the new tree equals the contribution they would have had without dropout. DART reduces over-specialization of later trees and improves calibration on tails. LightGBM and XGBoost both support DART via <code>boosting_type="dart"</code>.</p>
-<div id="c210727c" class="cell" data-execution_count="25">
+<div id="60fb5b7b" class="cell" data-execution_count="25">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>dart <span class="op">=</span> lgb.LGBMClassifier(</span>
@@ -2235,7 +2235,7 @@ DART Brier: 0.1337</code></pre>
 <section id="quantile-regression-for-pd-intervals" class="level3" data-number="12.30.2">
 <h3 data-number="12.30.2" class="anchored" data-anchor-id="quantile-regression-for-pd-intervals"><span class="header-section-number">12.30.2</span> Quantile regression for PD intervals</h3>
 <p>A booster can be trained to predict a conditional quantile of the score distribution, not the mean. This is useful for stress testing and for expected-loss calculations under IFRS 9, where the 95th percentile of the loss distribution matters more than the mean. LightGBM exposes <code>objective="quantile"</code> with a chosen <code>alpha</code>. For classification, a more common pattern is to bootstrap the booster fit and report a nonparametric PD interval per applicant.</p>
-<div id="aff1b8c4" class="cell" data-execution_count="26">
+<div id="c3ef895e" class="cell" data-execution_count="26">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb49"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a>n_boot <span class="op">=</span> <span class="dv">10</span></span>
@@ -2275,7 +2275,7 @@ mean PD: 0.2215</code></pre>
 <h2 data-number="12.31" class="anchored" data-anchor-id="hyperparameter-optimization-bayesian-search-and-optuna"><span class="header-section-number">12.31</span> Hyperparameter optimization: Bayesian search and Optuna</h2>
 <p>Grid search over boosted-tree hyperparameters is a waste of compute. Random search is better. Bayesian optimization via Optuna or scikit-optimize is better still. For credit data of the size we consider in this chapter, a 40-trial Optuna run with the Tree-structured Parzen Estimator (TPE) sampler reaches within 0.0005 AUC of an exhaustive grid, with 5 percent of the compute.</p>
 <p>The hyperparameter space that matters for a booster: learning rate, number of leaves (or max depth), min data in leaf, subsample rate, column subsample rate, and the pair <span class="math inline">\((\lambda, \alpha)\)</span> for L2 and L1 regularization. Six dimensions. A TPE run with 40 to 80 trials is sufficient.</p>
-<div id="f4d497e2" class="cell" data-execution_count="27">
+<div id="d1803866" class="cell" data-execution_count="27">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Mini Optuna run kept short. For full production, run 100 to 400 trials.</span></span>
@@ -2327,7 +2327,7 @@ mean PD: 0.2215</code></pre>
 <section id="error-analysis-on-mispredicted-cases" class="level2" data-number="12.32">
 <h2 data-number="12.32" class="anchored" data-anchor-id="error-analysis-on-mispredicted-cases"><span class="header-section-number">12.32</span> Error analysis on mispredicted cases</h2>
 <p>After fitting, inspect the highest-confidence errors. A LightGBM on Taiwan that predicts PD 0.95 and the applicant did not default is either a data error (mislabeled target, delinquent but not charged off within the observation window) or a model error (rare pattern the booster does not understand). Both matter.</p>
-<div id="498598e2" class="cell" data-execution_count="28">
+<div id="6ad44831" class="cell" data-execution_count="28">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb53"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a>lgb_err <span class="op">=</span> lgb.LGBMClassifier(</span>
@@ -2371,7 +2371,7 @@ mean PAY_0 on TPs: 2.26</code></pre>
 <p>We have already generated items 3 through 5 in this chapter. Items 6 through 10 are standard and are covered in <a href="34-mlops-deployment.html" class="quarto-xref"><span>Chapter 38</span></a>.</p>
 <section id="a-concrete-monitoring-snippet" class="level3" data-number="12.33.1">
 <h3 data-number="12.33.1" class="anchored" data-anchor-id="a-concrete-monitoring-snippet"><span class="header-section-number">12.33.1</span> A concrete monitoring snippet</h3>
-<div id="52184152" class="cell" data-execution_count="29">
+<div id="24e1892f" class="cell" data-execution_count="29">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> psi</span>
@@ -2432,7 +2432,7 @@ monitor AUC: 0.7779</code></pre>
 <section id="a-cautionary-note-on-benchmark-reporting" class="level2" data-number="12.36">
 <h2 data-number="12.36" class="anchored" data-anchor-id="a-cautionary-note-on-benchmark-reporting"><span class="header-section-number">12.36</span> A cautionary note on benchmark reporting</h2>
 <p>The temptation when writing a chapter about boosting is to present a clean benchmark table with every model’s AUC at third-decimal precision. The resulting table looks authoritative. It is also misleading. Four practices close the gap between benchmark and reality.</p>
-<p>First, report seed variance. A single AUC number on a single split is a noisy estimate. At <span class="math inline">\(n = 10{,}000\)</span> test observations with AUC around 0.78, the standard deviation of the empirical AUC across seeds is about 0.002 for deterministic models and up to 0.005 for stochastic boosters. Any difference under 0.005 should be reported with a bootstrap confidence interval.</p>
+<p>First, report seed variance. A single AUC number on a single split is a noisy estimate. At <span class="math inline">\(n = 10,000\)</span> test observations with AUC around 0.78, the standard deviation of the empirical AUC across seeds is about 0.002 for deterministic models and up to 0.005 for stochastic boosters. Any difference under 0.005 should be reported with a bootstrap confidence interval.</p>
 <p>Second, fix the compute budget. A benchmark that lets CatBoost run for 1000 iterations while capping XGBoost at 200 is not a fair comparison. Either fix rounds, fix wall time, or report the full learning curve for every model.</p>
 <p>Second, use the same hyperparameter tuning budget for each library. <span class="citation" data-cites="lessmann2015benchmarking12">Lessmann et al. (<a href="11-trees-rules.html#ref-lessmann2015benchmarking12" role="doc-biblioref">2015b</a>)</span> make this explicit in their protocol: equal Optuna trials per model. A boosted model that was hand-tuned beats one that was not, regardless of the underlying algorithm.</p>
 <p>Fourth, do not interpret a tie as evidence of parity. A tie at second-decimal AUC on a single benchmark could hide material differences in calibration, monotonicity compliance, feature importance stability, or fit time. A full Pareto analysis is more informative than a single number.</p>
@@ -2510,7 +2510,7 @@ monitor AUC: 0.7779</code></pre>
 <section id="full-worked-benchmark-with-monotonicity-calibration-and-shap" class="level2" data-number="12.44">
 <h2 data-number="12.44" class="anchored" data-anchor-id="full-worked-benchmark-with-monotonicity-calibration-and-shap"><span class="header-section-number">12.44</span> Full worked benchmark with monotonicity, calibration, and SHAP</h2>
 <p>We conclude with one consolidated snippet that fits a LightGBM with monotone constraints on Taiwan, applies isotonic calibration on out-of-fold predictions via sklearn’s CalibratedClassifierCV, and reports the full metric suite.</p>
-<div id="615f2bc1" class="cell" data-execution_count="30">
+<div id="d972255e" class="cell" data-execution_count="30">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb57"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.calibration <span class="im">import</span> CalibratedClassifierCV</span>
@@ -4431,7 +4431,7 @@ Zhang, T., &amp; Yu, B. (2005). Boosting with early stopping: Convergence and co
 <span id="cb59-1253"><a href="#cb59-1253" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb59-1254"><a href="#cb59-1254" aria-hidden="true" tabindex="-1"></a>Set up: a portfolio of $N$ applications per year, base default rate $\pi$, expected loss per default $L$, and expected profit per good $P$. Under a scorecard with cutoff chosen to approve the top $a$ fraction of applicants, the expected number of defaults on approved is $N \cdot a \cdot \pi_{\text{approved}}$, where $\pi_{\text{approved}}$ depends on the cutoff and the score's KS.</span>
 <span id="cb59-1255"><a href="#cb59-1255" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-1256"><a href="#cb59-1256" aria-hidden="true" tabindex="-1"></a>A crude first-order approximation: doubling KS (from 0.25 to 0.50) halves $\pi_{\text{approved}}$ at a fixed approval rate. A 3 KS-point improvement translates to roughly 5 to 8 percent reduction in bad rate at the same approval cutoff. On a portfolio with 100k approvals per year at 3 percent bad rate and $L = \$5{,}000$ per bad loan, that is a savings of 150 to 240 bad loans, or $\$750{,}000$ to $\$1.2{\text{M}}$ per year. Against that are the model-risk, explainability, and monitoring costs of running a boosted ensemble in production (one to three FTE equivalents at a mid-sized lender).</span>
+<span id="cb59-1256"><a href="#cb59-1256" aria-hidden="true" tabindex="-1"></a>A crude first-order approximation: doubling KS (from 0.25 to 0.50) halves $\pi_{\text{approved}}$ at a fixed approval rate. A 3 KS-point improvement translates to roughly 5 to 8 percent reduction in bad rate at the same approval cutoff. On a portfolio with 100k approvals per year at 3 percent bad rate and $L = \$5,000$ per bad loan, that is a savings of 150 to 240 bad loans, or $\$750,000$ to $\$1.2{\text{M}}$ per year. Against that are the model-risk, explainability, and monitoring costs of running a boosted ensemble in production (one to three FTE equivalents at a mid-sized lender).</span>
 <span id="cb59-1257"><a href="#cb59-1257" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb59-1258"><a href="#cb59-1258" aria-hidden="true" tabindex="-1"></a>The break-even rule of thumb is that a boosted challenger is worth deploying if it adds 2 or more KS points over the incumbent at the operating cutoff, with Brier degradation under 0.002 after calibration. Less than that, the risk and reward are approximately even.</span>
 <span id="cb59-1259"><a href="#cb59-1259" aria-hidden="true" tabindex="-1"></a></span>
@@ -4652,7 +4652,7 @@ Zhang, T., &amp; Yu, B. (2005). Boosting with early stopping: Convergence and co
 <span id="cb59-1484"><a href="#cb59-1484" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb59-1485"><a href="#cb59-1485" aria-hidden="true" tabindex="-1"></a>The temptation when writing a chapter about boosting is to present a clean benchmark table with every model's AUC at third-decimal precision. The resulting table looks authoritative. It is also misleading. Four practices close the gap between benchmark and reality.</span>
 <span id="cb59-1486"><a href="#cb59-1486" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-1487"><a href="#cb59-1487" aria-hidden="true" tabindex="-1"></a>First, report seed variance. A single AUC number on a single split is a noisy estimate. At $n = 10{,}000$ test observations with AUC around 0.78, the standard deviation of the empirical AUC across seeds is about 0.002 for deterministic models and up to 0.005 for stochastic boosters. Any difference under 0.005 should be reported with a bootstrap confidence interval.</span>
+<span id="cb59-1487"><a href="#cb59-1487" aria-hidden="true" tabindex="-1"></a>First, report seed variance. A single AUC number on a single split is a noisy estimate. At $n = 10,000$ test observations with AUC around 0.78, the standard deviation of the empirical AUC across seeds is about 0.002 for deterministic models and up to 0.005 for stochastic boosters. Any difference under 0.005 should be reported with a bootstrap confidence interval.</span>
 <span id="cb59-1488"><a href="#cb59-1488" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb59-1489"><a href="#cb59-1489" aria-hidden="true" tabindex="-1"></a>Second, fix the compute budget. A benchmark that lets CatBoost run for 1000 iterations while capping XGBoost at 200 is not a fair comparison. Either fix rounds, fix wall time, or report the full learning curve for every model.</span>
 <span id="cb59-1490"><a href="#cb59-1490" aria-hidden="true" tabindex="-1"></a></span>
