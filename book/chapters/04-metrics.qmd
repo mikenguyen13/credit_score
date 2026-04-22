@@ -796,7 +796,7 @@ $$
 + \underbrace{\bar{o}(1-\bar{o})}_{\text{uncertainty}}.
 $$ {#eq-murphy}
 
--   **Reliability** (calibration penalty, *lower is better*) measures the squared gap between what the model *says* and what actually *happens* inside each bin. For bin $k$, if the model predicts $\bar{p}_k = 0.30$, but the observed default rate is $\bar{o}_k = 0.45$, that bin contributes $n_k (0.30 - 0.45)^2$ to reliability. A perfectly calibrated model has $\bar{p}_k = \bar{o}_k$ for every bin, so reliability $= 0$. In credit scoring this directly controls whether a predicted PD of 5% really loses 5% of principal on average (i.e., the quantity pricing, provisioning, and IFRS 9/CECL rely on).
+-   **Reliability** (calibration penalty, *lower is better*) measures the squared gap between what the model *says* and what actually *happens* inside each bin. For bin $k$, if the model predicts $\bar{p}_k = 0.30$, but the observed default rate is $\bar{o}_k = 0.45$, that bin contributes $n_k (0.30 - 0.45)^2$ to reliability. A perfectly calibrated model has $\bar{p}_k = \bar{o}_k$ for every bin, so reliability $= 0$. In credit scoring, this directly controls whether a predicted PD of 5% really loses 5% of principal on average (i.e., the quantity pricing, provisioning, and IFRS 9/CECL rely on).
     -   *Intuition:* "Do my probabilities mean what they say?"
     -   *What increases it:* overconfident scores, covariate shift, training on a different base rate than production sees.
 -   **Resolution** (discrimination reward, *higher is better*) measures how much the bin-conditional rates $\bar{o}_k$ spread around the overall base rate $\bar{o}$. If every bin has $\bar{o}_k \approx \bar{o}$, the model is not separating good borrowers from bad, and resolution $\approx 0$. If low-score bins default at 1% and high-score bins at 40%, the variance across bins is large and resolution is high. Note the minus sign in @eq-murphy: more resolution *subtracts* from Brier, so a model that sorts risk well is rewarded.
@@ -893,9 +893,12 @@ plt.show()
 
 Operationally, the logistic mis-shape would under-price the middle-risk segment (charging as if PD were $20\%$ when realized losses are closer to $12\%$) and reject too aggressively at the top (turning down applicants whose true PD is $68\%$ after pricing for $61\%$). Boosting's curve hugs the diagonal, so PDs can be fed into pricing and provisioning with no post-hoc correction; the logistic model would benefit from Platt or isotonic recalibration, which is exactly what the next sections cover.
 
-### Post-hoc recalibration: the general idea
+### Post-hoc recalibration
 
-The reliability diagram shows that a model's raw score $s_i$ may sort risk well (good resolution / AUC) while still mapping to the wrong *level* of probability (poor reliability). **Recalibration** is a cheap post-hoc fix: leave the model alone, learn a scalar map $\hat{p} = g(s)$ on a held-out slice, and deploy $g$ in front of the scorer. Because $g$ is monotone (or near-monotone), it preserves the ranking of applicants (i.e., AUC and resolution are essentially unchanged), while bending the probabilities onto the diagonal. Two canonical choices differ in how much shape they allow $g$ to take.
+The reliability diagram shows that a model's raw score $s_i$ may sort risk well (good resolution / AUC) while still mapping to the wrong *level* of probability (poor reliability). **Recalibration** is a cheap post-hoc fix: leave the model alone, learn a scalar map $\hat{p} = g(s)$ on a held-out slice, and deploy $g$ in front of the scorer. Because $g$ is monotone (or near-monotone), it preserves the ranking of applicants (i.e., AUC and resolution are essentially unchanged), while bending the probabilities onto the diagonal. Two canonical choices differ in how much shape they allow $g$ to take:
+
+1.  @sec-metrics-platt-scaling
+2.  @sec-metrics-isotonic-regression
 
 ::: callout-tip
 ## Why a held-out slice is non-negotiable
@@ -903,7 +906,7 @@ The reliability diagram shows that a model's raw score $s_i$ may sort risk well 
 Fitting $g$ on the same data used to train the underlying model would let $g$ absorb the model's training-set overfitting and report fake calibration. Standard practice is an out-of-bag fold from the training data (sklearn's `CalibratedClassifierCV` does this via cross-validation), never the test set; the test set is still for final evaluation.
 :::
 
-### Platt scaling
+### Platt scaling {#sec-metrics-platt-scaling}
 
 @platt1999probabilistic proposed the parametric route: assume the miscalibration is a simple squash-or-stretch along the logit axis, and learn it with a *one-dimensional logistic regression* whose only feature is the raw score,
 
@@ -971,7 +974,7 @@ print(pd.DataFrame({"s": s_grid,
 
 With hard labels the optimizer drives $A$ toward a large value (the gradient keeps rewarding steeper slopes because *every* positive sits above *every* negative). The resulting $\hat{p}$ at moderate scores like $s = \pm 2$ is already indistinguishable from $0$ or $1$ in floating-point, which is exactly the over-confidence at the extremes that the paper warns about. With smoothed targets the MLE's ceiling is set by $y^+ < 1$ and $y^- > 0$: the slope that best matches $y^+ \approx 0.976$ for the positives is finite, so $A$ converges to a moderate value and the recalibrated probabilities leave room for uncertainty.
 
-### Isotonic regression
+### Isotonic regression {#sec-metrics-isotonic-regression}
 
 @zadrozny2002transforming took the non-parametric route: instead of assuming a sigmoidal shape, only assume **monotonicity** (i.e., if the model ranks A as riskier than B, the recalibrated probability of A should not be lower). That is the bare minimum any reasonable calibration map must satisfy, and it is enough to identify a unique fit by least squares,
 
@@ -981,7 +984,7 @@ $$ {#eq-isotonic}
 
 The solution is a monotone step function computed in $O(N \log N)$ by the pool-adjacent-violators algorithm: sort by score, walk left to right, and whenever an adjacent block has a lower mean than its predecessor, merge the two and replace both with their pooled mean. The result looks like a staircase hugging the reliability curve: flat over regions where the raw scores are well-ordered but at the wrong level, and stepping up wherever the observed rate jumps.
 
-Because isotonic adapts locally, it can repair exactly the non-monotone wiggle that Platt cannot, which is why, on the Taiwan logistic model, we expect isotonic to drive REL closer to zero than Platt does. The price is flexibility cost: with few calibration points, isotonic tends to overfit into a coarse staircase that memorizes noise. @niculescu2005predicting benchmark the two across a range of base classifiers and find isotonic wins once the calibration set exceeds a few thousand observations, while Platt is more robust on smaller samples. A reasonable default: use Platt below \$\sim\$1,000 calibration points, isotonic above \$\sim\$5,000, and either-or (compare via held-out Brier) in between.
+Because isotonic adapts locally, it can repair exactly the non-monotone wiggle that Platt cannot, which is why, on the Taiwan logistic model, we expect isotonic to drive REL closer to zero than Platt does. The price is flexibility cost: with few calibration points, isotonic tends to overfit into a coarse staircase that memorizes noise. @niculescu2005predicting benchmark the two across a range of base classifiers and find isotonic wins once the calibration set exceeds a few thousand observations, while Platt is more robust on smaller samples. A reasonable default: use Platt below $\sim$ 1,000 calibration points, isotonic above $\sim$ 5,000, and either-or (compare via held-out Brier) in between.
 
 ::: callout-note
 ## What recalibration does *not* fix
@@ -1090,11 +1093,199 @@ for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
     print(f"ECE({name}) = {ece_score(y_te, p):.4f}")
 ```
 
+Reading the three numbers. A scalar ECE is a probability-weighted average of $|\bar p_k - \bar o_k|$ across bins, so an ECE of $0.05$ means the model's predicted PD in a typical bin is off by about 5 percentage points against the realized default rate. For a Taiwan card book with a base rate near 22 percent, that is a material miss: a decile priced at a predicted PD of 10 percent but defaulting at 15 percent mis-prices every loan in the bucket by \~50 basis points of spread. The uncalibrated logistic comes in near 0.05. The Platt-scaled version is essentially the same, which is a useful negative result: Platt imposes a single sigmoid curve on the calibration map, and if the miscalibration is not itself sigmoid-shaped (for example, a bowed S instead of a monotone squeeze) the parametric fit has nowhere to go and can even worsen ECE slightly on a finite test fold while still lowering Brier. Isotonic regression cuts ECE by roughly a factor of four because it is a non-parametric monotone step function and can absorb arbitrary calibration curve shapes, at the cost of more variance in small bins. Operationally this is the ordering one usually sees on tabular credit data: uncalibrated $\approx$ Platt $\gg$ isotonic in large-sample regimes, with the ranking reversing in small-sample regimes where isotonic starts to overfit.
+
+That ranking is still subject to the tail-noise caveats above. Before treating a 50 bp gap between two calibrators as a real difference, confirm it is not inside the $\pm 2\,\text{SE}$ bands implied by the bin sizes $n_k$, which is exactly what the remedies in the next four chunks compute.
+
+The `ece_score` above is the naive textbook estimator: equal-frequency bins, every non-empty bin included, no standard errors. Each of the four remedies from the previous list turns into a small modification of that loop.
+
+**Remedy 1: minimum-count thresholding.** Require $n_k \ge n_{\min}$ either by dropping the offending bin or by merging it into its neighbor. Merging preserves the total mass $\sum_k n_k/N = 1$ and is therefore the less biased choice.
+
+```{python}
+#| label: ece-minimum-count
+def ece_min_count(y_true, p, n_bins=15, n_min=50, strategy="merge"):
+    """ECE with a minimum-count rule.
+
+    strategy='drop'  removes bins with n_k < n_min and renormalizes weights.
+    strategy='merge' folds each undersized bin into the previous survivor
+    until the threshold is met.
+    """
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(p, dtype=float)
+    edges = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    idx = np.clip(np.digitize(p, edges) - 1, 0, n_bins - 1)
+    counts = np.array([(idx == k).sum() for k in range(n_bins)])
+    if strategy == "drop":
+        keep = counts >= n_min
+        if not keep.any():
+            return np.nan
+        pbar = np.array([p[idx == k].mean() for k in range(n_bins) if keep[k]])
+        obar = np.array([y[idx == k].mean() for k in range(n_bins) if keep[k]])
+        w = counts[keep] / counts[keep].sum()
+        return float(np.sum(w * np.abs(pbar - obar)))
+    # merge: walk left to right, absorb each undersized bin into the previous
+    m_cnt, m_psum, m_ysum = [], [], []
+    for k in range(n_bins):
+        if counts[k] == 0:
+            continue
+        if m_cnt and m_cnt[-1] < n_min:
+            m_cnt[-1]  += counts[k]
+            m_psum[-1] += p[idx == k].sum()
+            m_ysum[-1] += y[idx == k].sum()
+        else:
+            m_cnt.append(counts[k])
+            m_psum.append(p[idx == k].sum())
+            m_ysum.append(y[idx == k].sum())
+    cnt = np.asarray(m_cnt, dtype=float)
+    pbar = np.asarray(m_psum) / cnt
+    obar = np.asarray(m_ysum) / cnt
+    w = cnt / cnt.sum()
+    return float(np.sum(w * np.abs(pbar - obar)))
+
+print(f"{'model':>6}  {'naive':>7} {'drop50':>7} {'merge50':>8} {'merge100':>9}")
+for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
+    raw  = ece_score(y_te, p)
+    drop = ece_min_count(y_te, p, n_min=50,  strategy="drop")
+    m50  = ece_min_count(y_te, p, n_min=50,  strategy="merge")
+    m100 = ece_min_count(y_te, p, n_min=100, strategy="merge")
+    print(f"{name:>6}  {raw:>7.4f} {drop:>7.4f} {m50:>8.4f} {m100:>9.4f}")
+```
+
+**Remedy 2: equal-frequency vs equal-width bins.** The naive `ece_score` already uses equal-frequency (quantile) bins, which is the safer default. For contrast, the equal-width version below is what many tutorials show, and it is exactly the version that explodes in the tails when the score distribution is skewed (common for a low-default portfolio).
+
+```{python}
+#| label: ece-equal-width-vs-freq
+def ece_equal_width(y_true, p, n_bins=15):
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(p, dtype=float)
+    edges = np.linspace(0, 1, n_bins + 1)
+    idx = np.clip(np.digitize(p, edges[1:-1]), 0, n_bins - 1)
+    N = len(y); ece = 0.0
+    for k in range(n_bins):
+        m = idx == k
+        if m.any():
+            ece += m.sum() / N * abs(p[m].mean() - y[m].mean())
+    return float(ece)
+
+print(f"{'model':>6}  {'equal-width':>12} {'equal-freq':>11}")
+for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
+    print(f"{name:>6}  {ece_equal_width(y_te, p):>12.4f} "
+          f"{ece_score(y_te, p):>11.4f}")
+
+# show how populated each strategy's bins are
+edges_ef = np.quantile(p_lr, np.linspace(0, 1, 16))
+edges_ew = np.linspace(0, 1, 16)
+cnt_ef = np.histogram(p_lr, edges_ef)[0]
+cnt_ew = np.histogram(p_lr, edges_ew)[0]
+print("\nper-bin counts (15 bins):")
+print(f"  equal-freq : min={cnt_ef.min():>3d}  max={cnt_ef.max():>3d}")
+print(f"  equal-width: min={cnt_ew.min():>3d}  max={cnt_ew.max():>3d}")
+```
+
+**Remedy 3: confidence intervals on** $\bar o_k$. The simplest honest reliability diagram plots a Clopper-Pearson (exact binomial) band around each $\bar o_k$; bars that overlap the diagonal are not evidence of miscalibration. The same logic extends to Wilson or Jeffreys intervals.
+
+```{python}
+#| label: fig-reliability-ci
+#| fig-cap: "Reliability diagram with 95% Clopper-Pearson bands and per-bin counts. Tail spikes are only signal if the band excludes the diagonal."
+from scipy.stats import beta as beta_dist
+
+def reliability_with_ci(y_true, p, n_bins=15, alpha=0.05):
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(p, dtype=float)
+    edges = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    idx = np.clip(np.digitize(p, edges) - 1, 0, n_bins - 1)
+    rows = []
+    for k in range(n_bins):
+        m = idx == k
+        n = int(m.sum())
+        if n == 0:
+            continue
+        s = int(y[m].sum())
+        lo = 0.0 if s == 0 else beta_dist.ppf(alpha / 2, s, n - s + 1)
+        hi = 1.0 if s == n else beta_dist.ppf(1 - alpha / 2, s + 1, n - s)
+        rows.append((p[m].mean(), s / n, lo, hi, n))
+    return np.array(rows)
+
+fig, ax = plt.subplots(figsize=(5.2, 5.0))
+tbl = reliability_with_ci(y_te, p_lr, n_bins=15)
+ax.errorbar(tbl[:, 0], tbl[:, 1],
+            yerr=[tbl[:, 1] - tbl[:, 2], tbl[:, 3] - tbl[:, 1]],
+            fmt="o", capsize=3, color="C0", label="logistic (95% CI)")
+ax.plot([0, 1], [0, 1], "k--", lw=1, label="perfect")
+for xi, yi, _, _, n in tbl:
+    ax.annotate(f"n={int(n)}", (xi, yi), fontsize=7,
+                textcoords="offset points", xytext=(4, 4))
+ax.set_xlabel(r"mean forecast $\bar p_k$")
+ax.set_ylabel(r"observed rate $\bar o_k$")
+ax.set_xlim(0, min(1.0, tbl[:, 3].max() + 0.05))
+ax.set_ylim(0, min(1.0, tbl[:, 3].max() + 0.05))
+ax.legend(loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
+**Remedy 4: debiased ECE.** The naive squared estimator $(\bar p_k - \bar o_k)^2$ has positive bias equal to $\operatorname{Var}(\bar o_k) = \bar o_k(1-\bar o_k)/n_k$ even under perfect calibration. The Kumar-Liang-Ma debiased estimator subtracts that bias per bin before summing [@kumar2019verified]. The correction is largest where $n_k$ is smallest, which is exactly the tails. For a perfectly calibrated model it shrinks the reported ECE toward zero, where it belongs.
+
+```{python}
+#| label: ece-debiased
+def ece_l2_naive(y_true, p, n_bins=15):
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(p, dtype=float)
+    edges = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    idx = np.clip(np.digitize(p, edges) - 1, 0, n_bins - 1)
+    N = len(y); acc = 0.0
+    for k in range(n_bins):
+        m = idx == k
+        if m.any():
+            acc += m.sum() / N * (p[m].mean() - y[m].mean()) ** 2
+    return float(np.sqrt(acc))
+
+def ece_l2_debiased(y_true, p, n_bins=15):
+    """Kumar, Liang & Ma (2019) debiased squared-ECE.
+
+    Subtracts an unbiased estimate of Var(bar o_k) from each bin's squared
+    gap before aggregating.
+    """
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(p, dtype=float)
+    edges = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    idx = np.clip(np.digitize(p, edges) - 1, 0, n_bins - 1)
+    N = len(y); acc = 0.0
+    for k in range(n_bins):
+        m = idx == k
+        n_k = int(m.sum())
+        if n_k < 2:
+            continue
+        pbar = p[m].mean(); obar = y[m].mean()
+        gap2 = (pbar - obar) ** 2
+        var_hat = obar * (1 - obar) / (n_k - 1)  # unbiased estimator of Var(obar)
+        acc += (n_k / N) * max(gap2 - var_hat, 0.0)
+    return float(np.sqrt(acc))
+
+# null check: a perfectly calibrated score should have debiased ECE ~ 0
+rng = np.random.default_rng(0)
+p_null = rng.uniform(0.01, 0.3, size=20_000)
+y_null = (rng.uniform(size=p_null.size) < p_null).astype(int)
+print(f"perfectly-calibrated null:  naive L2={ece_l2_naive(y_null, p_null):.4f}  "
+      f"debiased={ece_l2_debiased(y_null, p_null):.4f}")
+
+print(f"\n{'model':>6}  {'naive L2':>9} {'debiased':>9}")
+for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
+    print(f"{name:>6}  {ece_l2_naive(y_te, p):>9.4f} "
+          f"{ece_l2_debiased(y_te, p):>9.4f}")
+```
+
+The null-check line is the important one: on data drawn from a calibrated process the naive L2 estimator reports a non-zero "error" that is pure sampling noise, whereas the debiased version collapses to (near) zero. In production monitoring this is what prevents a calibration alarm from firing every quarter on a model that has not actually drifted.
+
 ### When to calibrate
 
-Calibration should be done on a held-out slice that the classifier has not seen during training. `CalibratedClassifierCV` handles this by refitting the base estimator on inner folds and calibrating on the complement. Calibrating on the training set, or on the same fold used to pick hyperparameters, is a common bug and produces over-confident, miscalibrated probabilities.
+Calibration should be done on a held-out slice that the classifier has not seen during training. `CalibratedClassifierCV` handles this with an inner cross-validation loop: the base estimator is refit on each fold and the calibration map is fit on the complement. Calibrating on the training set, or on the same fold used to pick hyperparameters, is a common bug and produces over-confident, miscalibrated probabilities.
 
-The bug is subtle because it produces a calibration map that looks excellent *in-sample* and fails out-of-sample. On the training set the base model has already overfit (its high-risk predictions are systematically too high and its low-risk predictions systematically too low because it has memorized some noise), so a recalibrator fit on that same data learns the *inverse of the overfit*, not the inverse of the true miscalibration. Applied to unseen data it pushes probabilities in the wrong direction. The effect is most visible for flexible models such as gradient boosting. The following block contrasts the two workflows on the Taiwan boosting model:
+The bug is subtle because it produces a calibration map that looks excellent *in-sample* and fails out-of-sample. On the training set, the base model has already overfit (its high-risk predictions are systematically too high and its low-risk predictions systematically too low because it has memorized some noise), so a recalibrator fit on that same data learns the *inverse of the overfit*, not the inverse of the true miscalibration. Applied to unseen data, it pushes probabilities in the wrong direction. The effect is most visible for flexible models such as gradient boosting. The following block contrasts the two workflows on the Taiwan boosting model:
 
 ```{python}
 #| label: calibration-leak-demo
@@ -1131,11 +1322,36 @@ for name, p in [("uncalibrated", p_gb),
           f"{d['resolution']:.4f}  {auc:.4f}")
 ```
 
-Two diagnostics to watch in the output. First, the leaky variant's REL is *lower on training* (not shown, it would be nearly zero there) but higher on test than the CV variant: classic symptom of fitting the calibration map to in-sample noise. Second, AUC is unchanged across all three rows (both Platt variants are monotone), so the only thing that differentiates "good calibration" from "bad calibration" in a leakage bug is the reliability term. A team that monitors only AUC or only raw Brier will not catch this; a team that tracks the REL component of the Murphy decomposition will.
+Two diagnostics to watch in the output. First, the leaky variant's test REL ($0.0024$) is about six times the CV variant's test REL ($0.0004$) and is in fact *worse* than not calibrating at all ($0.0005$). This is the signature of fitting the calibration map to in-sample noise: on the training fold it would drive REL close to zero, but that gain does not transfer. Second, AUC for the leaky variant is identical to the uncalibrated AUC ($0.7804$), because Platt is a monotone sigmoid on the original scores and monotone transforms preserve ROC ordering. The CV variant's AUC ($0.7800$) drifts down by a hair, not because Platt broke ranking, but because `CalibratedClassifierCV` refits the base booster on inner folds and averages their predictions, so the *scores being calibrated* are not exactly $p_{gb}$. A difference of $4 \times 10^{-4}$ in AUC is well inside the bootstrap band you would report anyway. The operational lesson is that a team monitoring only AUC or only raw Brier will see Platt-leaky as a no-op; only the REL component of the Murphy decomposition exposes the bug.
 
 A second rule: do not calibrate before you have exhausted feature engineering. If the input features are miscalibrated (for example a missing indicator that modifies the relationship between a feature and default, such as an unemployment flag that changes the slope on income) calibrating the output only hides the problem without fixing it. The recalibrator will squash or stretch the average, but segment-level biases (the unemployed sub-population systematically under-predicted) remain. @gelman2017prior goes further and argues that weakly informative priors on logistic coefficients are themselves a calibration device, by shrinking over-extrapolated coefficients toward a plausible scale before any post-hoc fix is needed.
 
 The right sequence is: fit the model, inspect reliability on the validation fold, fix model misspecification if the gap is structural (missing features, wrong functional form, segment-specific slopes), and only then apply Platt or isotonic post-processing as a cheap final correction.
+
+**Random k-fold is the wrong default for credit.** The demo above uses `cv=5`, which defaults to random `KFold`. That assumes rows are exchangeable in time, which is precisely the assumption that breaks in credit scoring. Macro regimes shift, product mixes change, underwriting rules tighten, and the calibration curve learned on 2018-2022 applications can point the wrong direction for 2024 applications even when AUC is stable. Random k-fold further leaks future information into the calibrator: rows originated *after* the scoring date are used to fit the map that corrects predictions made *at* the scoring date, giving an over-optimistic held-out REL that the live system will never match. The operationally honest setup is out-of-time (OOT) calibration: fit the base model on period $[T_0, T_1]$, fit the calibrator on a strictly later period $[T_1, T_2]$, and evaluate on $[T_2, T_3]$. `CalibratedClassifierCV` accepts any scikit-learn splitter via its `cv=` argument, so swapping random folds for walk-forward folds is one line:
+
+```{python}
+#| label: calibration-timeseries
+from sklearn.model_selection import TimeSeriesSplit
+
+# In a real pipeline sort the training frame by application month before
+# splitting and reserve the most recent block as the true out-of-time
+# evaluation set. UCI Taiwan carries no origination date, so this is a
+# mechanical demonstration of the wiring, not a genuine OOT test.
+tscv = TimeSeriesSplit(n_splits=5)
+gb_oot = CalibratedClassifierCV(
+    clone(gb_base), cv=tscv, method="sigmoid"
+).fit(X_tr, y_tr)
+p_te_oot = gb_oot.predict_proba(X_te)[:, 1]
+
+bs  = brier_score_loss(y_te, p_te_oot)
+d   = brier_decomposition(y_te, p_te_oot)
+auc = roc_auc_score(y_te, p_te_oot)
+print(f"Platt-OOT (TimeSeriesSplit)  Brier={bs:.4f}  REL={d['reliability']:.4f}  "
+      f"RES={d['resolution']:.4f}  AUC={auc:.4f}")
+```
+
+Two additional defenses compound with OOT splitting. First, recalibrate on a rolling window rather than once at deployment, so the map tracks regime drift instead of freezing the 2022 shape into 2025 decisions. Second, monitor the REL component of Brier on each new vintage and trigger a recalibration when REL crosses a pre-agreed threshold rather than on a fixed calendar. The PSI and CSI sections later in this chapter operationalize the monitoring side; the point here is only that the calibration workflow itself must be time-aware from the start.
 
 ## Financial impact: cost matrices, profit curves, and EMP {#sec-ch04-profit}
 
@@ -1147,7 +1363,28 @@ $$
 E[\text{loss}] = c_{10} \pi_0 (1-p) \mathbf{1}_{p > t} + c_{01} \pi_1 p \mathbf{1}_{p \le t},
 $$ {#eq-elkan-loss}
 
-and the minimizing threshold is $t^* = c_{10}/(c_{01} + c_{10})$, a result that depends only on cost ratios. Credit lenders rarely state costs, they state yields and loss-given-default. The Verbraken family of metrics reframes the same object in profit units [@verbraken2013novel; @verbraken2014novel].
+and the minimizing threshold is $t^* = c_{10}/(c_{01} + c_{10})$, a result that depends only on cost ratios.
+
+**What** $t$ **is and what it is measured in**. The threshold $t$ lives on exactly the same scale as the posterior $p$: it is a number in $[0,1]$ with the units of a default *probability*, not the units of whatever raw score the model emits. The decision rule encoded in the indicators is:
+
+-   if $p > t$ the model predicts "bad" and the lender *rejects* the applicant, incurring cost $c_{10}$ if the applicant was actually good;
+-   if $p \le t$ the lender *accepts* and incurs cost $c_{01}$ if the applicant turns out to default.
+
+If your score is a log-odds, a FICO-like 300-850 integer, or an internal rating grade, you cannot plug that score into the Elkan inequality directly. You must first map the score to a calibrated PD (Platt, isotonic, @sec-ch04-brier), or equivalently push $t^{*}$ through the same monotone transform so the inequality is evaluated on matching scales. This is the reason calibration matters: an uncalibrated classifier can still be a good *ranker*, but its cut-off under Elkan's rule is meaningless because the numerical comparison $p > t^{*}$ has no unit-correct interpretation.
+
+**Why only cost ratios matter.** Multiplying both $c_{01}$ and $c_{10}$ by the same constant (e.g., switching the unit of currency from USD to VND, or the exposure size from a 10k loan to a 1k loan on a homogeneous book) does not move $t^{*}$. So the whole decision is parameterized by a single number, the severity ratio $c_{01}/c_{10}$. Most practical disputes reduce to arguments about that ratio, not about the absolute cost figures.
+
+**A concrete example.** An unsecured personal-loan desk books a \$10,000 loan with a 4% net interest margin over an expected three-year amortization. The foregone-profit cost of rejecting a good applicant is roughly $c_{10} \approx 0.04 \times 3 \times 10,000 = 1,200$. The loss-given-default on that product is 70%, so accepting a borrower who ultimately defaults costs $c_{01} \approx 0.70 \times 10,000 = 7,000$. Elkan's cut-off is then
+
+$$
+t^{*} = \frac{c_{10}}{c_{01} + c_{10}} = \frac{1,200}{7,000 + 1,200} \approx 0.146,
+$$
+
+so the desk should reject any applicant whose *calibrated* PD exceeds 14.6%, even though the book-wide base rate is only around 3%. If the desk tightens its margin to 2.5% without touching LGD, $c_{10}$ drops to \$750 and $t^{*}$ drops to about 9.1%: a cheaper-to-forgo good makes rejection less costly, so the cutoff tightens and the book contracts. Moving in the other direction, a secured product with 30% LGD would give $c_{01} = 3,000$, $c_{10} = 1,200$, and $t^{*} \approx 0.286$. The desk can extend credit to materially riskier applicants because each bad costs less.
+
+Credit lenders rarely state costs directly; they state yields and loss-given-default. The example above is the bridge between the two vocabularies: $c_{10}$ is the present value of the interest margin you would have earned on a good booking, and $c_{01}$ is EAD times LGD. The Verbraken family of metrics reframes the same object directly in profit units so practitioners never have to construct $(c_{01}, c_{10})$ by hand [@verbraken2013novel; @verbraken2014novel].
+
+**Mind the convention.** Elkan writes "$p > t$ $\Rightarrow$ reject" because $p$ is a default probability (high $=$ risky). The profit curve in the next subsection flips to "$S \le t$ $\Rightarrow$ accept" because it defines $S$ as risk and writes the *acceptance* set explicitly. Both statements describe the same action: reject the riskiest tail. The direction of the inequality is a matter of which side the author chose to name.
 
 ### Profit curve
 
@@ -1203,9 +1440,156 @@ plt.show()
 
 The boosted model dominates the logistic model everywhere on this grid, and both curves are negative for very loose acceptance policies because the portfolio starts paying more in loan losses than it earns in interest.
 
+#### Three thresholds on one score {.unnumbered}
+
+The profit curve is a sweep, but in production the lender writes a single number into the policy: a cut-off. Three candidate cut-offs show up in the literature and they usually disagree because they are solving different problems:
+
+-   **KS-optimal** maximizes $|F_0(t) - F_1(t)|$ (i.e., the vertical gap between the cumulative distributions of goods and bads). It uses *no cost information at all*. It is the right answer only if the business objective is "discriminate as loudly as possible at one point on the CDF", which is almost never the business objective.
+-   **Empirical profit-maximum** is $\arg\max_t \widehat{\Pi}(t)$ on the held-out fold, given a specific $(r, L)$. It is the number that falls out of the previous chunk. It uses the realized costs but it is noisy: a fold with one extra bad at the margin can move the cut-off by several percentage points of PD, so it should be bootstrapped.
+-   **Elkan / Bayes-optimal** is the closed-form $t^{*} = L \pi_1 / (r \pi_0 + L \pi_1) \cdot [\ldots]$. In the profit framing where $c_{10}=r$ and $c_{01}=L$, the per-applicant break-even PD simplifies to $t^{*} = r/(r+L)$. It lives on the calibrated PD scale (see the earlier warning that this threshold is meaningless on an uncalibrated score). It uses no data beyond $(r, L)$.
+
+> In theory, when the model is perfectly calibrated and the test fold is infinite, the empirical profit-max and the Elkan threshold coincide.
+>
+> In practice, any of the three can be up to a few percentage points of accept-rate apart. The only one that is typically far off is KS-optimal, because it is optimizing the wrong object.
+
+A cleaner way to see the relationship is to view all three on the ROC plane, not on the profit curve. The profit function $r \pi_0 (1 - \text{FPR}) - L \pi_1 (1 - \text{TPR})$ is linear in $(\text{FPR}, \text{TPR})$, so curves of constant profit are parallel lines with slope $m = r \pi_0 / (L \pi_1)$ in $(\text{FPR}, \text{TPR})$ space. The profit-max operating point is the tangency of the ROC curve with the highest such iso-profit line, which is the geometric argument of @provost2001robust. KS-optimal is the tangency of the ROC with a line of slope 1 (because $\text{TPR}-\text{FPR}$ is maximized there). The two are the same point only in the special case $r \pi_0 = L \pi_1$.
+
+```{python}
+#| label: fig-profit-thresholds
+#| fig-cap: "Left: profit curve with three candidate thresholds marked. Right: the same three thresholds on the ROC plane, with iso-profit lines of slope $m = r\\pi_0/(L\\pi_1)$. The profit-maximum is the tangency of ROC with the highest iso-profit line; the KS-optimum is the tangency with a line of slope 1; the Elkan cut-off is the closed-form Bayes answer on the PD scale."
+from sklearn.metrics import roc_curve
+
+r, L = 0.20, 1.0
+y_arr = np.asarray(y_te).astype(int)
+p_arr = np.asarray(p_gb, dtype=float)
+N   = len(y_arr)
+n1  = int(y_arr.sum()); n0 = N - n1
+pi1 = n1 / N; pi0 = 1 - pi1
+
+# profit as a function of PD threshold t (accept if p <= t)
+order = np.argsort(p_arr)
+p_sorted = p_arr[order]; y_sorted = y_arr[order]
+cum_bad  = np.concatenate([[0], np.cumsum(y_sorted)])
+cum_good = np.arange(0, N + 1) - cum_bad
+accept_rate = np.arange(0, N + 1) / N
+profit = (r * cum_good - L * cum_bad) / N
+thr_sweep = np.concatenate([[0.0], p_sorted])
+
+def at_threshold(t):
+    acc = (p_arr <= t).mean()
+    prof = (r * ((p_arr <= t) & (y_arr == 0)).sum()
+            - L * ((p_arr <= t) & (y_arr == 1)).sum()) / N
+    return acc, prof
+
+# (a) empirical profit-max
+k_star = int(np.argmax(profit))
+t_profit = thr_sweep[k_star]
+
+# (b) KS-optimal on PD
+fpr, tpr, roc_thr = roc_curve(y_arr, p_arr)
+ks_idx = int(np.argmax(tpr - fpr))
+t_ks = float(roc_thr[ks_idx])
+
+# (c) Elkan Bayes-optimal on calibrated PD
+t_elkan = r / (r + L)
+
+rows = [
+    ("KS-optimal",           t_ks,     *at_threshold(t_ks)),
+    ("empirical profit-max", t_profit, *at_threshold(t_profit)),
+    ("Elkan Bayes-optimal",  t_elkan,  *at_threshold(t_elkan)),
+]
+print(f"{'rule':22s} {'PD cut-off':>11} {'accept %':>10} {'profit':>9}")
+for name, t, ar, pr in rows:
+    print(f"{name:22s} {t:>11.3f} {ar*100:>9.1f}% {pr:>9.4f}")
+
+# ---------- figure ----------
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+
+# left panel: profit curve
+ax = axes[0]
+ax.plot(accept_rate * 100, profit, color="C0", lw=1.4, label="profit curve")
+ax.axhline(0, color="grey", lw=0.6)
+palette = {"KS-optimal": "C3", "empirical profit-max": "C2",
+           "Elkan Bayes-optimal": "C1"}
+for name, t, ar, pr in rows:
+    c = palette[name]
+    ax.axvline(ar * 100, color=c, lw=0.9, ls="--", alpha=0.7)
+    ax.plot(ar * 100, pr, "o", color=c, label=f"{name} ({ar*100:.0f}%)")
+ax.set_xlabel("acceptance rate (%)")
+ax.set_ylabel(r"expected profit per applicant $\widehat\Pi$")
+ax.set_title(r"Profit curve, $r=0.20$, $L=1.0$")
+ax.legend(loc="lower center", fontsize=8)
+
+# right panel: ROC with iso-profit lines
+ax = axes[1]
+ax.plot(fpr, tpr, color="C0", lw=1.4, label="ROC (boosting)")
+ax.plot([0, 1], [0, 1], "--", color="grey", lw=0.6, label="chance")
+m_iso = (r * pi0) / (L * pi1)
+xs = np.linspace(0, 1, 2)
+for c_iso in np.linspace(-0.3, 1.0, 8):
+    ax.plot(xs, m_iso * xs + c_iso, color="lightgrey", lw=0.5, zorder=0)
+
+def fpr_tpr_at(t):
+    return (((p_arr > t) & (y_arr == 0)).sum() / n0,
+            ((p_arr > t) & (y_arr == 1)).sum() / n1)
+
+for name, t, _, _ in rows:
+    f, tp = fpr_tpr_at(t)
+    ax.plot(f, tp, "o", color=palette[name], label=name)
+ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+ax.set_xlabel("FPR = goods rejected / total goods")
+ax.set_ylabel("TPR = bads caught / total bads")
+ax.set_title(rf"ROC with iso-profit lines, slope $m \approx {m_iso:.2f}$")
+ax.legend(loc="lower right", fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+Reading the picture. The KS-optimal cut-off sits materially to the left of the profit-max point: it rejects more applicants than profit maximization wants to, because $r \pi_0 < L \pi_1$ implies the iso-profit slope $m$ is shallower than 1, and the ROC tangency under a shallower line sits further down the curve. The empirical profit-max and the Elkan threshold are neighbors: the empirical answer is a small perturbation around the Bayes answer driven by sample noise and residual miscalibration of the boosted scores. If you re-run the chunk after isotonic calibration of $p_{gb}$, the two usually collapse onto the same point.
+
+The operational lesson is simple: use KS for storytelling about ranking, use Elkan for the policy, and use the empirical profit-max as a sanity check on whether calibration is close enough to trust the closed-form answer.
+
+```{python}
+#| label: fig-profit-sensitivity
+#| fig-cap: "Sensitivity of the profit-maximizing acceptance rate to the severity ratio $L/r$. Each curve corresponds to one score; the vertical axis is the accept rate that maximizes $\\widehat\\Pi$. As losses swamp margin, the optimal book contracts toward zero."
+
+r_fixed = 0.20
+ratios = np.geomspace(0.5, 50, 25)  # L/r from 0.5x to 50x
+def best_ar(y_true, y_score, L_over_r):
+    y = np.asarray(y_true).astype(int)
+    p = np.asarray(y_score, dtype=float)
+    order = np.argsort(p)
+    y_s = y[order]
+    cum_bad = np.concatenate([[0], np.cumsum(y_s)])
+    cum_good = np.arange(0, len(y) + 1) - cum_bad
+    prof = (1.0 * cum_good - L_over_r * cum_bad) / len(y)  # r factored out
+    return int(np.argmax(prof)) / len(y)
+
+fig, ax = plt.subplots(figsize=(6, 4))
+for name, score, color in [("logistic", p_lr, "C3"),
+                           ("boosting", p_gb, "C0"),
+                           ("isotonic-calibrated", p_iso, "C2")]:
+    ars = [best_ar(y_te, score, ratio) for ratio in ratios]
+    ax.plot(ratios, np.array(ars) * 100, marker="o", ms=3, lw=1.2,
+            color=color, label=name)
+
+ax.set_xscale("log")
+ax.set_xlabel(r"severity ratio $L/r$")
+ax.set_ylabel("profit-maximizing accept rate (%)")
+ax.set_title("How the optimal book size shrinks as losses dominate margin")
+ax.axvline(L / r_fixed, color="grey", ls="--", lw=0.8,
+           label=rf"$(L/r)={L/r_fixed:.0f}$ (current)")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The sensitivity plot closes the loop with the earlier Elkan worked example: at $L/r = 5$ the three models agree on an accept rate near 70%; at $L/r = 20$ (a subprime-like product with 70% LGD and thin margin) the optimal book compresses to near 20%; at $L/r = 50$ all three models converge to "accept almost nobody", because the loss per bad so dominates the profit per good that only the deepest prime tail is worth booking. The slope of each curve is, to first order, the density of the score distribution at the moving Elkan cut-off: scores that are concentrated near the decision boundary are fragile to small changes in the severity ratio, which is itself an argument for reporting EMP rather than $\widehat\Pi$ at a single $(r, L)$ pair.
+
 ### Expected maximum profit (EMP) {#sec-ch04-emp}
 
-@verbraken2014novel argue that the profit curve depends on the arbitrary choice of $(r, L)$ and propose averaging the maximum profit over a prior on the uncertain parameter. In credit scoring the uncertain parameter is usually the fractional loss $\lambda$, the share of outstanding principal lost in default, drawn from a Beta distribution calibrated to historical loss-given-default data. Formally,
+@verbraken2014novel argue that the profit curve depends on the arbitrary choice of $(r, L)$ and propose averaging the maximum profit over a prior on the uncertain parameter. In credit scoring, the uncertain parameter is usually the fractional loss $\lambda$, the share of outstanding principal lost in default, drawn from a Beta distribution calibrated to historical loss-given-default data. Formally,
 
 $$
 \mathrm{EMP} = \int_0^1 \max_t \Pi(t; r, \lambda) h(\lambda)\, d\lambda, \qquad h(\lambda) \sim \mathrm{Beta}(\alpha, \beta).
@@ -1240,6 +1624,131 @@ print(f"EMP(boosting) = {emp_credit(y_te, p_gb):.4f}")
 
 The EMP gap between logistic and boosted trees maps cleanly to the profit curve gap at the maximum, weighted by the LGD distribution.
 
+#### Anatomy of an EMP number {.unnumbered}
+
+EMP is a single scalar, which makes it easy to drop on a scorecard, but that compactness hides three ingredients that business users need to see directly: the prior $h(\lambda)$, the conditional optimal profit $\Pi^{*}(\lambda) = \max_t \Pi(t; r, \lambda)$, and the integrand $\Pi^{*}(\lambda) h(\lambda)$ whose area is the numerator of EMP. The next figure decomposes EMP for the default parameters; the vertical-axis scales are deliberately independent because the three objects live in different units.
+
+```{python}
+#| label: fig-emp-anatomy
+#| fig-cap: "Anatomy of EMP for the boosted model. Top: LGD prior $h(\\lambda) = \\mathrm{Beta}(6,14)$. Middle: maximum profit $\\Pi^{*}(\\lambda) = \\max_t \\Pi(t; r, \\lambda)$ attained at each $\\lambda$, with the optimal accept rate on the right axis. Bottom: integrand $\\Pi^{*}(\\lambda) h(\\lambda)$, whose shaded area is the EMP numerator."
+
+def emp_anatomy(y_true, y_score, r=0.20, alpha=6, beta=14, n_grid=201):
+    y = np.asarray(y_true).astype(int)
+    s = np.asarray(y_score, dtype=float)
+    pi1 = y.mean(); pi0 = 1 - pi1
+    order = np.argsort(s); y_s = y[order]
+    n = len(y)
+    cum_bad  = np.concatenate([[0], np.cumsum(y_s)])     / max(y_s.sum(), 1)
+    cum_good = np.concatenate([[0], np.cumsum(1 - y_s)]) / max((1 - y_s).sum(), 1)
+    lam = np.linspace(1e-3, 1 - 1e-3, n_grid)
+    w   = beta_dist.pdf(lam, alpha, beta)
+    profit_mat = (r * pi0 * cum_good[None, :]
+                  - lam[:, None] * pi1 * cum_bad[None, :])
+    best = profit_mat.max(axis=1)
+    best_ar = profit_mat.argmax(axis=1) / n
+    return lam, w, best, best_ar
+
+lam, w, best, best_ar = emp_anatomy(y_te, p_gb, r=0.20, alpha=6, beta=14)
+emp_val = np.trapezoid(best * w, lam) / np.trapezoid(w, lam)
+
+fig, axes = plt.subplots(3, 1, figsize=(6.4, 7.4), sharex=True)
+axes[0].fill_between(lam, w, alpha=0.3, color="C0")
+axes[0].plot(lam, w, color="C0")
+axes[0].set_ylabel(r"$h(\lambda)$")
+axes[0].set_title(r"LGD prior $\mathrm{Beta}(6, 14)$, mean $= 0.30$")
+
+axes[1].plot(lam, best, color="C2")
+axes[1].set_ylabel(r"$\Pi^{*}(\lambda)$", color="C2")
+axes[1].tick_params(axis="y", labelcolor="C2")
+ax1b = axes[1].twinx()
+ax1b.plot(lam, best_ar * 100, color="C3", ls="--", lw=1.0)
+ax1b.set_ylabel("optimal accept %", color="C3")
+ax1b.tick_params(axis="y", labelcolor="C3")
+
+axes[2].fill_between(lam, best * w, alpha=0.3, color="C1")
+axes[2].plot(lam, best * w, color="C1")
+axes[2].set_ylabel(r"$\Pi^{*}(\lambda)\, h(\lambda)$")
+axes[2].set_xlabel(r"fractional loss-given-default $\lambda$")
+axes[2].set_title(fr"EMP = $\int \Pi^{{*}}(\lambda) h(\lambda)\,d\lambda / \int h(\lambda)\,d\lambda$ = {emp_val:.4f}")
+
+plt.tight_layout()
+plt.show()
+```
+
+Three things to read off this plot. First, the middle panel shows that as $\lambda$ rises the conditional profit falls *and* the conditional optimal accept rate falls: a more punishing LGD forces the lender to book a tighter subset of applicants. Second, the integrand in the bottom panel is concentrated between $\lambda \in [0.15, 0.50]$; values of $\lambda$ below 0.1 or above 0.7 contribute essentially nothing to EMP because the prior places almost no mass there. Third, the area of the shaded bottom panel divided by the area of the top panel is literally the EMP number printed above the figure. Changing the prior shape changes the shaded area; changing the model changes the middle-panel curve.
+
+#### Plugging in your own product economics {.unnumbered}
+
+The Beta-LGD prior and the yield $r$ should come from the lender's own book, not from a textbook default. Pick $r$ as the cumulative net-interest or net-fee yield per dollar of exposure on a good booking over the product's expected life (short-tunure installment: 0.05-0.10; unsecured card: 0.15-0.25; subprime personal: 0.20-0.35). Pick $(\alpha, \beta)$ so that the Beta mean $\alpha/(\alpha+\beta)$ matches the historical loss-given-default mean on workout data, and so that the Beta spread matches the realized spread across vintages. The following scenarios span the usual products.
+
+```{python}
+#| label: emp-scenarios
+scenarios = [
+    # name                  r      alpha  beta    (=> E[LGD])
+    ("prime mortgage",      0.08,  3,     17),    # 0.15
+    ("prime auto",          0.12,  5,     15),    # 0.25
+    ("prime unsec. card",   0.20,  13,     7),    # 0.65
+    ("subprime personal",   0.25,  10,    10),    # 0.50
+    ("SME unsecured",       0.30,  16,     4),    # 0.80
+]
+print(f"{'product':20s} {'r':>5} {'E[LGD]':>7} "
+      f"{'EMP_lr':>8} {'EMP_gb':>8} {'gap':>7}")
+for name, r_s, a, b in scenarios:
+    mu = a / (a + b)
+    emp_lr = emp_credit(y_te, p_lr, r=r_s, alpha=a, beta=b)
+    emp_gb = emp_credit(y_te, p_gb, r=r_s, alpha=a, beta=b)
+    print(f"{name:20s} {r_s:>5.2f} {mu:>7.2f} "
+          f"{emp_lr:>8.4f} {emp_gb:>8.4f} {emp_gb - emp_lr:>+7.4f}")
+```
+
+```{python}
+#| label: fig-emp-scenarios
+#| fig-cap: "EMP by product scenario, using the same Taiwan classifiers. Left: product-specific LGD priors. Right: EMP per applicant for the logistic baseline vs. the boosted model under each prior."
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+
+lam_grid = np.linspace(1e-3, 1 - 1e-3, 201)
+for name, r_s, a, b in scenarios:
+    axes[0].plot(lam_grid, beta_dist.pdf(lam_grid, a, b),
+                 label=f"{name} (E={a/(a+b):.2f})")
+axes[0].set_xlabel(r"$\lambda$ (LGD)")
+axes[0].set_ylabel(r"$h(\lambda)$")
+axes[0].set_title("Product-specific LGD priors")
+axes[0].legend(fontsize=7, loc="upper right")
+
+x = np.arange(len(scenarios))
+emp_lr_vals = [emp_credit(y_te, p_lr, r=s[1], alpha=s[2], beta=s[3])
+               for s in scenarios]
+emp_gb_vals = [emp_credit(y_te, p_gb, r=s[1], alpha=s[2], beta=s[3])
+               for s in scenarios]
+axes[1].bar(x - 0.2, emp_lr_vals, 0.4, label="logistic",
+            color="C3", alpha=0.85)
+axes[1].bar(x + 0.2, emp_gb_vals, 0.4, label="boosting",
+            color="C0", alpha=0.85)
+axes[1].set_xticks(x)
+axes[1].set_xticklabels([s[0] for s in scenarios], rotation=22, ha="right",
+                        fontsize=8)
+axes[1].set_ylabel("EMP per applicant")
+axes[1].set_title("EMP under each product's economics")
+axes[1].axhline(0, color="grey", lw=0.5)
+axes[1].legend(fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+The bar chart tells the operationally important story: EMP changes more as the product changes than as the model changes. Switching from the logistic baseline to the boosted model is worth a few basis points of EMP across every product; switching from a prime mortgage economics to an SME-unsecured economics, with the same two models, changes EMP by an order of magnitude. When the prior mean LGD is very high (SME unsecured, E\[LGD\] $\approx 0.80$) the EMP can turn negative for at least one of the models, which is a direct signal that the product is unpriced: no cut-off exists at which the book earns a positive expected profit under that loss distribution.
+
+#### Making a decision from EMP {.unnumbered}
+
+EMP is in units of *expected profit per applicant* on the same currency scale as $r$. Three decisions fall out of the number:
+
+1.  **Model selection.** Pick the model with higher EMP, provided the gap is larger than the bootstrap dispersion. A 95% bootstrap CI on EMP is built by resampling $(y, \hat p)$ pairs with replacement; the gap is "real" if the two intervals separate. Without that check, a 20-basis-point EMP gap is indistinguishable from a reshuffled test fold.
+2.  **Go / no-go on the product.** If the realistic prior delivers EMP $\le 0$, the product cannot be priced into profitability at any cut-off; either raise $r$ (rate, fee, or fee income assumption), tighten $\lambda$ (more collateral, stricter workout), or drop the product. The EMP is more honest than a profit curve at a single $(r, L)$ because it accounts for LGD uncertainty, which is where most credit-book surprises originate.
+3.  **Portfolio-level dollar translation.** EMP is per-applicant and exposure-normalized, so the portfolio value is $\text{EMP} \times N \times \bar E$ where $N$ is the annual application volume and $\bar E$ is the average booked exposure. A 0.002 EMP improvement from switching classifiers on a book of 100k applications at an average 10k USD exposure is 2 million USD a year. That is typically the unit in which a model-replacement proposal should be pitched to a risk committee.
+
+Two caveats reported alongside every EMP number. First, EMP ignores fixed and operating costs; it is the ceiling on portfolio contribution, not the bottom line. Second, EMP is only as honest as $(r, \alpha, \beta)$: always report it at the central prior *and* at a stressed prior with higher LGD mean (for example $\mathrm{Beta}(10, 10)$ instead of $\mathrm{Beta}(6, 14)$) so the reader can see whether the model ranking is robust to a macro-driven LGD shift. If the ranking inverts under stress, the decision should wait for a richer LGD study before a model swap.
+
 ### Threshold optimization under business constraints
 
 Real lenders rarely pick the unconstrained optimum. They add constraints: minimum acceptance rate to satisfy loan growth targets, maximum exposure to a risk segment, and fairness floors to meet ECOA obligations. The constrained optimum is found by sweeping the profit curve and taking the first feasible point. The following pattern is defensive and explicit. @sec-ch23 extends the formalism to fairness-constrained thresholds, where one enforces approximate equality of either acceptance rate or of true-positive rate across protected groups.
@@ -1255,13 +1764,536 @@ print(f"Unconstrained optimum: accept={acc[np.argmax(pi_curve)]*100:.1f}%  "
       f"profit={pi_curve.max():.4f}")
 ```
 
-## Population stability, CSI, and drift monitoring
+```{python}
+#| label: fig-constrained-threshold
+#| fig-cap: "Profit curve versus acceptance rate on the boosting scores. The shaded band is the infeasible region under a 55% minimum-accept floor. The unconstrained optimum (red) is the global peak at 49.0%; the constrained optimum (green) is the highest point to the right of the 55% boundary, which lands at 61.1% because a small local bump in the empirical profit curve sits above the 55% tick."
 
-### Why stability matters
+idx_unc = int(np.argmax(pi_curve))
 
-A credit score trained on 2020 data starts drifting the day after its model monitoring report is signed. Application mix changes, credit-bureau data changes, and macro conditions change. Three monitoring tools are standard: PSI on the score distribution, CSI on individual input features, and rolling AUC or KS on recent outcomes that have matured. Drift-induced performance loss is documented in a long line of machine-learning work [@gama2014survey].
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(acc * 100, pi_curve, color="C0", lw=1.4)
+ax.axvspan(0, min_accept * 100, color="grey", alpha=0.15,
+           label=f"infeasible (<{min_accept*100:.0f}%)")
+ax.axvline(min_accept * 100, color="grey", lw=0.8, ls="--")
+ax.axhline(0, color="grey", lw=0.5)
 
-### Population Stability Index
+ax.scatter([acc[idx_unc] * 100], [pi_curve[idx_unc]],
+           color="C3", zorder=5, s=45, label="unconstrained optimum")
+ax.scatter([acc[idx] * 100], [pi_curve[idx]],
+           color="C2", zorder=5, s=45, label="constrained optimum")
+ax.annotate(f"{acc[idx_unc]*100:.1f}%, profit {pi_curve[idx_unc]:.4f}",
+            (acc[idx_unc] * 100, pi_curve[idx_unc]),
+            textcoords="offset points", xytext=(-95, 8), fontsize=8,
+            color="C3")
+ax.annotate(f"{acc[idx]*100:.1f}%, profit {pi_curve[idx]:.4f}",
+            (acc[idx] * 100, pi_curve[idx]),
+            textcoords="offset points", xytext=(8, -6), fontsize=8,
+            color="C2")
+
+ax.set_xlabel("acceptance rate (%)")
+ax.set_ylabel("expected profit per applicant")
+ax.set_title("Profit curve with a minimum-accept floor")
+ax.legend(fontsize=8, loc="lower center")
+plt.tight_layout()
+plt.show()
+```
+
+**Reading the numbers.** @fig-constrained-threshold plots the profit curve with both optima marked. The unconstrained optimum is $49.0\%$ accept at profit $0.0457$ per applicant. Adding a minimum-accept floor of $55\%$ moves the operating point to $61.1\%$ accept and the profit down to $0.0455$: a drop of only $0.0002$, which is about four basis points of the peak. Two things are visible. First, the cost of the constraint is small because the profit curve is nearly flat near its peak; the lender is giving up very little expected profit to satisfy a loan-growth target. Second, the constrained optimum lands at $61.1\%$, not on the constraint boundary at $55\%$. That happens because the empirical profit curve has small local wiggles (the next block of applicants between $55\%$ and $61\%$ happens to contain more goods than bads, producing a local bump). In a world with infinite test data the curve would be smooth and the constrained optimum would sit exactly at $55\%$; in production this is a good place to bootstrap the curve to see how stable the operating point is.
+
+#### Common constraint families in credit {.unnumbered}
+
+Beyond the min-accept floor above, the policy discussion almost always includes some subset of:
+
+-   **Growth and volume floors**: minimum acceptance rate or minimum booked volume per period, to hit origination targets and absorb fixed costs.
+-   **Loss-rate ceilings**: maximum *expected* loss rate in the booked portfolio, e.g., $\sum_i p_i \,\mathbf{1}_{\text{accept}_i} \big/ N_{\text{accept}} \le \bar p_{\max}$. This is a risk-appetite statement distinct from a profit objective: a book can be profitable and still breach the loss ceiling.
+-   **Concentration and segment caps**: maximum share of accepted book in any single risk decile, geography, product, or industry. Regulatory capital rules (Basel Standardized Approach, SBV Circular 41/2016) and internal risk-appetite limits live here.
+-   **Fair-lending floors**: minimum acceptance rate per protected group, or approximate parity of true-positive rates across groups. @sec-ch23 develops this family in detail and threads it through a post-processing step.
+-   **Capital and RWA ceilings:** maximum risk-weighted asset increment per decision window, driven by regulatory capital ratios rather than profit.
+-   **Operational capacity**: maximum decisions per day given underwriter or collections throughput. Binds mostly for manual-review pipelines and during portfolio stress.
+
+Most of these reduce to linear inequalities on either the acceptance rate $a$ or on a per-segment acceptance vector $(a_1, \dots, a_K)$, which is why the constrained problem is almost always a small linear program in practice.
+
+#### Stacking multiple constraints {.unnumbered}
+
+The same sweep-and-filter logic extends to any number of constraints that are functions of "which applicants are accepted in ascending-risk order." Stacking a min accept rate of $60\%$ with an expected loss-rate ceiling on the booked portfolio looks like this:
+
+```{python}
+#| label: constrained-multi
+acc, pi_curve, order, cum_bad, cum_good = profit_curve(
+    y_te, p_gb, r=0.20, L=1.0
+)
+p_sorted = np.asarray(p_gb)[order]
+
+# Average PD among the k lowest-risk accepted applicants, for every k.
+avg_pd = np.zeros_like(acc)
+avg_pd[1:] = np.cumsum(p_sorted) / np.arange(1, len(p_sorted) + 1)
+
+def best_under(mask):
+    if not mask.any():
+        return None
+    return int(np.argmax(pi_curve * mask))
+
+feas_accept = acc >= 0.60
+rows = [
+    ("unconstrained",                int(np.argmax(pi_curve)),
+                                     "no constraints"),
+    ("min-accept 60%",               best_under(feas_accept),
+                                     "growth-target floor"),
+    ("min-accept 60% + avgPD<=12%",  best_under(feas_accept & (avg_pd <= 0.12)),
+                                     "loose loss ceiling"),
+    ("min-accept 60% + avgPD<=8%",   best_under(feas_accept & (avg_pd <= 0.08)),
+                                     "tight loss ceiling"),
+]
+print(f"{'policy':30s} {'accept%':>8} {'profit':>8} {'avg PD':>8}  status")
+for label, i, note in rows:
+    if i is None:
+        print(f"{label:30s} {'--':>8} {'--':>8} {'--':>8}  INFEASIBLE ({note})")
+    else:
+        print(f"{label:30s} {acc[i]*100:>7.1f}% {pi_curve[i]:>8.4f} "
+              f"{avg_pd[i]:>8.3f}  OK ({note})")
+```
+
+Each additional constraint does one of three things: it is *slack* (the unconstrained optimum already satisfies it, so adding it costs nothing), *binding* (it pulls the operating point and costs some profit, which is its shadow price), or *infeasible* (no operating point satisfies all constraints simultaneously). The last row is deliberately infeasible: at $60\%$ acceptance the booked-portfolio average PD climbs to roughly $11\%$, so a loss ceiling of $8\%$ cannot be honored while respecting the growth floor. The correct response from a policy committee is not to re-solve until something fits; it is to acknowledge the conflict and relax one of the constraints, using the shadow price below to decide which relaxation is cheaper.
+
+```{python}
+#| label: fig-shadow-price
+#| fig-cap: "Shadow price of the minimum-accept floor: profit per applicant given up, relative to the unconstrained optimum, as the floor rises from 30% to 95%. Zero until the floor exceeds the unconstrained optimum (~49%), then rises as the constraint bites deeper into the profit curve."
+
+floors = np.arange(0.30, 0.96, 0.02)
+shadow = []
+for f in floors:
+    ok = acc >= f
+    shadow.append(pi_curve.max() - (pi_curve * ok).max() if ok.any() else np.nan)
+
+fig, ax = plt.subplots(figsize=(6.2, 4))
+ax.plot(floors * 100, shadow, marker="o", lw=1.2)
+ax.axhline(0, color="grey", lw=0.5)
+ax.axvline(acc[np.argmax(pi_curve)] * 100, color="C1", ls="--", lw=0.8,
+           label=f"unconstrained opt ({acc[np.argmax(pi_curve)]*100:.0f}%)")
+ax.set_xlabel("minimum accept floor (%)")
+ax.set_ylabel("profit given up vs. unconstrained")
+ax.set_title("Shadow price of the accept-rate floor")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The curve is flat at zero, while the floor is below the unconstrained optimum (\~49%), because the unconstrained choice already satisfies the floor; once the floor climbs above that point, every additional percentage point of mandated acceptance costs a roughly constant slice of per-applicant profit. This slope is the number a CFO should be quoting when negotiating loan-growth targets against risk appetite.
+
+#### From sweep to linear program: which library to reach for {.unnumbered}
+
+The sweep pattern above works because the problem is one-dimensional: a single threshold on a single score. As soon as there are multiple scores, multiple products, or per-segment thresholds, the constrained optimum should be solved as a general linear program. Python offers a ladder of tools:
+
+-   `scipy.optimize.linprog` small dense LPs, fine for a handful of segments; built into the scientific stack.
+-   `pulp` or `cvxpy` mid-size problems where constraints and objective are easier to *read* than to code as matrices. `cvxpy` in particular lets the policy team write `sum(cost * accept) <= budget` instead of shaping `A_ub` and `b_ub` by hand.
+-   `python-mip` or `pyomo` binary-decision problems (accept or reject per individual applicant) with interfaces to `CBC` / `Gurobi`. Typically overkill for credit threshold selection because the LP relaxation is tight: sorting by score and taking the top fraction per segment is an optimal LP solution on totally unimodular data.
+-   `fairlearn.postprocessing.ThresholdOptimizer` scikit-learn-compatible utility that returns group-specific thresholds subject to equalized-odds, demographic-parity, or related constraints. This is the shortest path from a fitted classifier to a fairness-constrained policy.
+-   `optbinning` originally a WoE/binning library, but its profit and EMP helpers expose "given a score and a cost vector, return the optimal cut-off" with a solver under the hood.
+
+For most credit policy problems the right first step is the sweep. Move to `cvxpy` when you have more than two or three segments or non-trivial couplings between them (a cap on *joint* share of two geographies, for example), and move to a 0/1 integer solver only if you need a per-applicant decision that is not expressible as "threshold on a score per segment."
+
+#### A worked comparison across the ladder {#sec-ch04-policy-lp-ladder .unnumbered}
+
+The four code chunks below solve the *same* multi-segment credit-policy problem with four different libraries, on the Taiwan test fold. The problem has per-applicant accept variables $x_i \in [0, 1]$, per-applicant expected-contribution coefficients $c_i = r(1 - p_i) - L \, p_i$, and three families of constraints that a real policy committee would argue about:
+
+1.  an overall minimum acceptance rate (growth target),
+2.  a cap on the booked-book expected PD (risk appetite),
+3.  per-segment minimum-acceptance floors (e.g., to keep the high-school-educated segment from collapsing to zero accepts).
+
+The point of showing the same problem four times is to make the trade-off between readability, solver power, and scale concrete. The first shared block re-derives the split indices and the per-applicant segmentation so every demo operates on the same applicants.
+
+```{python}
+#| label: policy-lp-shared-setup
+idx_all_te = np.arange(len(df))
+_, idx_te = train_test_split(
+    idx_all_te, test_size=0.3, stratify=y, random_state=42,
+)
+df_te = df.iloc[idx_te].reset_index(drop=True)
+sex_te = df_te["SEX"].astype(int).values                 # 1=male, 2=female
+edu_te = df_te["EDUCATION"].astype(int).values
+seg_te = np.where(edu_te == 1, "grad",
+         np.where(edu_te == 2, "uni",
+         np.where(edu_te == 3, "hs", "other")))
+
+rng_policy  = np.random.default_rng(0)
+sub_keep    = np.zeros(len(p_gb), dtype=bool)
+for s, k in [("grad", 400), ("uni", 500), ("hs", 200), ("other", 120)]:
+    idx_s = np.where(seg_te == s)[0]
+    sub_keep[rng_policy.choice(idx_s, size=min(len(idx_s), k), replace=False)] = True
+
+p_sub, y_sub, s_sub = p_gb[sub_keep], y_te[sub_keep], seg_te[sub_keep]
+sex_sub             = sex_te[sub_keep]
+N_sub               = len(p_sub)
+r_pol, L_pol        = 0.20, 1.0
+c_sub               = r_pol * (1 - p_sub) - L_pol * p_sub
+print(f"n = {N_sub}   segments = {dict(zip(*np.unique(s_sub, return_counts=True)))}")
+```
+
+##### `scipy.optimize.linprog`: the LP, written as matrices {.unnumbered}
+
+The SciPy interface wants the objective and constraints as dense (or sparse) arrays. It is the shortest dependency footprint (NumPy + SciPy) and plenty fast for the $\approx 10^3$ applicants here, but the code reads like a stack of matrix rows rather than like the policy statement.
+
+```{python}
+#| label: policy-lp-scipy
+from scipy.optimize import linprog
+
+a_min   = 0.55            # overall accept floor
+pbar    = 0.14            # booked-book avg PD ceiling
+floors  = {"grad": 0.70, "uni": 0.60, "hs": 0.40, "other": 0.30}
+
+rows, rhs = [], []
+rows.append(-np.ones(N_sub));           rhs.append(-a_min * N_sub)
+rows.append(p_sub - pbar);               rhs.append(0.0)
+for k, f in floors.items():
+    mk = (s_sub == k).astype(float)
+    rows.append(-mk);                    rhs.append(-f * mk.sum())
+
+res = linprog(
+    c=-c_sub, A_ub=np.vstack(rows), b_ub=np.array(rhs),
+    bounds=[(0, 1)] * N_sub, method="highs",
+)
+x_sp      = res.x
+pd_booked = (p_sub * x_sp).sum() / x_sp.sum()
+print(f"scipy status = {res.message}")
+print(f"accept rate  = {x_sp.sum()/N_sub:.3%}   "
+      f"profit/appl = {(c_sub * x_sp).sum()/N_sub:.4f}   "
+      f"booked PD    = {pd_booked:.4f}")
+for k in floors:
+    mk = s_sub == k
+    print(f"   {k:5s}  accept = {x_sp[mk].sum()/mk.sum():.3%}")
+```
+
+The LP relaxation is tight: every $x_i$ comes back at $0$ or $1$ (no fractional decisions), which is the totally-unimodular property referenced in the ladder. That is why sorting by score and taking the top fraction per segment is the same optimal policy.
+
+##### `cvxpy`: the same LP, written as policy statements {.unnumbered}
+
+`cvxpy` lets the policy discussion and the code converge. Each line below corresponds to one bullet that a chief risk officer would read on a policy memo, with the added bonus that the *dual values* of the constraints come back for free: exactly the shadow-price number used in the third habit below.
+
+```{python}
+#| label: policy-lp-cvxpy
+import cvxpy as cp
+
+x_var   = cp.Variable(N_sub)
+obj     = cp.Maximize(c_sub @ x_var)
+accept  = cp.sum(x_var)
+mk_gu   = ((s_sub == "grad") | (s_sub == "uni")).astype(float)
+
+cons = [x_var >= 0, x_var <= 1,
+        accept      >= a_min * N_sub,
+        p_sub @ x_var <= pbar * accept,
+        mk_gu @ x_var <= 0.80 * accept]    # coupling: grad+uni <= 80% of book
+
+seg_floor_cons = {}
+for k, f in floors.items():
+    mk = (s_sub == k).astype(float)
+    con = mk @ x_var >= f * mk.sum()
+    cons.append(con)
+    seg_floor_cons[k] = con
+
+prob = cp.Problem(obj, cons); prob.solve(solver=cp.HIGHS)
+x_cv = x_var.value
+print(f"cvxpy status = {prob.status}   "
+      f"profit/appl = {prob.value/N_sub:.4f}   "
+      f"max|scipy - cvxpy| = {np.max(np.abs(x_sp - x_cv)):.2e}")
+print(f"grad+uni share of booked book = {(mk_gu * x_cv).sum()/x_cv.sum():.3%}")
+print("segment-floor duals (non-zero means binding):")
+for k, con in seg_floor_cons.items():
+    print(f"   {k:5s}  dual = {float(np.atleast_1d(con.dual_value).sum()):+.5f}")
+```
+
+Two things are visible. First, the `scipy` and `cvxpy` solutions agree to solver tolerance, confirming they are solving the same LP. Second, the constraint on the joint `grad + uni` share of the booked book *could not* have been expressed as a per-segment floor; it is a cross-segment coupling, and it is exactly the kind of constraint that turns an Excel-grade policy memo into an LP.
+
+##### `pulp` / `python-mip`: when decisions must be binary {.unnumbered}
+
+The LP relaxation being tight is the reason the ladder says an integer solver is "typically overkill." The integer solver becomes necessary only when the policy has genuinely combinatorial structure: per-applicant binary decisions with side constraints that couple individuals, e.g., "book at most one of these two correlated exposures" or "approve in batches of 10 to respect underwriter throughput." `pulp` and `python-mip` are near-identical in spirit; here is `pulp`, calling the open-source CBC solver.
+
+```{python}
+#| label: policy-lp-pulp
+import pulp as pl
+
+rng_pulp = np.random.default_rng(1)
+pick     = rng_pulp.choice(N_sub, size=300, replace=False)
+p_int    = p_sub[pick]; s_int = s_sub[pick]
+c_int    = r_pol * (1 - p_int) - L_pol * p_int
+n_int    = len(p_int)
+
+prob_int = pl.LpProblem("policy_mip", pl.LpMaximize)
+xb       = [pl.LpVariable(f"x{i}", cat="Binary") for i in range(n_int)]
+prob_int += pl.lpSum(float(c_int[i]) * xb[i] for i in range(n_int))
+prob_int += pl.lpSum(xb) >= int(a_min * n_int)
+prob_int += pl.lpSum(float(p_int[i]) * xb[i] for i in range(n_int)) <= pbar * pl.lpSum(xb)
+for k, f in floors.items():
+    mk = [i for i in range(n_int) if s_int[i] == k]
+    if mk:
+        prob_int += pl.lpSum(xb[i] for i in mk) >= f * len(mk)
+
+prob_int.solve(pl.PULP_CBC_CMD(msg=False))
+xb_val = np.array([pl.value(v) for v in xb])
+
+print(f"pulp status = {pl.LpStatus[prob_int.status]}   "
+      f"accepted = {int(xb_val.sum())}/{n_int}   "
+      f"profit/appl = {(c_int * xb_val).sum()/n_int:.4f}")
+for k in floors:
+    mk = s_int == k
+    if mk.sum() == 0: continue
+    acc_p = p_int[mk][xb_val[mk] > 0.5]
+    rej_p = p_int[mk][xb_val[mk] < 0.5]
+    hi_acc = acc_p.max() if len(acc_p) else float("nan")
+    lo_rej = rej_p.min() if len(rej_p) else float("nan")
+    print(f"   {k:5s}  max accepted PD = {hi_acc:.3f}   "
+          f"min rejected PD = {lo_rej:.3f}   "
+          f"monotonic = {hi_acc <= lo_rej + 1e-9}")
+```
+
+The per-segment "max accepted PD $\le$ min rejected PD" check confirms the integer solution collapses back to a threshold per segment, which is why the LP relaxation was adequate in the first two demos. `pyomo` and `python-mip` are drop-in replacements that expose the same CBC or Gurobi backends; the choice between them is mostly about which modeling API the team already knows.
+
+##### `fairlearn.postprocessing.ThresholdOptimizer`: group-specific thresholds {.unnumbered}
+
+Fair-lending floors sit in a different slot on the ladder. When the constraint is "approximately equalize TPR and FPR across a protected attribute," the cleanest implementation is not to encode the constraint into the LP but to post-process a scored classifier with group-specific thresholds chosen to satisfy the parity condition. `fairlearn` wraps that choice in a scikit-learn-compatible object.
+
+```{python}
+#| label: policy-lp-fairlearn
+from fairlearn.postprocessing import ThresholdOptimizer
+
+to = ThresholdOptimizer(
+    estimator=gb, constraints="equalized_odds",
+    predict_method="predict_proba", prefit=True,
+)
+sex_tr = df.iloc[np.setdiff1d(idx_all_te, idx_te)]["SEX"].astype(int).values
+to.fit(X_tr, y_tr, sensitive_features=sex_tr)
+reject_fl = to.predict(X_te, sensitive_features=sex_te, random_state=0)
+accept_fl = 1 - reject_fl
+
+p_gb_te   = p_gb
+tshared   = float(np.quantile(p_gb_te, accept_fl.mean()))
+accept_sh = (p_gb_te <= tshared).astype(int)
+
+print(f"{'':6s}  {'n':>5}  {'accept':>7}  {'TPR':>6}  {'FPR':>6}  "
+      f"|  {'accept':>7}  {'TPR':>6}  {'FPR':>6}")
+print(f"{'group':6s}  {'':>5}  {'(fair)':>7}  {'(fair)':>6}  {'(fair)':>6}  "
+      f"|  {'(one)':>7}  {'(one)':>6}  {'(one)':>6}")
+for g in [1, 2]:
+    mg = sex_te == g
+    def rates(a):
+        tpr = ((y_te == 0) & mg & (a == 1)).sum() / ((y_te == 0) & mg).sum()
+        fpr = ((y_te == 1) & mg & (a == 1)).sum() / ((y_te == 1) & mg).sum()
+        return a[mg].mean(), tpr, fpr
+    a_f, tpr_f, fpr_f = rates(accept_fl)
+    a_s, tpr_s, fpr_s = rates(accept_sh)
+    print(f"SEX={g:>2}  {mg.sum():>5}  {a_f:>6.2%}  {tpr_f:>5.2%}  {fpr_f:>5.2%}  "
+          f"|  {a_s:>6.2%}  {tpr_s:>5.2%}  {fpr_s:>5.2%}")
+```
+
+The "fair" columns come from `ThresholdOptimizer`; the "one" columns from a single shared threshold picked to match the overall accept rate. The gap in FPR across groups is narrower under the fair policy, which is the equalized-odds guarantee; the cost is a small drop in overall accuracy relative to the shared threshold. The reason to reach for `fairlearn` rather than add a fairness constraint to the `cvxpy` program is not that it cannot be expressed there (it can, as a linear inequality on per-group acceptance rates). It is that `ThresholdOptimizer` chooses between *randomized* group-specific thresholds when no deterministic rule exactly hits the parity condition, which is the regulator-expected behavior in US Regulation B disparate-impact analysis and is easy to get wrong by hand.
+
+#### How business teams should think about this {.unnumbered}
+
+The point of constraints is not to squeeze the last dollar out of the model; it is to make the trade-off between risk appetite, regulatory obligation, and commercial ambition quantitative. Three habits help:
+
+1.  **Always report unconstrained and constrained side by side.** The gap is the dollar price of the constraint. If the gap is small (as with the $55\%$ floor above, $\sim 4$ bp of profit per applicant), the policy discussion can focus on whether the constraint is the right one without worrying about the model choice. If the gap is large, the lender should interrogate whether the constraint is truly necessary or whether it can be softened (e.g., by averaging the minimum-accept rate over a rolling quarter rather than enforcing it every month).
+2.  **Think in shadow prices, not in absolutes.** A sentence like "every additional 5 pp of mandated accept rate above $49\%$ costs about $0.3$ bp of per-applicant profit, which at 100k annual applicants and a \$10,000 average exposure is $\approx 30,000$ USD a year per 5 pp" is far more useful than "profit went from $0.0457$ to $0.0455$", because it lets policy authors choose the constraint level where the marginal profit sacrifice is tolerable.
+3.  **Name the binding constraint.** In practice only one or two constraints actually bind at any given time; the rest are slack. If the binding constraint is the loss ceiling, the lever is model quality or pricing. If the binding constraint is the accept-rate floor, the lever is underwriting throughput or channel growth. If the binding constraint is a fairness floor, the lever is feature engineering or reject-inference coverage on the under-served segment. Identifying the binding constraint tells the reader *which part of the business* is actually deciding this year's book.
+
+#### The three habits, in code {#sec-ch04-policy-habits .unnumbered}
+
+Each habit is an executable operation, not just a principle. The three chunks below apply them to the Taiwan profit curve already built above, using policy-team assumptions a CFO would recognize: $100{,}000$ scored applicants per year and an average booked exposure of $10{,}000$ USD per loan. These two constants let us translate a "basis points of per-applicant profit" number into an annual dollar figure, which is what lets the habit change the conversation.
+
+##### Habit 1: unconstrained vs constrained, priced in USD {.unnumbered}
+
+The first habit turns the profit-curve gap into a sentence a finance committee can use. The gap at a $55\%$ floor is tiny; the gap at an $85\%$ floor is not. Showing both in the same table is how you stop a policy discussion from anchoring on whichever number was loaded into the slide deck first.
+
+```{python}
+#| label: policy-habit-1-gap
+N_apps_year = 100_000
+E_avg_usd   = 10_000
+
+idx_unc     = int(np.argmax(pi_curve))
+pi_unc      = pi_curve[idx_unc]
+
+policies = [("unconstrained",                  idx_unc, "baseline")]
+for f, note in [(0.55, "growth floor (soft)"),
+                (0.70, "growth floor (hard)"),
+                (0.85, "growth floor (aggressive)")]:
+    mask = acc >= f
+    idx_c = int(np.argmax(np.where(mask, pi_curve, -np.inf)))
+    policies.append((f"min-accept {f:.0%}", idx_c, note))
+
+print(f"{'policy':24s} {'accept':>7} {'profit/appl':>12} "
+      f"{'gap (bp)':>10} {'gap (USD/yr)':>14}  note")
+for label, i, note in policies:
+    gap_appl = pi_unc - pi_curve[i]
+    gap_bp   = gap_appl * 1e4
+    gap_usd  = gap_appl * E_avg_usd * N_apps_year
+    print(f"{label:24s} {acc[i]*100:>6.1f}% {pi_curve[i]:>12.4f} "
+          f"{gap_bp:>10.2f} {gap_usd:>14,.0f}  {note}")
+```
+
+Reading the output: the $55\%$ floor costs roughly $2$ bp of per-applicant profit, or about \$200k a year at the stated volume. That is a rounding error in a retail credit portfolio; the policy discussion can focus on whether $55\%$ is the right target, not on whether the model lift justifies the constraint. The $85\%$ floor costs roughly $300$ bp per applicant, or about \$30M a year: an altogether different conversation, and one that should include reconsidering whether loan growth should be averaged over a rolling quarter rather than enforced every month.
+
+##### Habit 2: the shadow price, per 5 pp of floor {.unnumbered}
+
+The second habit converts the profit curve into a *marginal* dollar cost: "each additional 5 pp of mandated acceptance above the unconstrained optimum costs about $X$ USD a year." That single sentence is far more useful than two decimal places on an absolute profit number, because it lets a policy author pick the tightest constraint whose marginal cost is still tolerable.
+
+```{python}
+#| label: fig-policy-habit-2-shadow
+#| fig-cap: "Shadow price of the minimum-accept floor, in USD per year at 100k applicants and \\$10k average exposure. The zero plateau on the left is the region where the floor is below the unconstrained optimum; the curve bends downward sharply above 70% because that is where the profit curve falls off its plateau."
+
+floors = np.arange(0.40, 0.96, 0.05)
+pi_at  = np.array([pi_curve[acc >= f].max() if (acc >= f).any() else np.nan
+                   for f in floors])
+marginal_usd = np.concatenate([[np.nan], np.diff(pi_at)]) * E_avg_usd * N_apps_year
+
+fig, ax = plt.subplots(figsize=(6.2, 4))
+ax.step(floors * 100, marginal_usd / 1e6, where="pre", marker="o", lw=1.3)
+ax.axhline(0, color="grey", lw=0.5)
+ax.set_xlabel("minimum accept floor (%)")
+ax.set_ylabel("marginal profit loss per +5 pp (USD millions / year)")
+ax.set_title("Shadow price of the min-accept floor, priced in dollars")
+ax.grid(alpha=0.3)
+plt.tight_layout(); plt.show()
+
+print(f"{'floor':>6} {'peak profit/appl':>18} {'marginal USD / yr':>20}")
+for f, p_, m in zip(floors, pi_at, marginal_usd):
+    m_str = "" if np.isnan(m) else f"{m:>14,.0f}"
+    print(f"{f*100:>5.0f}% {p_:>18.4f} {m_str:>20}")
+```
+
+The table and the figure are the same object, read two different ways. The plateau (zero marginal cost) is the region where the floor is slack: the unconstrained optimum already sits above it. The elbow is where the constraint starts pulling the operating point off the flat part of the profit curve, and the steep tail past $80\%$ is where every incremental 5 pp costs seven-figure annual profit. A policy author can now pick the constraint level at which the marginal sacrifice is tolerable, rather than negotiating in the abstract.
+
+##### Habit 3: naming which constraint is actually binding {.unnumbered}
+
+The third habit is the most diagnostic. Solve the policy LP with `cvxpy`, read off the dual values of every constraint, and print which constraint has a non-zero dual. That is exactly the set of constraints the business is actively giving up profit for; the rest are free. The scenarios below walk the committee through three policy regimes and, for each, identify the *single* constraint that is deciding the book.
+
+```{python}
+#| label: policy-habit-3-binding
+r_pol2, L_pol2 = 0.20, 1.0
+keep_h3 = rng_policy.choice(len(p_gb), size=1500, replace=False)
+p_h3, sx_h3 = p_gb[keep_h3], sex_te[keep_h3]
+c_h3        = r_pol2 * (1 - p_h3) - L_pol2 * p_h3
+Nh          = len(p_h3)
+mk_h1       = (sx_h3 == 1).astype(float)      # SEX=1 sub-group
+mk_h2       = (sx_h3 == 2).astype(float)      # SEX=2 sub-group
+
+scenarios = [
+    dict(label="base policy",   min_accept=0.65, pbar=0.13, sex1_floor=0.55, sex2_cap=0.65),
+    dict(label="growth push",   min_accept=0.80, pbar=0.15, sex1_floor=0.55, sex2_cap=0.65),
+    dict(label="risk hawk",     min_accept=0.50, pbar=0.095, sex1_floor=0.40, sex2_cap=0.70),
+    dict(label="fair-lending",  min_accept=0.50, pbar=0.13, sex1_floor=0.60, sex2_cap=0.70),
+]
+
+for cfg in scenarios:
+    xv   = cp.Variable(Nh)
+    base = [xv >= 0, xv <= 1]
+    c_min = cp.sum(xv)              >= cfg["min_accept"] * Nh
+    c_pd  = p_h3 @ xv               <= cfg["pbar"] * cp.sum(xv)
+    c_fx  = mk_h1 @ xv              >= cfg["sex1_floor"] * mk_h1.sum()
+    c_sh  = mk_h2 @ xv              <= cfg["sex2_cap"] * cp.sum(xv)
+    named = [("min-accept", c_min), ("booked PD cap", c_pd),
+             ("SEX=1 accept floor", c_fx), ("SEX=2 share cap", c_sh)]
+    prob  = cp.Problem(cp.Maximize(c_h3 @ xv), base + [c for _, c in named])
+    prob.solve(solver=cp.HIGHS)
+
+    xvv   = xv.value
+    bpd   = (p_h3 * xvv).sum() / xvv.sum()
+    print(f"\n[{cfg['label']:13s}]  profit/appl = {prob.value/Nh:.4f}   "
+          f"accept = {xvv.sum()/Nh:.2%}   booked PD = {bpd:.3f}")
+    binding = []
+    for lbl, con in named:
+        dv = float(np.atleast_1d(con.dual_value).sum())
+        tag = "BIND" if abs(dv) > 1e-8 else "slack"
+        print(f"    {lbl:22s} dual = {dv:+8.5f}   {tag}")
+        if tag == "BIND":
+            binding.append((lbl, dv))
+    if binding:
+        top = max(binding, key=lambda t: abs(t[1]))
+        print(f"    -> binding constraint: '{top[0]}' "
+              f"(USD/yr price at +5pp tighter "
+              f"~= {abs(top[1]) * 0.05 * E_avg_usd * N_apps_year:,.0f})")
+```
+
+Each row of scenarios tells a single-sentence story. In the base policy the min-accept floor binds: the business is giving up profit to hit a growth target, so the *lever* is channel growth or underwriting throughput — if the marketing team can deliver more applicants of the same quality, the floor becomes slack and the cost disappears. In the "growth push" the same constraint is still binding but with a much larger dual, which is how you see (without re-reading the policy memo) that the growth target has moved from comfortable to aggressive. In the "risk hawk" scenario the booked-PD cap binds instead: the lever is model quality or pricing, because the only way to accept more applicants without breaching the cap is to separate good risks from bad ones more cleanly. In the "fair-lending" scenario the SEX=1 accept-rate floor binds: the lever is feature engineering or reject-inference on that sub-population, because the model is currently under-booking them relative to the parity target. The dual value itself is the marginal USD cost of that constraint at the current operating point and converts directly to the annual-dollar figure shown on the last line of each block.
+
+The operational reading is the same across all three habits. The unconstrained/constrained gap says whether the constraint is free or expensive. The shadow price per 5 pp says *how* the expense scales. The binding-constraint reading says *which* part of the business is deciding this year's book. Reported together on a single page, these three numbers let a policy committee argue about the right target rather than about the modeling choice.
+
+## Population stability, CSI, and drift monitoring {#sec-ch04-drift}
+
+### Why stability matters {#sec-ch04-drift-why}
+
+A credit score trained on 2020 data starts drifting the day after its model monitoring report is signed. Application mix changes, credit-bureau data changes, and macro conditions change. Three monitoring tools are standard: PSI (@sec-ch04-psi) on the score distribution, CSI (@sec-ch04-csi) on individual input features, and rolling AUC (@sec-ch04-auc) or KS (@sec-ch04-ks) on recent outcomes that have matured. Drift-induced performance loss is documented in a long line of machine-learning work [@gama2014survey].
+
+### Population Stability Index {#sec-ch04-psi}
+
+**What is being compared.** PSI is a distance between *two distributions of the same scalar quantity* evaluated on two populations. You pick one scalar (the variable you are monitoring) and two time windows (the populations), then compute one PSI number that answers "did window $A$ look like window $E$ for this variable?". In credit monitoring the scalar is almost always the *model score* (or equivalently the calibrated PD), because a single score-level PSI summarizes whether the overall risk mix of applicants has moved. The two populations are:
+
+-   $E$ = "expected" or reference: the score distribution on the *development sample* (the data the model was trained on), or on the last revalidation vintage. $E$ is held fixed, often for a full year of production, so that successive PSI numbers are comparable.
+-   $A$ = "actual": the score distribution on the *current scoring window*, typically the most recent calendar month or quarter of applications that have been scored but not necessarily matured yet.
+
+**A concrete example.** Suppose the logistic scorecard was trained on applications booked January through December 2024 (the development sample) and went live on 1 January 2025. On 1 April 2025 the monitoring team wants to know whether March 2025 applicants still look like the development book. They:
+
+1.  Pull the $\hat p$ (PD) the current model assigns to every 2024 development-sample application. Call this vector $E$. This is fixed for 2025 and reused every month.
+2.  Pull the $\hat p$ the current model assigns to every March 2025 application. Call this vector $A$.
+3.  Bin $E$ into 10 deciles (so each reference decile holds 10 percent by construction), drop $A$ into the same cutpoints, and apply @eq-psi.
+
+A PSI of $0.03$ means the March 2025 applicant mix is indistinguishable from development at monitoring resolution. A PSI of $0.18$ in, say, May 2025 says "investigate": maybe a new marketing channel is sending thinner files. A PSI of $0.31$ in August 2025 says the score no longer describes the population it is being used on, and retraining is on the table. One month later the team repeats the exercise with $E$ unchanged and $A$ now equal to the April 2025 scores, and so on.
+
+The same formula applies unchanged to any *single* input feature (income, utilization, days-past-due-30, debt-to-income). In that case the scalar $E$ is "debt-to-income on the development sample" and $A$ is "debt-to-income on March 2025 applicants". When the scalar is a feature rather than the score the metric is called the Characteristic Stability Index (CSI) and is covered in the next subsection. The division of labor is simple: PSI on the score answers "has the overall risk mix of my applicants changed?", CSI on individual features answers "which specific input moved?" and therefore "why did PSI move?".
+
+**What it looks like.** The clearest way to build intuition is to draw $E$ and $A$ on top of each other for two cases: a quiet month that should produce a near-zero PSI, and a drifted month that should trip the investigation threshold. @fig-psi-intuition uses the logistic-scorecard test-fold PDs as a stand-in for $E$, treats the first half as the development reference, and constructs two "actual" populations: a stable one (the second half, i.i.d. with the first) and a drifted one (the second half with a deliberate upward shift). The left column overlays the two densities, the right column shows the decile-level expected-versus-actual proportions and the per-bin PSI contributions that sum to the headline number.
+
+```{python}
+#| label: fig-psi-intuition
+#| fig-cap: "PSI intuition. Top row: quiet month, $E$ and $A$ overlap and PSI is near the noise floor. Bottom row: drifted month, $A$ has moved to the right, decile $10$ is under-populated, decile $1$ is over-populated, and the per-bin contributions sum to a PSI above the investigation threshold."
+#| fig-width: 8
+#| fig-height: 6
+rng_psi = np.random.default_rng(7)
+E_ref   = p_lr[:3000]
+A_quiet = p_lr[3000:6000]
+shift   = 0.12
+A_drift = np.clip(p_lr[3000:6000] + shift * rng_psi.beta(2, 2, 3000), 0, 1)
+
+def psi_bins(e, a, B=10, eps=1e-6):
+    q = np.quantile(e, np.linspace(0, 1, B + 1))
+    q[0], q[-1] = -np.inf, np.inf
+    e_p = np.histogram(e, bins=q)[0] / len(e)
+    a_p = np.histogram(a, bins=q)[0] / len(a)
+    contrib = (a_p - e_p) * np.log((a_p + eps) / (e_p + eps))
+    return e_p, a_p, contrib
+
+fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+for row, (A_now, tag) in enumerate([(A_quiet, "quiet month"),
+                                    (A_drift, "drifted month")]):
+    e_p, a_p, contrib = psi_bins(E_ref, A_now)
+    psi_val = float(contrib.sum())
+
+    ax = axes[row, 0]
+    ax.hist(E_ref, bins=40, density=True, alpha=0.45,
+            color="steelblue", label="E (development)")
+    ax.hist(A_now, bins=40, density=True, alpha=0.45,
+            color="crimson",  label="A (current window)")
+    ax.set_title(f"{tag}: PSI = {psi_val:.3f}")
+    ax.set_xlabel("PD")
+    ax.set_ylabel("density")
+    ax.legend(loc="upper right", fontsize=8)
+
+    ax = axes[row, 1]
+    idx = np.arange(1, 11)
+    w   = 0.38
+    ax.bar(idx - w/2, e_p * 100, width=w, color="steelblue", label="E %")
+    ax.bar(idx + w/2, a_p * 100, width=w, color="crimson",  label="A %")
+    for i, c in enumerate(contrib):
+        ax.text(idx[i], max(e_p[i], a_p[i]) * 100 + 0.6,
+                f"{c:.3f}", ha="center", fontsize=7)
+    ax.set_xticks(idx)
+    ax.set_xlabel("decile of E")
+    ax.set_ylabel("share of applicants (%)")
+    ax.set_title("per-bin contributions sum to PSI")
+    ax.legend(loc="upper right", fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+The top row is what a healthy month looks like: the two densities lie on top of each other, every decile of $E$ holds roughly 10 percent of $A$, and the per-bin contributions are all within rounding of zero. The bottom row is the picture a monitoring committee cares about: $A$ has shifted to the right, the low-PD deciles of $E$ are over-populated in $A$ (risk mix moved up), the high-PD deciles of $E$ are under-populated (fewer clean files), and two or three bin contributions account for most of the PSI total. Nothing in the scalar would tell you this, but the bar chart tells the remediation team exactly which part of the score range to investigate first.
 
 Partition the expected score distribution $E$ and the actual distribution $A$ into $B$ buckets with proportions $e_b$ and $a_b$. PSI is the symmetric Kullback-Leibler discrepancy up to constants,
 
@@ -1269,7 +2301,9 @@ $$
 \mathrm{PSI} = \sum_{b=1}^{B} (a_b - e_b) \log\frac{a_b}{e_b}.
 $$ {#eq-psi}
 
-Industry thresholds, often credited to the early Experian and FICO model governance notes, call $\mathrm{PSI} < 0.10$ stable, $0.10 \le \mathrm{PSI} < 0.25$ requires investigation, $\mathrm{PSI} \ge 0.25$ means the model needs retraining. The cut-offs are convention, not theory; they survive because they work.
+Two properties are worth naming explicitly. The sum is *symmetric* in $E$ and $A$ (i.e., swapping reference and actual gives the same PSI, unlike the raw KL divergence). And every per-bin term $(a_b - e_b) \log(a_b/e_b)$ is *non-negative*, because the difference and the log always carry the same sign, so the total decomposes cleanly as a non-negative sum of bin-level contributions. That decomposition is what we use below to localize the drift.
+
+Industry thresholds, often credited to the early Experian and FICO model-governance notes, call $\mathrm{PSI} < 0.10$ stable, $0.10 \le \mathrm{PSI} < 0.25$ requires investigation, $\mathrm{PSI} \ge 0.25$ means the model needs retraining. The cut-offs are convention, not theory; they survive because they work on long-run empirical data. In practice the most useful cut-off is the one calibrated against the *noise floor* your own pipeline generates in quiet periods (see below); the industry numbers are a starting point, not a mandate.
 
 ```{python}
 #| label: psi-scratch
@@ -1288,6 +2322,40 @@ def psi_from_scratch(expected, actual, buckets=10, eps=1e-6):
 print(f"PSI scratch = {psi_from_scratch(p_lr[:3000], p_lr[3000:]):.4f}")
 print(f"PSI creditutils = {psi(p_lr[:3000], p_lr[3000:]):.4f}")
 ```
+
+**Reading the 0.0034 result.** The scalar we pass into `psi_from_scratch` here is `p_lr`, the held-out-fold logistic PD. The two "populations" are simply the first 3,000 and the last 3,000 rows of that same test fold (i.e., two random halves of an i.i.d). sample. By construction they should look statistically identical, and a PSI of $0.0034$ says exactly that: roughly three-tenths of a percent, well below the $0.10$ "stable" threshold and nowhere near the $0.25$ "retrain" threshold. This value is the *noise floor* the monitor must rise above before the alarm should fire on this dataset. In a live pipeline calibrate your investigation threshold against the empirical distribution of PSI during historically quiet periods; the industry $0.10/0.25$ numbers are a reasonable default, but the right threshold is the one that separates signal from the noise level of your particular data feed.
+
+**Decomposing PSI by bin.** A single PSI scalar hides the *shape* of the drift. The per-bin contributions $(a_b - e_b) \log(a_b/e_b)$ are non-negative and sum to PSI, so they localize *where* the distribution moved. Two PSI $= 0.20$ episodes can have very different causes:
+
+-   *Concentrated in the highest-risk decile.* The portfolio has absorbed a new cohort of higher-risk applicants (e.g., a macro shock, a new marketing channel, a competitor's risk-based-pricing change). Remediation is usually business: tighten underwriting or re-price the product.
+-   *Spread roughly evenly across all deciles.* An upstream data change is shifting every score mechanically (e.g., a bureau integration switched, a missing-value imputation changed, a new version of a feature transformer). Remediation is usually engineering: find the data change, not the credit policy.
+
+```{python}
+#| label: psi-per-bin
+def psi_per_bin(expected, actual, buckets=10, eps=1e-6):
+    e = np.asarray(expected, dtype=float)
+    a = np.asarray(actual, dtype=float)
+    q = np.quantile(e, np.linspace(0, 1, buckets + 1))
+    q[0], q[-1] = -np.inf, np.inf
+    e_cnt, _ = np.histogram(e, bins=q)
+    a_cnt, _ = np.histogram(a, bins=q)
+    ep = e_cnt / max(e_cnt.sum(), 1)
+    ap = a_cnt / max(a_cnt.sum(), 1)
+    contrib = (ap - ep) * np.log((ap + eps) / (ep + eps))
+    return pd.DataFrame({
+        "bin":          np.arange(1, buckets + 1),
+        "expected %":   np.round(ep * 100, 2),
+        "actual %":     np.round(ap * 100, 2),
+        "delta %":      np.round((ap - ep) * 100, 2),
+        "PSI contrib":  np.round(contrib, 4),
+    })
+
+psi_table = psi_per_bin(p_lr[:3000], p_lr[3000:])
+print(psi_table.to_string(index=False))
+print(f"\nPSI total = {psi_table['PSI contrib'].sum():.4f}")
+```
+
+In this split-the-sample case every bin contributes essentially nothing: the `delta %` column hovers inside a plus-or-minus one percentage point of bin mass, which is what binomial noise of order $\sqrt{e_b(1-e_b)/(n/B)}$ looks like at $n = 3,000$ and $B = 10$. In a real drift episode the equivalent table shows one or two rows with contributions an order of magnitude larger than the rest; the `delta %` signs and the bin index together tell the committee whether the drift is at the top of the score distribution, the bottom, or smeared across the middle. That is the level of detail a remediation conversation needs, and it is lost if the monitor only reports the headline scalar.
 
 ### PSI under intentional drift
 
@@ -1317,7 +2385,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-### Characteristic Stability Index
+### Characteristic Stability Index {#sec-ch04-csi}
 
 CSI is the same computation applied at the feature level rather than on the composite score,
 

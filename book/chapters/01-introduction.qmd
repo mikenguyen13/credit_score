@@ -326,42 +326,31 @@ plt.show()
 
 ```{python}
 #| label: fig-split-sizes
-#| fig-cap: "Row counts for each slice produced by `train_valid_test_split` at `seed=0`. The 60/20/20 rule is proportional, so the German set (1,000 rows) and the Taiwan set (30,000 rows) get the same *shares* but very different *absolute* sample sizes for validation and test. A 200-row German test slice is small enough that a single metric estimate carries wide confidence intervals, which motivates the resampling designs in later chapters."
-split_rows = []
-for name, df in [('German', german), ('Taiwan', taiwan)]:
-    tr, va, te = train_valid_test_split(df, y_col='default', seed=0)
-    split_rows.append((name, len(tr), len(va), len(te)))
+#| fig-cap: "The deterministic 60/20/20 partition enforced by `train_valid_test_split`. Shares are fixed regardless of dataset size: the training slice always gets 60 percent of rows, validation and test each get 20 percent. The three slices play distinct roles (training fits parameters, validation tunes choices made during development, test is used once for the final report) and never overlap, which is what makes out-of-sample performance estimates meaningful."
+slices = [('train', 0.60, '#4C72B0', 'fit parameters'),
+          ('valid', 0.20, '#55A868', 'tune / early stop'),
+          ('test',  0.20, '#C44E52', 'final report (touched once)')]
 
-labels = [r[0] for r in split_rows]
-n_tr = np.array([r[1] for r in split_rows])
-n_va = np.array([r[2] for r in split_rows])
-n_te = np.array([r[3] for r in split_rows])
-totals = n_tr + n_va + n_te
-slice_colors = {'train': '#4C72B0', 'valid': '#55A868', 'test': '#C44E52'}
+fig, ax = plt.subplots(figsize=(8, 1.8))
+left = 0.0
+for name, share, color, role in slices:
+    ax.barh(0, share, left=left, height=0.55, color=color,
+            edgecolor='white', linewidth=2)
+    ax.text(left + share / 2, 0, f'{name}\n{share:.0%}',
+            ha='center', va='center', color='white',
+            fontsize=11, fontweight='bold')
+    ax.text(left + share / 2, -0.55, role,
+            ha='center', va='top', fontsize=9, color='#333333')
+    left += share
 
-fig, ax = plt.subplots(figsize=(8, 2.8))
-ypos = np.arange(len(labels))
-ax.barh(ypos, n_tr, color=slice_colors['train'], label='train (60%)')
-ax.barh(ypos, n_va, left=n_tr, color=slice_colors['valid'], label='valid (20%)')
-ax.barh(ypos, n_te, left=n_tr + n_va, color=slice_colors['test'], label='test (20%)')
-
-for i, (tot, a, b, c) in enumerate(zip(totals, n_tr, n_va, n_te)):
-    ax.text(a / 2, i, f'{a:,}', ha='center', va='center',
-            color='white', fontsize=9)
-    ax.text(a + b / 2, i, f'{b:,}', ha='center', va='center',
-            color='white', fontsize=9)
-    ax.text(a + b + c / 2, i, f'{c:,}', ha='center', va='center',
-            color='white', fontsize=9)
-    ax.text(tot, i, f'  n={tot:,}', ha='left', va='center', fontsize=9)
-
-ax.set_yticks(ypos)
-ax.set_yticklabels(labels)
-ax.set_xlabel('rows')
-ax.set_xlim(0, totals.max() * 1.15)
-ax.invert_yaxis()
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-ax.legend(loc='lower right', frameon=False, ncol=3)
+ax.set_xlim(0, 1)
+ax.set_ylim(-1.1, 0.6)
+ax.set_yticks([])
+ax.set_xticks([0.0, 0.6, 0.8, 1.0])
+ax.set_xticklabels(['0%', '60%', '80%', '100%'])
+for spine in ('top', 'right', 'left'):
+    ax.spines[spine].set_visible(False)
+ax.tick_params(axis='y', which='both', length=0)
 fig.tight_layout()
 plt.show()
 ```

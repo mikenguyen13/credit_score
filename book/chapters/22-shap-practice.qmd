@@ -63,13 +63,13 @@ The Shapley value of feature $j$ in the game $v_x$ is
 
 $$
 \phi_j(v_x) = \sum_{S \subseteq [d] \setminus \{j\}} \frac{|S|! (d-|S|-1)!}{d!} \bigl[ v_x(S \cup \{j\}) - v_x(S) \bigr].
-$$ {#eq-shapley}
+$$ {#eq-ch22-shapley}
 
 Equivalently, $\phi_j$ is the expected marginal contribution of $j$ over a uniformly random permutation of the features. The weights $w(S) = |S|!(d-|S|-1)!/d!$ are the probabilities under that permutation that exactly the features in $S$ appear before $j$.
 
 ### Axioms {#sec-ch22-axioms}
 
-@shapley1953value proved that $\phi$ defined by @eq-shapley is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.
+@shapley1953value proved that $\phi$ defined by @eq-ch22-shapley is the unique map from coalition games to attribution vectors satisfying four axioms. State them precisely because every practical choice in SHAP is a trade-off against one of them.
 
 **Efficiency.** The attributions sum to the total gain of the game:
 
@@ -121,19 +121,19 @@ TreeSHAP in the `shap` library implements the interventional game by default whe
 
 ### KernelSHAP as weighted least squares
 
-@lundberg2017unified recast @eq-shapley as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate $g(z) = \phi_0 + \sum_j \phi_j z_j$ on $z \in \{0, 1\}^d$, where $z_j = 1$ means feature $j$ is present in the coalition. Define the Shapley kernel
+@lundberg2017unified recast @eq-ch22-shapley as a weighted linear regression whose optimum equals the Shapley vector. Parameterize an additive surrogate $g(z) = \phi_0 + \sum_j \phi_j z_j$ on $z \in \{0, 1\}^d$, where $z_j = 1$ means feature $j$ is present in the coalition. Define the Shapley kernel
 
 $$
 \pi_x(z) = \frac{d - 1}{\binom{d}{|z|} |z| (d - |z|)},
-$$ {#eq-shapkernel}
+$$ {#eq-ch22-shapkernel}
 
 and the map $h_x : \{0,1\}^d \to \mathbb{R}^d$ that replaces absent features by draws from a reference distribution. Solve
 
 $$
 \min_{\phi} \sum_{z \in \{0,1\}^d} \pi_x(z) \left[ f\!\left(h_x(z)\right) - g(z) \right]^2.
-$$ {#eq-kernelshap}
+$$ {#eq-ch22-kernelshap}
 
-Theorem 2 of @lundberg2017unified shows that the minimizer of @eq-kernelshap coincides with the Shapley values under the value function in @eq-valuefn, provided $h_x$ implements the interventional game. The kernel in @eq-shapkernel is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.
+Theorem 2 of @lundberg2017unified shows that the minimizer of @eq-ch22-kernelshap coincides with the Shapley values under the value function in @eq-valuefn, provided $h_x$ implements the interventional game. The kernel in @eq-ch22-shapkernel is the unique weighting that satisfies local accuracy (efficiency), missingness, and consistency simultaneously. A derivation sketch is useful.
 
 Because $\pi_x(z) \to \infty$ for $|z| = 0$ and $|z| = d$, the normal equations enforce two boundary conditions: $g(\mathbf{0}) = \mathbb{E}[f(X)]$ and $g(\mathbf{1}) = f(x)$. Substituting these into the weighted least squares problem reduces it to a constrained quadratic in $\phi_1, \dots, \phi_d$. The closed-form solution, after algebraic manipulation of $\binom{d}{|z|}$ weightings, is the Shapley vector. In practice the infinite weights are handled by using those two constraints directly and solving a finite-weight problem on the interior coalitions.
 
@@ -145,7 +145,7 @@ KernelSHAP is model-agnostic but expensive: each of $M$ coalitions requires one 
 
 Interventional TreeSHAP uses a supplied background dataset instead of the training fractions. For each background row $x^{\text{bg}}$, it effectively runs the path rule but with the branch probabilities at each split determined by whether $x^{\text{bg}}_j$ or $x_j$ routes to that branch. @lundberg2020local prove that averaging TreeSHAP attributions over a background dataset yields the Shapley values under the interventional game.
 
-The naive path-enumeration cost is $O(T 2^d)$ per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to $O(T L D^2)$ per row per tree and $O(N_{\text{bg}} T L D^2)$ when averaged over a background set of size $N_{\text{bg}}$. For a typical XGBoost credit model with $T = 500$ trees of depth 6 and $L \approx 50$ leaves, the per-row cost is dominated by $T L D \approx 90{,}000$ operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.
+The naive path-enumeration cost is $O(T 2^d)$ per row. The key algorithmic insight is that marginal contributions on overlapping paths share work. A dynamic-programming recursion over tree depth reduces the cost to $O(T L D^2)$ per row per tree and $O(N_{\text{bg}} T L D^2)$ when averaged over a background set of size $N_{\text{bg}}$. For a typical XGBoost credit model with $T = 500$ trees of depth 6 and $L \approx 50$ leaves, the per-row cost is dominated by $T L D \approx 90,000$ operations, milliseconds on a modern CPU. This is the reason SHAP is feasible in production.
 
 ### Baseline choice
 
