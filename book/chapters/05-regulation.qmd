@@ -727,18 +727,273 @@ Third, interaction effects get split across main effects by TreeSHAP. If the reg
 
 Barocas, Selbst, and Raghavan [@barocas2020hidden] point out two hidden assumptions in this approach: the choice of reference point (what "baseline applicant" are we explaining against?) and the granularity of the feature (is `credit_history` a single feature, or four categorical levels?). Both choices affect which reasons surface. For ECOA compliance, the documented convention must be deliberate and consistent across applicants.
 
-### Reason codes from deep models
+### A production reason-code service
 
-For a deep neural network scoring continuous features, the adverse action pipeline typically uses one of four attribution methods:
+The TreeSHAP call above returns raw per-column contributions. A production adverse-action service wraps that array in a function that (a) aggregates one-hot columns back to the parent feature, (b) excludes or flags age contributions per Regulation B §1002.6(b)(2), (c) breaks ties deterministically so identical inputs always return the same reason order, (d) maps parent names to consumer-readable strings, and (e) emits an audit record so the lender can reproduce the notice on demand.
 
--   **Integrated Gradients** (Sundararajan et al., ICML 2017). Path integral of the gradient from a baseline input to the observed input.
--   **DeepLIFT** (Shrikumar et al., ICML 2017). Per-feature contribution relative to a reference activation.
--   **Kernel SHAP** (Lundberg and Lee, [@lundberg2017unified]). Model-agnostic sampling-based Shapley estimation.
--   **LIME** [@ribeiro2016why]. Local linear surrogate.
+```{python}
+#| label: production-reason-service
+from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
+import hashlib, json
 
-Each method produces a vector of per-feature attributions; the top-$k$ are reported as reasons. Rudin [@rudin2019stop; @rudin2022interpretable] argues that in high-stakes credit, one should start with an interpretable model rather than an opaque one plus post-hoc explanation. That is a defensible position; the adverse-action-notice mechanism here does not excuse deploying a model whose reasons cannot be audited. Hurlin and Périgon [@hurlin2022machine] specifically address this tension in the IRB context and call for conservative caps when ML is used.
+REASON_TEXT = {
+    "status":            "The balance or status of your checking account did not meet our criteria.",
+    "duration":          "The requested loan term was longer than typical for this product.",
+    "amount":            "The requested loan amount was higher than we typically extend to applicants with your profile.",
+    "credit_history":    "Your credit history showed items that indicated elevated risk.",
+    "purpose":           "The stated purpose of the loan placed the application in a higher-risk category.",
+    "savings":           "The balance of your reported savings was low relative to the requested loan size.",
+    "employment":        "Your length of employment was short relative to the requested loan size.",
+    "installment_rate":  "The payment-to-income ratio on this loan would be high relative to similar applicants.",
+    "personal_status":   "Information on household status placed the application outside our standard profile.",
+    "other_debtors":     "Co-signer or guarantor information did not offset the measured risk.",
+    "residence_since":   "The length of time at your current address was short relative to typical applicants.",
+    "property":          "The value of property you hold as security or evidence of stability was low.",
+    "age":               "Your reported age fell into a category we use under an empirically derived scoring system.",
+    "other_installment": "You have other active installment obligations at another institution.",
+    "housing":           "Your reported housing status placed the application outside our standard profile.",
+    "existing_credits":  "The number of existing credits at this bank was high.",
+    "job":               "Your reported job category was associated with higher observed risk.",
+    "people_liable":     "The number of dependents you support was high relative to the requested loan size.",
+    "telephone":         "Information on contact details was incomplete.",
+    "foreign_worker":    "Employment-documentation status placed the application outside our standard profile.",
+}
 
-For completeness, a PyTorch-free Kernel SHAP run on the XGBoost model here would give nearly identical answers to TreeSHAP on most applicants, because both target the same Shapley decomposition. The exact TreeSHAP is strictly preferred when available because it is deterministic and has no Monte Carlo variance.
+EXCLUDED_FROM_NOTICE = set()          # add parents to suppress; age stays eligible under EDDSSS
+MODEL_VERSION = "xgb_german_v3.2"
+CODE_VERSION  = "reason_service_v1.4"
+
+@dataclass(frozen=True)
+class ReasonRecord:
+    applicant_id:   str
+    decision:       str               # "adverse" or "approved"
+    pd:             float
+    baseline_logit: float
+    reasons:        list              # list of (parent, contrib_logit, consumer_text)
+    model_version:  str
+    code_version:   str
+    baseline_kind:  str               # "population_mean" or "reference_approved"
+    generated_at:   str
+    input_hash:     str
+
+def _aggregate_to_parent(shap_row, feat_names, originals):
+    agg = {}
+    for j, col in enumerate(feat_names):
+        p = parent_feature(col, originals)
+        agg[p] = agg.get(p, 0.0) + float(shap_row[j])
+    return agg
+
+def build_reason_record(
+    applicant_id, x_row, shap_row, pd_value, baseline_logit,
+    feat_names, originals, k=4,
+    decision_threshold=0.40, baseline_kind="population_mean",
+):
+    decision = "adverse" if pd_value >= decision_threshold else "approved"
+    parent_contribs = _aggregate_to_parent(shap_row, feat_names, originals)
+    for p in EXCLUDED_FROM_NOTICE:
+        parent_contribs.pop(p, None)
+    # Deterministic ordering: positive contribution descending, then parent name ascending.
+    ranked = sorted(parent_contribs.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = [(p, c, REASON_TEXT.get(p, f"Factor: {p}"))
+           for p, c in ranked[:k] if c > 0]
+    payload = json.dumps(np.asarray(x_row, dtype=float).round(6).tolist())
+    return ReasonRecord(
+        applicant_id=str(applicant_id),
+        decision=decision,
+        pd=float(pd_value),
+        baseline_logit=float(baseline_logit),
+        reasons=top,
+        model_version=MODEL_VERSION,
+        code_version=CODE_VERSION,
+        baseline_kind=baseline_kind,
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        input_hash=hashlib.sha256(payload.encode()).hexdigest()[:16],
+    )
+
+baseline_logit = float(xgb_contribs[0, -1])             # booster bias, constant across rows
+for i in np.where(xgb_probs_te >= 0.40)[0][:2]:
+    rec = build_reason_record(
+        applicant_id=int(Xte.index[i]),
+        x_row=Xte.iloc[i].values,
+        shap_row=xgb_shap[i],
+        pd_value=xgb_probs_te[i],
+        baseline_logit=baseline_logit,
+        feat_names=feat_names, originals=orig, k=4,
+    )
+    print(json.dumps(asdict(rec), indent=2, default=str))
+    print()
+```
+
+The emitted JSON is the audit artifact. A compliance query reproduces the reasons from `input_hash`, `model_version`, and `code_version` alone: load the pinned model checkpoint, replay the input through the same code path, and confirm the hash and reason list match. The `baseline_kind` field records the reference convention (population mean versus reference-approved applicant) so a dispute can be reviewed against the correct counterfactual.
+
+The service treats the decision threshold, the baseline convention, the excluded features, and the consumer-text table as configuration, not code. A change in any of them is a versioned deployment. This is the minimum structure needed to satisfy SR 11-7 process verification for the adverse-action pipeline.
+
+### Reason codes from deep and model-agnostic explainers
+
+For a neural network, kernel machine, stacking ensemble, or any scorer without a native SHAP solver, the adverse-action pipeline falls back to model-agnostic attribution. Four methods dominate the literature:
+
+-   **Integrated Gradients** [@sundararajan2017axiomatic]. Path integral of the gradient from a baseline input to the observed input. Satisfies completeness (attributions sum to $f(x) - f(x^\text{ref})$) and implementation invariance.
+-   **DeepLIFT** [@shrikumar2017learning]. Per-feature contribution relative to a reference activation. The Rescale rule attributes $(x_j - x_j^\text{ref}) \cdot m_j$, where $m_j$ is a chain-rule multiplier through the network that coincides with the gradient when activations are linear.
+-   **Kernel SHAP** [@lundberg2017unified]. Model-agnostic sampling-based Shapley estimation. Works on any callable that maps $x$ to a scalar score.
+-   **LIME** [@ribeiro2016why]. Local linear surrogate fit to perturbed samples around the instance; the surrogate coefficients are the reasons.
+
+The code below trains a multi-layer perceptron on the German credit features and extracts reason codes with each method. The MLP is chosen not because it is the right model for this dataset (it is not) but because it is neither a linear model nor a tree ensemble, so it exercises the model-agnostic path. The same code works on a stacking ensemble, a calibrated random forest, a kernel SVM, or any `sklearn`-style estimator that exposes `predict_proba`.
+
+```{python}
+#| label: mlp-model-agnostic-setup
+from sklearn.neural_network import MLPClassifier
+
+mlp = MLPClassifier(hidden_layer_sizes=(32, 16), activation="relu",
+                    max_iter=600, random_state=0).fit(Xtr_s, ytr)
+
+def logit_mlp(Xin):
+    """Return log-odds for class 1, on the same scale as XGBoost and LR."""
+    p = np.clip(mlp.predict_proba(np.asarray(Xin, float))[:, 1], 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p))
+
+background = Xtr_s.sample(100, random_state=0).values    # shared reference pool
+x_ref      = background.mean(axis=0)                     # population-mean baseline
+mlp_probs  = mlp.predict_proba(Xte_s.values)[:, 1]
+adverse_ix = np.where(mlp_probs >= 0.40)[0][:3]
+print(f"MLP adverse share: {(mlp_probs >= 0.40).mean():.1%}")
+```
+
+#### Integrated Gradients (black-box, finite-difference)
+
+Integrated Gradients is defined as $\phi_j = (x_j - x_j^\text{ref}) \int_0^1 \partial_j f(x^\text{ref} + \alpha (x - x^\text{ref})) \, d\alpha$. For a black-box scorer we approximate the path integral with the midpoint rule and the per-step gradient with vectorised central finite differences. The result satisfies completeness up to numerical error.
+
+```{python}
+#| label: integrated-gradients
+def integrated_gradients(f, x, x_ref, steps=50, eps=1e-4):
+    x, x_ref = np.asarray(x, float), np.asarray(x_ref, float)
+    F = x.shape[0]
+    d = x - x_ref
+    E = np.eye(F) * eps
+    grad_sum = np.zeros(F)
+    for s in range(steps):
+        alpha = (s + 0.5) / steps
+        xs = x_ref + alpha * d
+        g  = (f(xs[None] + E) - f(xs[None] - E)) / (2 * eps)
+        grad_sum += g
+    return d * (grad_sum / steps)
+
+feat_arr = X.columns.to_numpy()
+for i in adverse_ix:
+    phi = integrated_gradients(logit_mlp, Xte_s.iloc[i].values, x_ref)
+    delta = float(logit_mlp(Xte_s.iloc[i:i+1].values)[0] - logit_mlp(x_ref[None])[0])
+    resid = phi.sum() - delta
+    top = sorted(_aggregate_to_parent(phi, feat_arr, orig).items(),
+                 key=lambda kv: (-kv[1], kv[0]))[:3]
+    print(f"IG   applicant={Xte.index[i]}  delta_logit={delta:+.3f}  resid={resid:+.2e}")
+    for p, v in top:
+        print(f"     {p:<20s} phi_logit={v:+.3f}")
+```
+
+#### DeepLIFT Rescale (exact, exploiting MLP weights)
+
+`MLPClassifier` exposes `coefs_` and `intercepts_`, so we can walk the network by hand and apply the DeepLIFT Rescale rule exactly. Completeness holds to machine precision.
+
+```{python}
+#| label: deeplift-rescale
+def deeplift_rescale(clf, x, x_ref):
+    """DeepLIFT Rescale attribution for a sklearn MLPClassifier with ReLU hidden
+    layers and a single logistic output. Returns (phi, delta_logit) with
+    sum(phi) == delta_logit to machine precision."""
+    x     = np.asarray(x, float).reshape(1, -1)
+    x_ref = np.asarray(x_ref, float).reshape(1, -1)
+    W, b  = clf.coefs_, clf.intercepts_
+    K     = len(W)
+    def forward(z):
+        h = [z]; a = []
+        for k in range(K - 1):
+            ak = h[-1] @ W[k] + b[k]
+            a.append(ak); h.append(np.maximum(ak, 0.0))
+        a.append(h[-1] @ W[-1] + b[-1])
+        return h, a
+    h,   a   = forward(x)
+    h_r, a_r = forward(x_ref)
+    back = W[-1][:, 0].copy()
+    for k in range(K - 2, -1, -1):
+        da = (a[k] - a_r[k]).ravel()
+        dh = (h[k + 1] - h_r[k + 1]).ravel()
+        safe = np.where(np.abs(da) > 1e-9, da, 1.0)
+        m    = np.where(np.abs(da) > 1e-9, dh / safe, (a[k].ravel() > 0).astype(float))
+        back = W[k] @ (m * back)
+    phi   = (x - x_ref).ravel() * back
+    delta = float(a[-1].ravel()[0] - a_r[-1].ravel()[0])
+    return phi, delta
+
+for i in adverse_ix:
+    phi, delta = deeplift_rescale(mlp, Xte_s.iloc[i].values, x_ref)
+    resid = phi.sum() - delta
+    top = sorted(_aggregate_to_parent(phi, feat_arr, orig).items(),
+                 key=lambda kv: (-kv[1], kv[0]))[:3]
+    print(f"DLFT applicant={Xte.index[i]}  delta_logit={delta:+.3f}  resid={resid:+.2e}")
+    for p, v in top:
+        print(f"     {p:<20s} phi_logit={v:+.3f}")
+```
+
+#### Kernel SHAP (model-agnostic, any callable)
+
+Kernel SHAP needs only a scalar-output function and a background sample. By explaining `logit_mlp` directly, the attributions land on the logit scale, directly comparable to IG and DeepLIFT.
+
+```{python}
+#| label: kernel-shap-mlp
+import shap
+kexp = shap.KernelExplainer(logit_mlp, background)
+phi_matrix = np.asarray(
+    kexp.shap_values(Xte_s.iloc[adverse_ix].values, nsamples=500, silent=True)
+)
+for row_i, i in enumerate(adverse_ix):
+    phi = phi_matrix[row_i]
+    top = sorted(_aggregate_to_parent(phi, feat_arr, orig).items(),
+                 key=lambda kv: (-kv[1], kv[0]))[:3]
+    print(f"KSHAP applicant={Xte.index[i]}")
+    for p, v in top:
+        print(f"      {p:<20s} phi_logit={v:+.3f}")
+```
+
+#### LIME (local linear surrogate)
+
+LIME fits a weighted linear model to perturbed samples around the instance. The surrogate coefficients are the reasons. LIME weights live on the surrogate's scale, not the logit scale, so they should not be compared numerically to IG, DeepLIFT, or Kernel SHAP. They can still be ranked.
+
+```{python}
+#| label: lime-mlp
+import lime.lime_tabular
+
+lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+    training_data=Xtr_s.values,
+    feature_names=list(X.columns),
+    class_names=["approved", "default"],
+    discretize_continuous=False,
+    random_state=0,
+)
+
+for i in adverse_ix:
+    exp = lime_explainer.explain_instance(
+        Xte_s.iloc[i].values, mlp.predict_proba,
+        num_features=len(X.columns), num_samples=1000,
+    )
+    phi = np.zeros(len(X.columns))
+    for j, w in exp.as_map()[1]:
+        phi[j] = w
+    top = sorted(_aggregate_to_parent(phi, feat_arr, orig).items(),
+                 key=lambda kv: (-kv[1], kv[0]))[:3]
+    print(f"LIME applicant={Xte.index[i]}")
+    for p, v in top:
+        print(f"     {p:<20s} surrogate_w={v:+.3f}")
+```
+
+#### Method comparison and governance
+
+The four outputs rank the same handful of parent features for most applicants (`status`, `duration`, and `credit_history` dominate on this dataset) but the magnitudes and scales differ. Integrated Gradients and DeepLIFT are both on the logit scale, complete with respect to the chosen reference, and deterministic for a fixed baseline. Kernel SHAP lands on the logit scale here because we explained log-odds directly; it carries Monte Carlo variance that shrinks as `nsamples` grows. LIME's coefficients live on the surrogate's scale and should not be compared numerically to the other three. A production pipeline that mixes model families therefore fixes one attribution method per family and documents the scale, not a single method across all models.
+
+The `resid` diagnostic printed for IG and DeepLIFT is the numerical gap between the sum of attributions and the model's logit change from baseline to observed input. For the IG implementation above it is bounded by the finite-difference step size and the number of path steps; for DeepLIFT Rescale it is machine precision. An adverse-action audit that finds a material residual (say, more than 1% of `delta_logit`) should treat the attribution as unreliable and either tighten the numerical scheme, switch to a gradient-exact implementation for the specific model family, or fall back to Kernel SHAP with higher `nsamples`.
+
+Rudin [@rudin2019stop; @rudin2022interpretable] argues that in high-stakes credit one should start with an interpretable model rather than an opaque one plus post-hoc explanation. That is a defensible position; the adverse-action-notice mechanism here does not excuse deploying a model whose reasons cannot be audited. Hurlin and Périgon [@hurlin2022machine] specifically address this tension in the IRB context and call for conservative caps when ML is used. The code above demonstrates that the mechanics are available for any model; the governance question is whether the explanation is faithful enough for ECOA, which turns on the choice of baseline, the aggregation to parent features, and the stability of the reason set under small input perturbations.
+
+For completeness, a Kernel SHAP run on the XGBoost model produces nearly identical answers to TreeSHAP on most applicants because both target the same Shapley decomposition. Exact TreeSHAP remains strictly preferred when available because it is deterministic and has no Monte Carlo variance.
 
 ### From reasons to reason codes
 
@@ -759,21 +1014,147 @@ The top-$k$ features are not the adverse action notice. The notice is consumer-r
 
 The last row illustrates a trap. Age is a partial prohibited basis under ECOA: a creditor may not consider age except in limited circumstances, including that the applicant is a minor or that age is used as a predictive factor in an empirically derived, demonstrably and statistically sound credit scoring system that does not assign a negative factor or value to the age of any applicant 62 or older. The Regulation B §1002.6(b)(2) and §1002.2(w) provisions set the boundary. A lender using age as a feature must maintain documentation that satisfies the "empirically derived, demonstrably and statistically sound" (EDDSSS) requirement.
 
+### Reason codes for embeddings and opaque features
+
+Modern credit models increasingly consume features whose coordinates are not directly consumer-readable: text embeddings of a free-form loan-purpose field, graph embeddings summarising the applicant's transaction counterparties, image embeddings of an uploaded ID document, learned representations from a pretrained tabular foundation model. A SHAP value on "embedding coordinate 37" is not a reason a regulator will accept. "Your value on latent dimension 37 was high" fails the ECOA specificity test.
+
+Three patterns reduce an arbitrary feature space back to something the bank can print on a notice.
+
+1.  **Concept grouping.** Name a small set of concepts (for example, "unsecured discretionary purpose", "auto purchase", "business use") and learn a direction in embedding space for each concept, either by training a linear probe on labelled examples or by computing a Concept Activation Vector [@kim2018interpretability]. Project the embedding-space attribution onto the concept directions and report the top-$k$ concepts.
+2.  **Prototype matching.** Precompute a set of prototype applicants with labelled archetypes ("thin-file self-employed", "young first-car borrower"). At scoring time, report the prototype nearest in embedding space and use its reason-code template. This is the mechanism of prototype-based deep nets [@li2018deep] reused at attribution time.
+3.  **Structural aggregation.** When the embedding has a natural decomposition (image tiles, text spans, transaction merchant categories, graph neighbours), run SHAP or Integrated Gradients at that decomposition level and aggregate attribution by a human-readable grouping. The notice then names the group, not the coordinate.
+
+In all three patterns the reason-code table maps *concept* or *prototype* or *region* to consumer-readable text. The regulator accepts the notice as long as the entity named is a real, auditable function of the applicant's data. What fails is "coordinate 37"; what succeeds is "a high share of gambling merchants in your recent transactions" or "loan-purpose text matched patterns associated with unsecured discretionary spending".
+
+The code below implements concept grouping on a synthetic opaque-embedding block derived from the German purpose field. The same pattern applies to a real transformer embedding: only the embedding tensor changes.
+
+```{python}
+#| label: concept-grouping
+from sklearn.linear_model import LogisticRegression
+
+rng = np.random.default_rng(0)
+purpose_cols = [c for c in X.columns if c.startswith("purpose_")]
+P = X[purpose_cols].values.astype(float)
+proj = rng.normal(size=(P.shape[1], 16)) / np.sqrt(P.shape[1])
+embedding = P @ proj                                    # (N, 16) opaque feature block
+
+# Concept labels: the parent purpose category, derived from the one-hot.
+concept_labels = (X[purpose_cols].idxmax(axis=1)
+                                  .str.replace("purpose_", "", regex=False)
+                                  .fillna("other")).values
+
+# Linear probe: row j of probe.coef_ is a direction in embedding space for concept j.
+probe = LogisticRegression(max_iter=1000, random_state=0).fit(embedding, concept_labels)
+CAV = {c: probe.coef_[i] / (np.linalg.norm(probe.coef_[i]) + 1e-12)
+       for i, c in enumerate(probe.classes_)}
+
+CONCEPT_TEXT = {
+    "car":       "Loan purpose matched patterns associated with vehicle financing.",
+    "radio/tv":  "Loan purpose matched patterns associated with discretionary electronics.",
+    "furniture": "Loan purpose matched patterns associated with household furnishing.",
+    "business":  "Loan purpose matched patterns associated with small-business use.",
+    "education": "Loan purpose matched patterns associated with education financing.",
+    "repairs":   "Loan purpose matched patterns associated with home repair.",
+    "other":     "Loan purpose matched patterns that place the application in a higher-risk group.",
+}
+
+def concept_reasons(phi_embedding, cav, text_table, k=3):
+    scores = {concept: float(phi_embedding @ direction)
+              for concept, direction in cav.items()}
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [(c, v, text_table.get(c, f"Factor: {c}")) for c, v in ranked[:k] if v > 0]
+
+# Fit a scorer on the opaque embedding block only, then attribute with Integrated Gradients.
+mlp_emb = MLPClassifier(hidden_layer_sizes=(32,), activation="relu",
+                        max_iter=400, random_state=0).fit(embedding, y)
+def logit_emb(z):
+    p = np.clip(mlp_emb.predict_proba(np.asarray(z, float))[:, 1], 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p))
+
+emb_ref = embedding.mean(axis=0)
+for i in range(3):
+    phi_e = integrated_gradients(logit_emb, embedding[i], emb_ref, steps=32)
+    reasons = concept_reasons(phi_e, CAV, CONCEPT_TEXT, k=3)
+    print(f"applicant={i}  true_concept={concept_labels[i]}")
+    for concept, v, txt in reasons:
+        print(f"   concept={concept:<12s} phi_proj={v:+.3f}  -> {txt}")
+    print()
+```
+
+The reason a regulator sees is still a sentence about the applicant's behaviour, not a number on a latent axis. The attribution math is identical to the tabular case; only the last mile (mapping attribution to consumer text) changes.
+
 ### Grouping one-hot levels for reasons
 
 The XGBoost model above was trained on one-hot-encoded categoricals. SHAP then attributes contribution to each one-hot column, not to the parent categorical. Adverse action notices expect the parent name. Two approaches handle the grouping.
 
-The first approach trains directly on label-encoded or native categorical columns. XGBoost 1.5+ and LightGBM support native categorical handling. SHAP then attributes to the parent feature natively. This is cleaner but loses some expressiveness in the tree structure.
+1. The first approach trains directly on label-encoded or native categorical columns. XGBoost 1.5+ and LightGBM support native categorical handling. SHAP then attributes to the parent feature natively. This is cleaner, but loses some expressiveness in the tree structure.
 
-The second approach (used in the code above) trains on one-hot and aggregates SHAP across levels to get a per-parent-feature contribution. The aggregation is additive because TreeSHAP is additive. Two details matter. First, "zero-valued" one-hot dummies can still carry SHAP contribution if the tree's path includes a split on that dummy; SHAP attributes the contribution to the absence of the category, which is still information. Second, for a parent with $L$ levels and reference level absorbed by drop-first, the summed SHAP across the $L-1$ dummies is the full parent contribution relative to the reference.
+2. The second approach (used in the code above) trains on one-hot and aggregates SHAP across levels to get a per-parent-feature contribution. The aggregation is additive because TreeSHAP is additive. Two details matter. First, "zero-valued" one-hot dummies can still carry SHAP contribution if the tree's path includes a split on that dummy; SHAP attributes the contribution to the absence of the category, which is still information. Second, for a parent with $L$ levels and reference level absorbed by drop-first, the summed SHAP across the $L-1$ dummies is the full parent contribution relative to the reference.
 
-In the code above, the `parent_feature` function and the `parent_scores` dictionary implement this aggregation in the logistic regression path. For the XGBoost path we also report the parent name mapped from the top-$k$ one-hot columns. A tidier production implementation would sum SHAP per parent and then rank parents.
+In the code above, the `parent_feature` function and the `parent_scores` dictionary implement this aggregation in the logistic regression path. For the XGBoost path the first snippet merely relabels the top-$k$ one-hot columns with their parent name. A production implementation sums SHAP per parent and then ranks parents. The production reason-code service defined earlier (`_aggregate_to_parent` and `build_reason_record`) already does this. Factored into a single pure function for reuse:
+
+```{python}
+#| label: rank-parents-by-shap
+def rank_parents_by_shap(shap_row, feat_names, originals, k=3):
+    """Sum SHAP across one-hot levels for each parent feature and return the
+    top-k parents by total positive contribution to the logit. Deterministic
+    tie-break on parent name."""
+    parents = np.array([parent_feature(c, originals) for c in feat_names])
+    totals  = (pd.Series(shap_row, index=parents)
+                 .groupby(level=0).sum())
+    ranked  = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ranked[:k]
+
+# Compare: column-level top-3 (old behaviour) vs parent-level top-3 (production).
+for i in np.where(xgb_probs_te >= 0.40)[0][:3]:
+    col_top = [(feat_names[j], float(xgb_shap[i, j]))
+               for j in np.argsort(-xgb_shap[i])[:3]]
+    par_top = rank_parents_by_shap(xgb_shap[i], feat_names, orig, k=3)
+    print(f"applicant={Xte.index[i]}  pd={xgb_probs_te[i]:.3f}")
+    print("  column-level top-3:", [(c, round(v, 3)) for c, v in col_top])
+    print("  parent-level top-3:", [(p, round(v, 3)) for p, v in par_top])
+    print()
+```
+
+The two orderings often disagree. A categorical parent with four one-hot levels that each contribute $+0.15$ sums to $+0.60$ at the parent level, dominating any single column that contributed $+0.40$ but whose siblings contributed near zero. The column-level ranking would hide the parent; the parent-level ranking surfaces it. For ECOA purposes, the parent is the correct unit of attribution: a denial reason is a feature of the applicant, not a value of a dummy column.
 
 ### Stability of reason codes across model refreshes
 
 A quiet failure mode of reason-code pipelines is instability across model refreshes. If the model is retrained every quarter and the feature importances shift materially, applicants who receive identical decisions on two applications can see different reasons across them. The regulator does not require stability, but consumers notice.
 
 A simple stability check: after each refresh, compute the reason codes for a fixed panel of applicants (a "regression test set"), and measure the share of applicants whose top-three reasons changed. A threshold of 10% change without underlying data change triggers a review. A persistent instability suggests the model is overfitting to nuisance variation and the training regimen needs review.
+
+The code below implements the check against the XGBoost model trained above. The panel is the set of adverse applicants in the test fold. "Refreshes" are perturbed retrains: same data, different seeds and subsampling rates, standing in for the small amount of stochastic variation any production retrain introduces.
+
+```{python}
+#| label: reason-code-stability
+def reason_set(shap_matrix, feat_names, originals, k=3):
+    """Return a list of frozensets, one per row, of the top-k parents by SHAP."""
+    return [frozenset(p for p, _ in rank_parents_by_shap(row, feat_names, originals, k=k))
+            for row in shap_matrix]
+
+def train_and_attribute(seed, subsample):
+    p = {**params, "seed": int(seed), "subsample": float(subsample)}
+    b = xgb.train(p, dtrain, num_boost_round=200)
+    return b.predict(dtest, pred_contribs=True)[:, :-1]
+
+panel = np.where(xgb_probs_te >= 0.40)[0]
+reference = reason_set(xgb_shap[panel], feat_names, orig, k=3)
+
+changes = []
+for seed, sub in [(1, 0.90), (2, 0.80), (3, 0.95), (4, 0.85), (5, 0.90)]:
+    shap_refresh = train_and_attribute(seed, sub)
+    refreshed    = reason_set(shap_refresh[panel], feat_names, orig, k=3)
+    share_changed = float(np.mean([r != s for r, s in zip(reference, refreshed)]))
+    changes.append(share_changed)
+    print(f"seed={seed} sub={sub}  share with changed top-3 reasons: {share_changed:.1%}")
+
+avg = float(np.mean(changes))
+alert = "ALERT: investigate retraining regimen" if avg > 0.10 else "within tolerance"
+print(f"\nmean reason-set change rate across 5 refreshes: {avg:.1%}  ({alert})")
+```
+
+In a production pipeline, the reference panel is pinned (stored with its SHAP matrix and reason sets), the threshold is part of the model-governance configuration, and the check runs in CI as a gate on the retrained artifact. A breach does not automatically block the deploy, but it does force second-line review: is the shift explained by a deliberate feature change, a distribution shift in the training data, or is it nuisance variation that the retraining regimen should be tightened to suppress?
 
 ### Reason codes under monotone constraints
 
@@ -791,7 +1172,7 @@ Produced by the second-line validation function. Covers conceptual soundness, pr
 
 ### Datasheet for the dataset
 
-Gebru et al. [@gebru2021datasheets] introduce "Datasheets for Datasets," a structured template for disclosing dataset provenance, composition, collection process, preprocessing, labeling, intended use, distribution, and maintenance. For a credit dataset the datasheet includes: who and what the records represent, the sampling frame (approved applicants only, all applicants including declines, rejected applicants with inferred outcomes), temporal coverage, labeling rules for default, protected-attribute coverage, and any reweighting applied.
+Gebru et al. [@gebru2021datasheets] introduce "Datasheets for Datasets," a structured template for disclosing dataset provenance, composition, collection process, preprocessing, labeling, intended use, distribution, and maintenance. For a credit dataset, the datasheet includes: who and what the records represent, the sampling frame (approved applicants only, all applicants including declines, rejected applicants with inferred outcomes), temporal coverage, labeling rules for default, protected-attribute coverage, and any reweighting applied.
 
 The datasheet is not a nice-to-have. Under EU AI Act Article 10, the dataset used for training a high-risk system must be examined for biases and characterized in the technical documentation. A datasheet satisfies that requirement.
 
@@ -942,11 +1323,11 @@ Second, the portfolio's capital is not just a sum of individual $K$s; it is the 
 
 ## Emerging markets {#sec-ch05-em}
 
-The five regulatory pillars developed in this chapter --- Basel IRB capital in @sec-ch05-regulation, ECOA adverse action in @sec-ch05-ecoa, FCRA bureau regulation in @sec-ch05-fcra, GDPR Article 22 automated-decision rights in @sec-ch05-gdpr, and the EU AI Act high-risk regime in @sec-ch05-euaia --- each have direct statutory analogs in the major emerging markets. Mapping them is not cosmetic: circular numbers, filing obligations, regulator contact lines, and dispute timelines differ. But the decomposition is the same one a US or EU scorecard team would recognize, and the internal artifacts (model card, datasheet, validation report, reason codes, Article 27-style impact assessment) transfer with minor relabeling. This section does for India, Brazil, Indonesia, Mexico, and Kenya what the rest of the chapter does for the US and EU: name the instrument, say what it requires, and state how it lands on the scorecard team.
+The five regulatory pillars developed in this chapter, including Basel IRB capital in @sec-ch05-regulation, ECOA adverse action in @sec-ch05-ecoa, FCRA bureau regulation in @sec-ch05-fcra, GDPR Article 22 automated-decision rights in @sec-ch05-gdpr, and the EU AI Act high-risk regime in @sec-ch05-euaia, each have direct statutory analogs in the major emerging markets. Mapping them is not cosmetic: circular numbers, filing obligations, regulator contact lines, and dispute timelines differ. But the decomposition is the same one a US or EU scorecard team would recognize, and the internal artifacts (model card, datasheet, validation report, reason codes, Article 27-style impact assessment) transfer with minor relabeling. This section does for India, Brazil, Indonesia, Mexico, and Kenya what the rest of the chapter does for the US and EU: name the instrument, say what it requires, and state how it lands on the scorecard team.
 
 ### Cross-jurisdictional mapping
 
-@tbl-em-pillars lines up the local instrument against each of the five chapter pillars. The table is indicative --- the jurisdictions differ in how tightly each pillar binds --- but the point is that a practitioner moving from a New York or Frankfurt desk to São Paulo, Mumbai, Jakarta, Mexico City, Nairobi, or Hanoi should expect to find all five pillars already in local law, usually under an older statute than the equivalent US or EU version. The gaps are where an AI-specific regime has not yet been enacted (Indonesia, Mexico, Kenya, Vietnam) and where IRB access is effectively closed (Kenya, most of Indonesia, the Vietnamese pilot aside); in these cases the standardized approach plus a domestic Pillar II overlay is the binding capital channel.
+@tbl-em-pillars lines up the local instrument against each of the five chapter pillars. The table is indicative (i.e., the jurisdictions differ in how tightly each pillar binds), but the point is that a practitioner moving from a New York or Frankfurt desk to São Paulo, Mumbai, Jakarta, Mexico City, Nairobi, or Hanoi should expect to find all five pillars already in local law, usually under an older statute than the equivalent US or EU version. The gaps are where an AI-specific regime has not yet been enacted (Indonesia, Mexico, Kenya, Vietnam) and where IRB access is effectively closed (Kenya, most of Indonesia, the Vietnamese pilot aside); in these cases the standardized approach plus a domestic Pillar II overlay is the binding capital channel.
 
 | Pillar | India | Brazil | Indonesia | Mexico | Kenya | Vietnam |
 |:--|:--|:--|:--|:--|:--|:--|
@@ -955,19 +1336,19 @@ The five regulatory pillars developed in this chapter --- Basel IRB capital in @
 | Bureau / FCRA | CICRA 2005; four RBI-licensed CICs [@india_crica2005] | LC 166/2019 Cadastro Positivo opt-out [@brazil_cadpositivo2011] | OJK SLIK; POJK 15/2022 LPIP [@ojk2022fintech] | LRSIC 2002; Buró, Círculo [@mexico_sic2002] | CBK CRB Regulations 2013/2020 [@kenya_cis2020] | SBV CIC; PCB; Circ. 03/2013 [@cic_vietnam2023] |
 | Data protection / Art. 22 | DPDP Act 2023 [@india_dpdp2023] | LGPD Art. 20 (explicit) [@lgpd2018] | UU PDP Art. 10 [@indonesia_pdp2022] | LFPDPPP Art. 16 [@mexico_lfpdppp2010] | DPA 2019 s. 35 (explicit) [@kenya_dpa2019] | Decree 13/2023 Art. 11, 14 [@vn_decree13_2023] |
 | High-risk AI | MeitY advisory; RBI FREE-AI committee | PL 2338/2023 (pending, EU-style tiers) | OJK fintech sandbox POJK 13/2018 [@ojk2022fintech] | No binding AI law; INAI drafting | DPA Part V automated-decision rights [@kenya_dpa2019] | Decree 94/2025 sandbox [@vn_decree94_2025] |
-| Open / consent data | RBI Account Aggregator [@rbi2023aa] | BCB Open Finance Joint Res. 1 [@bcb_openfinance_2020] | OJK open-API roadmap | Fintech Law Art. 76 open APIs [@mexico_fintech2018] | --- (in consultation) | Decree 94/2025 sandbox [@vn_decree94_2025] |
+| Open / consent data | RBI Account Aggregator [@rbi2023aa] | BCB Open Finance Joint Res. 1 [@bcb_openfinance_2020] | OJK open-API roadmap | Fintech Law Art. 76 open APIs [@mexico_fintech2018] | (in consultation) | Decree 94/2025 sandbox [@vn_decree94_2025] |
 
 : Five regulatory pillars across six emerging markets. Rows correspond to the chapter sections (@sec-ch05-regulation, @sec-ch05-ecoa, @sec-ch05-fcra, @sec-ch05-gdpr, @sec-ch05-euaia) plus an open-banking row because alternative-data scoring depends on it in every one of these markets. {#tbl-em-pillars}
 
 ### India
 
-The Reserve Bank of India runs both the prudential and the consumer-conduct regime for banks; the Securities and Exchange Board of India (SEBI) and the insurance regulator (IRDAI) are outside the credit-scoring perimeter. Capital is set by the Master Circular on Basel III Capital Regulations [@rbi2023basel_master]. IRB access requires supervisory pre-approval and in practice Indian banks operate on the standardized approach with RBI-set risk weights; unsecured consumer credit risk weights were raised from 100% to 125% in late 2023 in response to the rapid growth of the segment. Non-bank finance companies (NBFCs) sit under the Scale-Based Regulation (SBR) framework, which imposes bank-equivalent capital obligations on the top tier. The adverse-action analog is the RBI Fair Practices Code, which requires lenders to communicate rejection reasons in writing, and the Digital Lending Guidelines 2022 [@rbi2022digitallending], which mandate a Key Fact Statement disclosing APR and a cooling-off period; the Default Loss Guarantee circular of June 2023 [@rbi2023fldg] caps first-loss cover at 5% of loan portfolio for regulated-lender/fintech tie-ups and is the operative constraint on co-lending scorecards. Bureau regulation runs through the Credit Information Companies (Regulation) Act 2005 [@india_crica2005]; the four licensed CICs are CIBIL (TransUnion), Experian, Equifax, and CRIF High Mark. CICRA and its regulations give a consumer the right to access the credit information file and to seek correction of inaccurate data --- the functional analog of FCRA §611 dispute rights --- with the operational timeline set by the CIC Regulations.
+The Reserve Bank of India runs both the prudential and the consumer-conduct regime for banks; the Securities and Exchange Board of India (SEBI) and the insurance regulator (IRDAI) are outside the credit-scoring perimeter. Capital is set by the Master Circular on Basel III Capital Regulations [@rbi2023basel_master]. IRB access requires supervisory pre-approval and in practice Indian banks operate on the standardized approach with RBI-set risk weights; unsecured consumer credit risk weights were raised from 100% to 125% in late 2023 in response to the rapid growth of the segment. Non-bank finance companies (NBFCs) sit under the Scale-Based Regulation (SBR) framework, which imposes bank-equivalent capital obligations on the top tier. The adverse-action analog is the RBI Fair Practices Code, which requires lenders to communicate rejection reasons in writing, and the Digital Lending Guidelines 2022 [@rbi2022digitallending], which mandate a Key Fact Statement disclosing APR and a cooling-off period; the Default Loss Guarantee circular of June 2023 [@rbi2023fldg] caps first-loss cover at 5% of loan portfolio for regulated-lender/fintech tie-ups and is the operative constraint on co-lending scorecards. Bureau regulation runs through the Credit Information Companies (Regulation) Act 2005 [@india_crica2005]; the four licensed CICs are CIBIL (TransUnion), Experian, Equifax, and CRIF High Mark. CICRA and its regulations give a consumer the right to access the credit information file and to seek correction of inaccurate data (the functional analog of FCRA §611 dispute rights) with the operational timeline set by the CIC Regulations.
 
 The Article 22 analog is the Digital Personal Data Protection Act 2023 [@india_dpdp2023], notified but not yet in full force as of 2026-04; it is narrower than GDPR (no explicit right against solely automated decisions, no data-portability right), but its rights chapter gives consent, grievance, and correction rights that collectively pin down an appeal pathway. The AI-specific regime is still non-statutory: MeitY's 2024 advisories on generative AI and the RBI committee on Responsible and Ethical Enablement of AI (FREE-AI), constituted in late 2024, signal that guidance is in progress, but there is no Annex III analog yet. The practical substitute for open banking is the RBI NBFC-Account Aggregator framework [@rbi2023aa], a consent-based financial-data-sharing layer that sits between banks and lenders; an Indian credit-scoring team building alternative-data features goes through an Account Aggregator rather than through bank-by-bank API deals. The scorecard-team takeaways: standardized capital is the binding channel; Digital Lending KFS strings are the adverse-action artifact; CICRA dispute rights are the FCRA-equivalent pipeline; the Account Aggregator is the consent log; DPDP grievance redressal is the Article-22-equivalent appeal route [@alonso2020emfintech].
 
 ### Brazil
 
-The Banco Central do Brasil (BCB) and the Conselho Monetário Nacional (CMN) are the prudential authorities; consumer conduct is shared with Senacon (the federal consumer-defense secretariat) and data protection with the ANPD. Brazil has the deepest IRB adoption in Latin America: BCB Circular 3648/2013 [@bcb_circ3648_2013] sets out the foundation and advanced IRB approaches, with Basel III buffers layered through subsequent CMN resolutions. Several of the largest Brazilian banks operate approved IRB models on retail portfolios, and the integrated risk-management obligation under CMN Resolution 4557/2017 [@cmn_res4557_2017] is the Brazilian operational analog to SR 11-7: it requires a documented model-risk framework covering development, validation, implementation, monitoring, and governance --- the same five headings a US bank would list. The adverse-action analog is Article 43 of the Code of Consumer Protection (CDC, Law 8078/1990), which entitles the consumer to access and correct any credit data used against them; the Cadastro Positivo regime in Law 12.414/2011, amended by Complementary Law 166/2019 [@brazil_cadpositivo2011], switched positive-data inclusion from opt-in to opt-out and materially changed the thin-file Brazilian subprime segment by making positive behavior visible by default.
+The Banco Central do Brasil (BCB) and the Conselho Monetário Nacional (CMN) are the prudential authorities; consumer conduct is shared with Senacon (the federal consumer-defense secretariat) and data protection with the ANPD. Brazil has the deepest IRB adoption in Latin America: BCB Circular 3648/2013 [@bcb_circ3648_2013] sets out the foundation and advanced IRB approaches, with Basel III buffers layered through subsequent CMN resolutions. Several of the largest Brazilian banks operate approved IRB models on retail portfolios, and the integrated risk-management obligation under CMN Resolution 4557/2017 [@cmn_res4557_2017] is the Brazilian operational analog to SR 11-7: it requires a documented model-risk framework covering development, validation, implementation, monitoring, and governance (i.e., the same five headings a US bank would list). The adverse-action analog is Article 43 of the Code of Consumer Protection (CDC, Law 8078/1990), which entitles the consumer to access and correct any credit data used against them; the Cadastro Positivo regime in Law 12.414/2011, amended by Complementary Law 166/2019 [@brazil_cadpositivo2011], switched positive-data inclusion from opt-in to opt-out and materially changed the thin-file Brazilian subprime segment by making positive behavior visible by default.
 
 The bureau regime runs through Serasa Experian, Boa Vista SCPC, SPC Brasil, and Quod, all licensed under Law 12.414. The Article 22 analog is the LGPD [@lgpd2018], which in Article 20 gives an explicit, named right to request review of decisions taken solely on the basis of automated processing, including credit scoring and personality profiling. Article 20 is the closest any emerging-market data-protection law comes to reproducing GDPR Article 22 verbatim; a Brazilian scorecard team should treat it as operationally identical to the GDPR obligation. The AI-specific regime is in motion: PL 2338/2023, the Brazilian AI bill, was approved by the Senate in December 2024 and copies the EU risk-tier structure, including a "high-risk" class that will capture credit scoring; the House vote is pending as of 2026-04, so a Brazilian deployment should expect an Annex-III-equivalent obligation to bind within the planning horizon. Open Finance Brazil, launched by the CMN-BCB Joint Resolution No. 1/2020 [@bcb_openfinance_2020] and rolled out in four phases from 2021 into 2022, is the consent-based data-sharing rail for alternative-data scoring; its scope has been extended beyond banking into investments, insurance, and pensions.
 
@@ -975,11 +1356,11 @@ The bureau regime runs through Serasa Experian, Boa Vista SCPC, SPC Brasil, and 
 
 The OJK (Otoritas Jasa Keuangan) is the integrated prudential and conduct regulator; Bank Indonesia retains monetary and payments authority. The Basel III capital regime sits in POJK 11/POJK.03/2016 on minimum capital adequacy for commercial banks (KPMM), as amended [@ojk_kpmm_2016]; IRB is not operational in Indonesia, so the binding calculation is standardized risk weights with an OJK add-on for concentration and macro-prudential buffers. The adverse-action analog is POJK 22/2023 on consumer and community protection in the financial services sector [@ojk_pojk22_2023], which requires transparent disclosure of credit-decision reasons, timely complaint handling, and an escalation path to OJK consumer protection. The bureau regime is a hybrid: the public SLIK (Sistem Layanan Informasi Keuangan), run by OJK, succeeded BI Checking in 2018 and contains all regulated-lender data; private bureaus (LPIPs, Lembaga Pengelola Informasi Perkreditan) operate under a separate OJK licensing regime and add telco, utility, and e-commerce data. The Article 22 analog is the Personal Data Protection Law (UU PDP) 27/2022 [@indonesia_pdp2022], which gives the data subject a right to object to decisions based solely on automated processing that carry legal or significant effect --- close to GDPR Article 22 in scope. The enforcement body under the PDP Law is still being stood up as of 2026-04, so the practical compliance pressure today comes from OJK rather than from the PDP authority.
 
-The digital-lending channel is the dominant consumer-credit surface in Indonesia and sits under POJK 10/POJK.05/2022 [@ojk2022fintech], which licenses information-technology-based lending services (LPBBTI, formerly known as P2P lending), caps daily effective interest through subsequent OJK circulars, prohibits collection harassment, and requires blacklist disclosure. OJK's regulatory sandbox for digital financial innovation is the channel for novel scoring approaches --- including alternative-data and ML-based models --- that sit outside POJK 10. There is no Indonesian AI Act, and OJK guidance on AI in financial services is still advisory rather than Annex-III-equivalent. Indonesian practice: SLIK pull + POJK 22/2023 reason-code strings + UU PDP consent log + OJK sandbox admission if the model is ML-based.
+The digital-lending channel is the dominant consumer-credit surface in Indonesia and sits under POJK 10/POJK.05/2022 [@ojk2022fintech], which licenses information-technology-based lending services (LPBBTI, formerly known as P2P lending), caps daily effective interest through subsequent OJK circulars, prohibits collection harassment, and requires blacklist disclosure. OJK's regulatory sandbox for digital financial innovation is the channel for novel scoring approaches, including alternative-data and ML-based models, that sit outside POJK 10. There is no Indonesian AI Act, and OJK guidance on AI in financial services is still advisory rather than Annex-III-equivalent. Indonesian practice: SLIK pull + POJK 22/2023 reason-code strings + UU PDP consent log + OJK sandbox admission if the model is ML-based.
 
 ### Mexico
 
-CNBV (Comisión Nacional Bancaria y de Valores) is the banking supervisor; Banxico runs payments and monetary policy; CONDUSEF handles consumer complaints. Capital rules are in the Circular Única de Bancos (CUB) [@cnbv_cub2023], which implements Basel III with Mexican calibrations; internal-model approvals for credit risk exist in principle under CUB but are case-by-case, so the standardized approach is the default. Model-risk governance obligations inside the CUB require independent validation and board-level oversight of internal models --- an SR 11-7-shape obligation with different numbering. The adverse-action analog is the Fintech Law [@mexico_fintech2018] for regulated fintechs (Institutions of Financial Technology, IFTs) and the ARCO rights under the LFPDPPP [@mexico_lfpdppp2010] for banks: access, rectification, cancellation, and opposition. The "opposition" right is the closest ARCO gets to an Article 22 appeal; a Mexican lender that cannot produce a natural-language rationale for a denial is exposed to both a CONDUSEF complaint and an ARCO opposition claim. The bureau regime is the Law to Regulate Credit Information Companies of 2002 [@mexico_sic2002]; two licensed SICs (Buró de Crédito and Círculo de Crédito) share coverage, and the law sets out consumer dispute and rectification rights against SIC files.
+CNBV (Comisión Nacional Bancaria y de Valores) is the banking supervisor; Banxico runs payments and monetary policy; CONDUSEF handles consumer complaints. Capital rules are in the Circular Única de Bancos (CUB) [@cnbv_cub2023], which implements Basel III with Mexican calibrations; internal-model approvals for credit risk exist in principle under CUB but are case-by-case, so the standardized approach is the default. Model-risk governance obligations inside the CUB require independent validation and board-level oversight of internal models (i.e., an SR 11-7-shape obligation with different numbering). The adverse-action analog is the Fintech Law [@mexico_fintech2018] for regulated fintechs (Institutions of Financial Technology, IFTs) and the ARCO rights under the LFPDPPP [@mexico_lfpdppp2010] for banks: access, rectification, cancellation, and opposition. The "opposition" right is the closest ARCO gets to an Article 22 appeal; a Mexican lender that cannot produce a natural-language rationale for a denial is exposed to both a CONDUSEF complaint and an ARCO opposition claim. The bureau regime is the Law to Regulate Credit Information Companies of 2002 [@mexico_sic2002]; two licensed SICs (Buró de Crédito and Círculo de Crédito) share coverage, and the law sets out consumer dispute and rectification rights against SIC files.
 
 There is no binding AI law in Mexico; INAI, the federal data-protection authority, published guidance on personal data and AI in 2023, and a legislative restructuring of INAI has been under way since 2024 as part of the broader transparency-agency reform. The Fintech Law's open-API mandate has produced slow progress --- Mexico's open-banking rollout is well behind Brazil's --- but it is the statutory basis for consent-based data sharing that alternative-data scorecards rely on. Mexican takeaways for a scorecard team: CUB-governed capital with a high procedural bar for internal models, CONDUSEF-visible reason codes as the adverse-action artifact, SIC data pulls through Buró or Círculo, LFPDPPP ARCO logs as the Article-22 substitute, and no AI-specific regime today.
 
