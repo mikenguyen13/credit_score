@@ -1926,7 +1926,12 @@ sex_sub             = sex_te[sub_keep]
 N_sub               = len(p_sub)
 r_pol, L_pol        = 0.20, 1.0
 c_sub               = r_pol * (1 - p_sub) - L_pol * p_sub
-print(f"n = {N_sub}   segments = {dict(zip(*np.unique(s_sub, return_counts=True)))}")
+seg_labels, seg_counts = np.unique(s_sub, return_counts=True)
+print(f"n = {N_sub}")
+print("segment  count")
+print("-------  -----")
+for lbl, cnt in zip(seg_labels, seg_counts):
+    print(f"{lbl:<7}  {cnt:>5}")
 ```
 
 ##### `scipy.optimize.linprog`: the LP, written as matrices {.unnumbered}
@@ -2223,20 +2228,20 @@ A credit score trained on 2020 data starts drifting the day after its model moni
 
 ### Population Stability Index {#sec-ch04-psi}
 
-**What is being compared.** PSI is a distance between *two distributions of the same scalar quantity* evaluated on two populations. You pick one scalar (the variable you are monitoring) and two time windows (the populations), then compute one PSI number that answers "did window $A$ look like window $E$ for this variable?". In credit monitoring the scalar is almost always the *model score* (or equivalently the calibrated PD), because a single score-level PSI summarizes whether the overall risk mix of applicants has moved. The two populations are:
+**What is being compared.** PSI is a distance between *two distributions of the same scalar quantity* evaluated on two populations. You pick one scalar (the variable you are monitoring) and two time windows (the populations), then compute one PSI number that answers "did window $A$ look like window $E$ for this variable?". In credit monitoring, the scalar is almost always the *model score* (or equivalently the calibrated PD), because a single score-level PSI summarizes whether the overall risk mix of applicants has moved. The two populations are:
 
 -   $E$ = "expected" or reference: the score distribution on the *development sample* (the data the model was trained on), or on the last revalidation vintage. $E$ is held fixed, often for a full year of production, so that successive PSI numbers are comparable.
 -   $A$ = "actual": the score distribution on the *current scoring window*, typically the most recent calendar month or quarter of applications that have been scored but not necessarily matured yet.
 
-**A concrete example.** Suppose the logistic scorecard was trained on applications booked January through December 2024 (the development sample) and went live on 1 January 2025. On 1 April 2025 the monitoring team wants to know whether March 2025 applicants still look like the development book. They:
+**A concrete example.** Suppose the logistic scorecard was trained on applications booked January through December 2024 (the development sample) and went live on 1 January 2025. On 1 April 2025, the monitoring team wants to know whether March 2025 applicants still look like the development book. They:
 
 1.  Pull the $\hat p$ (PD) the current model assigns to every 2024 development-sample application. Call this vector $E$. This is fixed for 2025 and reused every month.
 2.  Pull the $\hat p$ the current model assigns to every March 2025 application. Call this vector $A$.
 3.  Bin $E$ into 10 deciles (so each reference decile holds 10 percent by construction), drop $A$ into the same cutpoints, and apply @eq-psi.
 
-A PSI of $0.03$ means the March 2025 applicant mix is indistinguishable from development at monitoring resolution. A PSI of $0.18$ in, say, May 2025 says "investigate": maybe a new marketing channel is sending thinner files. A PSI of $0.31$ in August 2025 says the score no longer describes the population it is being used on, and retraining is on the table. One month later the team repeats the exercise with $E$ unchanged and $A$ now equal to the April 2025 scores, and so on.
+A PSI of $0.03$ means the March 2025 applicant mix is indistinguishable from development at monitoring resolution. A PSI of $0.18$ in, say, May 2025 says "investigate": maybe a new marketing channel is sending thinner files. A PSI of $0.31$ in August 2025 says the score no longer describes the population it is being used on, and retraining is on the table. One month later, the team repeats the exercise with $E$ unchanged and $A$ now equal to the April 2025 scores, and so on.
 
-The same formula applies unchanged to any *single* input feature (income, utilization, days-past-due-30, debt-to-income). In that case the scalar $E$ is "debt-to-income on the development sample" and $A$ is "debt-to-income on March 2025 applicants". When the scalar is a feature rather than the score the metric is called the Characteristic Stability Index (CSI) and is covered in the next subsection. The division of labor is simple: PSI on the score answers "has the overall risk mix of my applicants changed?", CSI on individual features answers "which specific input moved?" and therefore "why did PSI move?".
+The same formula applies unchanged to any *single* input feature (income, utilization, days-past-due-30, debt-to-income). In that case, the scalar $E$ is "debt-to-income on the development sample" and $A$ is "debt-to-income on March 2025 applicants". When the scalar is a feature rather than the score, the metric is called the Characteristic Stability Index (CSI) and is covered in @sec-ch04-csi. The division of labor is simple: PSI on the score answers "has the overall risk mix of my applicants changed?", CSI on individual features answers "which specific input moved?" and therefore "why did PSI move?".
 
 **What it looks like.** The clearest way to build intuition is to draw $E$ and $A$ on top of each other for two cases: a quiet month that should produce a near-zero PSI, and a drifted month that should trip the investigation threshold. @fig-psi-intuition uses the logistic-scorecard test-fold PDs as a stand-in for $E$, treats the first half as the development reference, and constructs two "actual" populations: a stable one (the second half, i.i.d. with the first) and a drifted one (the second half with a deliberate upward shift). The left column overlays the two densities, the right column shows the decile-level expected-versus-actual proportions and the per-bin PSI contributions that sum to the headline number.
 
@@ -2323,7 +2328,7 @@ print(f"PSI scratch = {psi_from_scratch(p_lr[:3000], p_lr[3000:]):.4f}")
 print(f"PSI creditutils = {psi(p_lr[:3000], p_lr[3000:]):.4f}")
 ```
 
-**Reading the 0.0034 result.** The scalar we pass into `psi_from_scratch` here is `p_lr`, the held-out-fold logistic PD. The two "populations" are simply the first 3,000 and the last 3,000 rows of that same test fold (i.e., two random halves of an i.i.d). sample. By construction they should look statistically identical, and a PSI of $0.0034$ says exactly that: roughly three-tenths of a percent, well below the $0.10$ "stable" threshold and nowhere near the $0.25$ "retrain" threshold. This value is the *noise floor* the monitor must rise above before the alarm should fire on this dataset. In a live pipeline calibrate your investigation threshold against the empirical distribution of PSI during historically quiet periods; the industry $0.10/0.25$ numbers are a reasonable default, but the right threshold is the one that separates signal from the noise level of your particular data feed.
+**Reading the 0.0034 result.** The scalar we pass into `psi_from_scratch` here is `p_lr`, the held-out-fold logistic PD. The two "populations" are simply the first 3,000 and the last 3,000 rows of that same test fold (i.e., two random halves of an i.i.d). sample. By construction, they should look statistically identical, and a PSI of $0.0034$ says exactly that: roughly three-tenths of a percent, well below the $0.10$ "stable" threshold and nowhere near the $0.25$ "retrain" threshold. This value is the *noise floor:* the monitor must rise above before the alarm should fire on this dataset. In a live pipeline, calibrate your investigation threshold against the empirical distribution of PSI during historically quiet periods; the industry $0.10/0.25$ numbers are a reasonable default, but the right threshold is the one that separates signal from the noise level of your particular data feed.
 
 **Decomposing PSI by bin.** A single PSI scalar hides the *shape* of the drift. The per-bin contributions $(a_b - e_b) \log(a_b/e_b)$ are non-negative and sum to PSI, so they localize *where* the distribution moved. Two PSI $= 0.20$ episodes can have very different causes:
 
@@ -2355,11 +2360,13 @@ print(psi_table.to_string(index=False))
 print(f"\nPSI total = {psi_table['PSI contrib'].sum():.4f}")
 ```
 
-In this split-the-sample case every bin contributes essentially nothing: the `delta %` column hovers inside a plus-or-minus one percentage point of bin mass, which is what binomial noise of order $\sqrt{e_b(1-e_b)/(n/B)}$ looks like at $n = 3,000$ and $B = 10$. In a real drift episode the equivalent table shows one or two rows with contributions an order of magnitude larger than the rest; the `delta %` signs and the bin index together tell the committee whether the drift is at the top of the score distribution, the bottom, or smeared across the middle. That is the level of detail a remediation conversation needs, and it is lost if the monitor only reports the headline scalar.
+In this split-the-sample case, every bin contributes essentially nothing: the `delta %` column hovers inside a plus-or-minus one percentage point of bin mass, which is what binomial noise of order $\sqrt{e_b(1-e_b)/(n/B)}$ looks like at $n = 3,000$ and $B = 10$. In a real drift episode, the equivalent table shows one or two rows with contributions an order of magnitude larger than the rest; the `delta %` signs and the bin index together tell the committee whether the drift is at the top of the score distribution, the bottom, or smeared across the middle. That is the level of detail a remediation conversation needs, and it is lost if the monitor only reports the headline scalar.
 
 ### PSI under intentional drift
 
-Simulate a shifted score distribution and observe the PSI grow with the magnitude of shift.
+The split-the-sample check in the previous subsection establishes a noise floor of roughly $0.003$: that is the value PSI takes when nothing has moved. The opposite end of the scale is equally important. If we know the distribution has shifted by a controlled amount, does PSI respond monotonically, and where does it cross the conventional $0.10$ and $0.25$ thresholds? Answering that question is what lets a monitoring team interpret a live PSI reading rather than just report it.
+
+The experiment below sweeps a shift parameter $\delta$ from $0$ to $0.5$, adds $\delta \cdot \mathrm{Beta}(2,2)$ noise to a reference $\mathrm{Beta}(2,5)$ score population, and recomputes PSI at each step. The reference distribution is the shape a typical PD model produces: mass concentrated at low scores with a thin upper tail. The additive perturbation pushes probability mass to the right, which is what a deteriorating portfolio looks like in practice.
 
 ```{python}
 #| label: psi-shift-demo
@@ -2385,15 +2392,21 @@ plt.tight_layout()
 plt.show()
 ```
 
+The curve is monotone and roughly convex: each additional unit of shift buys a larger increment in PSI, so the index is more sensitive to drift once it has already started. The investigate line at $0.10$ is crossed between $\delta \approx 0.15$ and $0.20$, and the retrain line at $0.25$ around $\delta \approx 0.25$. Two practical points follow. First, the industry thresholds are not arbitrary round numbers; on a realistically shaped score they correspond to distribution shifts large enough to be visible by eye in an overlay histogram. Second, by the time PSI reaches $0.25$, the shift has consumed about half of the x-axis range used here, which is why monitoring at the $0.10$ line, not waiting for $0.25$, is the standard operating discipline.
+
 ### Characteristic Stability Index {#sec-ch04-csi}
 
-CSI is the same computation applied at the feature level rather than on the composite score,
+CSI and PSI are *the same formula*. The Characteristic Stability Index for feature $j$ is
 
 $$
-\mathrm{CSI}_j = \sum_{b} (a_{j,b} - e_{j,b}) \log\frac{a_{j,b}}{e_{j,b}}.
+\mathrm{CSI}_j = \sum_{b} (a_{j,b} - e_{j,b}) \log\frac{a_{j,b}}{e_{j,b}},
 $$ {#eq-csi}
 
-A large CSI on a single input combined with a modest PSI on the score often indicates feature-level drift that the model absorbs. A large CSI on multiple inputs combined with a large PSI indicates a hard distribution shift that usually requires retraining.
+which is @eq-psi with $(e_b, a_b)$ replaced by the binned marginal distribution of input $j$. There is no new mathematics here, and implementations routinely reuse the same `psi` function for both quantities (as we do in the code below).
+
+The two names exist because the monitoring conversation is different depending on what you binned. PSI on the composite score answers "does the model's output look like what we trained on?", which is the first signal a governance committee looks at. CSI on each input answers "which of the things we feed the model has drifted?", which is the diagnostic you pull up *after* PSI fires. Reporting them under separate names keeps the dashboard legible: an alert on $\mathrm{PSI}$ goes to the model owner, a cluster of alerts on $\mathrm{CSI}_j$ goes to the data engineering team that owns the feature pipeline.
+
+The pairing of the two readings is what makes CSI useful. A large $\mathrm{CSI}_j$ on a single input combined with a modest PSI on the score means the model has *absorbed* a feature shift, usually because correlated inputs compensated or the feature had low weight; remediation may be no more than a documentation update. A large $\mathrm{CSI}_j$ on multiple inputs combined with a large PSI is a hard distribution shift the model cannot absorb, and is the textbook case for retraining.
 
 ```{python}
 #| label: csi-table
@@ -2453,7 +2466,9 @@ A single train/test split is the cheapest design and the weakest. The estimator 
 
 ### k-fold cross-validation
 
-@stone1974cross defines cross-validation as the rotation of $k$ non-overlapping folds. The point estimate is the average of the $k$ held-out scores. Its bias-variance properties are analyzed in @arlot2010survey. For credit scoring $k=5$ or $k=10$ is standard, stratified by the rare class when the default base rate is low.
+@stone1974cross defines cross-validation as the rotation of $k$ non-overlapping folds, with the point estimate the average of the $k$ held-out scores; its bias-variance properties are analyzed in @arlot2010survey.
+
+A warning before the code. k-fold is the textbook default for i.i.d. tabular data and it is what almost every published credit-scoring benchmark reports [@baesens2003benchmarking; @lessmann2015benchmarking], because the public UCI files have no timestamps and there is nothing else to do. It is *not* the right design for a production credit model. Shuffling observations across folds mixes future and past, so a model validated by k-fold sees information that a live model will not have, and the estimated AUC hides any temporal drift. The next two subsections (@sec-ch04-oot on out-of-time validation, @sec-ch04-walkforward on walk-forward) present the designs that a supervisor will actually accept. k-fold appears here for three reasons only: it is the result most benchmark papers quote, it is an honest estimator on the UCI files used in this chapter, and it provides the variance baseline that out-of-time and walk-forward numbers are compared against. When running it, stratify by the rare class; $k=5$ and $k=10$ are the conventional choices.
 
 ```{python}
 #| label: cv-demo
@@ -2466,13 +2481,15 @@ print(f"5-fold stratified CV AUC = {np.mean(cv_auc):.4f}  "
       f"+- {np.std(cv_auc, ddof=1):.4f}")
 ```
 
-### Out-of-time validation
+### Out-of-time validation {#sec-ch04-oot}
 
-For a production credit model, k-fold shuffles through time and hides temporal drift. The supervisory preference is out-of-time (OOT) validation: train on a historical window, test on the most recent period that contains matured outcomes. The OOT performance is the honest answer to the question the bank cares about, namely how the model will behave on next quarter's applications.
+For a production credit model, k-fold shuffles through time and hides temporal drift. The supervisory preference is out-of-time (OOT) validation, and the design is deliberately simple. Pick a cutoff date $T$. Train on everything before $T$. Test on the single most recent window after $T$ that already contains matured outcomes (i.e., applications old enough that the default label has been observed). Report one AUC, one KS, one Brier, one profit number. The OOT performance is the honest answer to the question the bank cares about, namely how the model will behave on next quarter's applications, and it is the number that shows up in a model-validation memo to the regulator.
 
-### Walk-forward validation
+The price of the simplicity is that OOT is *one* estimate. You learn nothing about whether next quarter's number is better or worse than the quarter before it, and the sample size of that single window sets the width of the confidence interval.
 
-Walk-forward generalizes OOT: roll the train/test window forward month by month and evaluate on each step. The resulting sequence is the performance time series. Degradation is visible immediately, as is the effect of retraining. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation.
+### Walk-forward validation {#sec-ch04-walkforward}
+
+Walk-forward is OOT repeated. Slide the cutoff $T$ forward by one month (or one quarter), refit on the updated training window, evaluate on the next period, record the number, and continue. The design yields a *time series* of performance metrics rather than the single scalar OOT produces. Two things become visible that OOT hides: the shape of degradation between retrainings, and the natural month-to-month variance against which any single OOT estimate should be read. It also lets you compare training-window lengths directly, as the $6$-month and $12$-month lines below do. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation. In short: OOT is the point estimate, walk-forward is the series that puts error bars on it.
 
 Since neither UCI file carries timestamps, we synthesize a cohort with a mild temporal shift.
 
@@ -2524,7 +2541,9 @@ The shorter window tracks the drift faster but is noisier. The longer window is 
 
 ### Nested cross-validation
 
-When hyperparameters are tuned, the outer loop evaluates generalization and the inner loop selects hyperparameters. Reusing the same fold for both overstates performance by roughly 0.5 to 2 percent of AUC in credit-scoring benchmarks [@lessmann2015benchmarking]. Nested CV is the default when the training budget allows. In practice, a cheap substitute in high-signal regimes is to fix hyperparameters from prior experience and use a single CV for estimation.
+Nested CV addresses a different leakage than the temporal one discussed in @sec-ch04-oot and @sec-ch04-walkforward. The problem it solves is *hyperparameter* leakage: if the same folds are used to both pick hyperparameters and report generalization, the reported number is biased upward because the hyperparameters were tuned against the very observations now being used to score them. Reusing the same fold for both overstates performance by roughly $0.5$ to $2$ percent of AUC in credit-scoring benchmarks [@lessmann2015benchmarking]. The nested design fixes this by separating the roles: an outer loop evaluates generalization, and an inner loop inside each outer training block selects hyperparameters.
+
+It does *not* fix temporal leakage. If both the outer and inner splits are shuffled k-folds, the outer training blocks still contain observations from after the outer validation period, and the estimate remains optimistic in the same way a plain k-fold is. The production-correct pattern is nested *time-based* splits: the outer loop is walk-forward over time (@sec-ch04-walkforward), and the inner loop grid-searches inside each historical training window, respecting the same order-preserving discipline. Use shuffled nested CV only in the same scope where plain shuffled k-fold is acceptable, namely benchmark tables on the UCI files, which is the context of the code below. In high-signal regimes a cheap substitute is to fix hyperparameters from prior experience and use a single (time-respecting) CV for estimation.
 
 ```{python}
 #| label: nested-cv
@@ -2545,6 +2564,14 @@ print(f"Nested CV AUC = {np.mean(outer_scores):.4f} +- {np.std(outer_scores, ddo
 ```
 
 ## Statistical comparison of classifiers {#sec-ch04-compare}
+
+Every section so far has produced *point estimates*: one AUC, one KS, one Brier, one profit number. A practitioner now has to answer the question that point estimates cannot: given that model A scores higher than model B on the test set, is that difference a real improvement or is it within the sampling noise of this particular evaluation sample? The chapter intro flagged this already, that most benchmark-paper disagreements turn out to be about variance rather than algorithms [@baesens2003benchmarking; @lessmann2015benchmarking]. This section gives the standard procedures that let a model owner defend "A is better than B" to a validator, and that let a benchmark paper rank many classifiers across many datasets without pretending that small gaps are meaningful.
+
+Two settings come up, and they need different tools.
+
+-   *Two classifiers, one evaluation sample.* This is the common case inside a single bank: the challenger model and the champion model are scored on the same OOT window, and the question is whether $\Delta\mathrm{AUC}$ is significantly nonzero. Because both AUCs are computed on the same observations, they are *correlated*, and an unpaired test would give the wrong standard error. @sec-ch04-compare subsection "DeLong test" below is the parametric paired procedure; "Bootstrap CIs and comparison" is the distribution-free paired alternative.
+
+-   *Many classifiers, many datasets.* This is the setting of a benchmark paper or a cross-portfolio comparison: $K$ algorithms each run on $N$ datasets, and the question is which algorithms sit significantly above the others overall. Pairwise tests do not compose here because of multiple-comparison inflation and because AUC on different datasets is not directly commensurable. The "Friedman and Nemenyi" subsection below gives the rank-based procedure that handles both issues.
 
 ### DeLong test for two correlated AUCs
 
@@ -2639,7 +2666,11 @@ The two inferential procedures should broadly agree in large samples. When they 
 
 ### Multi-classifier comparison: Friedman and Nemenyi
 
-Comparing more than two classifiers across multiple datasets calls for the Friedman-Nemenyi procedure of @demsar2006statistical. The @friedman1937use test is a non-parametric Anova on ranks. For each dataset, rank the classifiers from 1 (best) to $K$ (worst), average ties. Let $\bar R_k$ be the average rank of classifier $k$ across $N$ datasets. The test statistic
+DeLong and the paired bootstrap answer the two-classifier question. A bank benchmarking many candidate algorithms, or a paper like @lessmann2015benchmarking comparing dozens of classifiers across dozens of portfolios, faces a harder setup: $K$ classifiers each evaluated on $N$ datasets, and the question is which ones sit significantly above the others across the whole benchmark. Two problems rule out running DeLong or a bootstrap on every pair. First, pairwise testing inflates the family-wise error rate: at $K=10$ there are $45$ pairs, and naive $\alpha = 0.05$ tests will flag several "significant" differences by chance alone. Second, AUC numbers on different datasets are not on a common scale (an AUC of $0.72$ on a thin emerging-market file is not comparable to $0.72$ on a mature US portfolio), so averaging raw AUCs across datasets is not defensible.
+
+The Friedman-Nemenyi procedure of @demsar2006statistical solves both problems by switching to *ranks*. Within each dataset, the classifiers are ranked from best to worst, which removes the cross-dataset scale problem. Friedman tests whether the rank distribution is uniform across classifiers; Nemenyi gives the post-hoc critical difference that controls family-wise error. This is why the procedure is the default in the benchmarking literature and why @sec-ch16 adopts it.
+
+The @friedman1937use test is a non-parametric Anova on ranks. For each dataset, rank the classifiers from 1 (best) to $K$ (worst), average ties. Let $\bar R_k$ be the average rank of classifier $k$ across $N$ datasets. The test statistic
 
 $$
 \chi^2_F = \frac{12 N}{K(K+1)} \left(\sum_{k=1}^{K} \bar R_k^2 - \frac{K(K+1)^2}{4}\right)
