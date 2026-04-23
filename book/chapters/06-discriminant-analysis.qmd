@@ -11,11 +11,11 @@ bibliography: [../references.bib, ../refs/ch-06.bib]
 
 Linear discriminant analysis was the first statistical tool a bank analyst could hand to a credit committee with a coefficient table and a decision rule. It still is, in many corporate risk groups, because regulators, auditors, and working capital officers can read it. @altman1968zscore turned Fisher's 1936 idea into a working bankruptcy filter by fitting a five-ratio discriminant function on a matched sample of 66 manufacturers. More than five decades later, the Z-score survives as a monitoring metric, a covenant trigger, and a classroom staple. The method is no longer state of the art for out-of-sample accuracy, but it is a lower bound on interpretability and a useful calibration against fancier models.
 
-This chapter rebuilds that machinery end to end. The formal part derives Fisher's criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to QDA when covariances differ. The empirical part reproduces the Altman MDA on a simulated panel, then steps through the Z', Z'', and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson's logit, Shumway's hazard model, and the Campbell-Hilscher-Szilagyi distance measure, and documents where LDA still wins and where it loses badly.
+This chapter rebuilds that machinery end to end. The formal part derives Fisher's criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to quadratic discriminant analysis (@sec-ch06-qda) when covariances differ. The empirical part reproduces the Altman MDA on a simulated panel, then steps through the Z', Z'', and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson's logit, Shumway's hazard model, and the Campbell-Hilscher-Szilagyi distance measure, and documents where LDA still wins and where it loses badly.
 
 A pragmatic warning first. LDA on raw consumer-credit features, with their mixture of one-hot dummies and skewed amounts, is almost always dominated by a penalized logit or a gradient-boosted tree on the same design matrix. The reason is not that LDA is wrong in principle. It is that its generative Gaussian assumption is wrong in that particular setting. Where features really are close to jointly Gaussian, LDA remains statistically efficient [@efron1975efficiency]. The chapter gives the conditions and shows them in code.
 
-An emerging-market framing sits underneath the whole chapter. In Vietnam and peer economies, corporate books are dominated by thin-file private SMEs whose audited financials arrive late, if at all. Household lending is pulled around by the Tet holiday liquidity cycle, informal-income cash flows, and the macro volatility documented for Vietnam by @chu2024vietnam and @nguyen2022vietnamcredit. An LDA or Z''-style model is often the only thing a credit committee in Ho Chi Minh City or Hanoi will approve for middle-market corporate scoring, because the coefficient table is auditable and the sample sizes do not support heavier machinery. The emerging-market section at the end of the chapter returns to this with the CIC bureau, SBV Circular 11/2021, and practical notes on fitting Z'' to Vietnamese manufacturers.
+An emerging-market framing sits underneath the whole chapter. In Vietnam and peer economies, corporate books are dominated by thin-file private SMEs whose audited financials arrive late, if at all. Household lending is pulled around by the Tet holiday liquidity cycle, informal-income cash flows, and macro volatility. An LDA or Z''-style model is often the only thing a credit committee in Ho Chi Minh City or Hanoi will approve for middle-market corporate scoring, because the coefficient table is auditable and the sample sizes do not support heavier machinery. The emerging-market section at the end of the chapter returns to this with the CIC bureau, SBV Circular 11/2021, and practical notes on fitting Z'' to Vietnamese manufacturers.
 
 ### Notation {.unnumbered}
 
@@ -27,7 +27,7 @@ Banks run two kinds of default models at a minimum: one for corporates and large
 
 @altman1968zscore fixed this with Fisher's multiple discriminant analysis (MDA). He picked five ratios out of an initial list of 22, fit a linear discriminant on a paired sample of 33 bankrupt and 33 non-bankrupt manufacturers over 1946 to 1965, and published a scoring function that bank analysts could compute by hand. The published function, his decision zones, and his out-of-sample hit rate (95 percent on the original sample, about 80 percent at two-year horizons on holdout) made the Z-score the reference point every later bankruptcy model had to beat.
 
-Three things changed after 1980. @ohlson1980financial showed that a logit on nine variables beat the Z-score on a bigger sample, because binary outcomes with mixed-type predictors fit the logit log-likelihood better than the Gaussian likelihood behind LDA. @shumway2001forecasting reframed bankruptcy as a time-to-event process and built a multi-period hazard model, which avoids the selection bias baked into static matched samples. @campbell2008search combined accounting and market-based inputs, including volatility and equity returns, and improved out-of-sample ranking further. The sequence from Altman through Campbell is a textbook instance of the same phenomenon climbing a ladder of statistical sophistication while the underlying economics stay close to "leverage, profitability, liquidity, size."
+Three things changed after 1980. @ohlson1980financial showed that a logit on nine variables beat the Z-score on a bigger sample, because binary outcomes with mixed-type predictors fit the logit log-likelihood better than the Gaussian likelihood behind LDA. @shumway2001forecasting reframed bankruptcy as a time-to-event process and built a multi-period hazard model, which avoids the selection bias baked into static matched samples. The derivation, pooled-logit equivalence, and its place in the lineage appear in @sec-ch06-empirical of this chapter; the full implementation (long-table construction, time-varying covariates, term-structure recovery, and the current state of the art) is developed in @sec-ch09-shumway, with the connection to distance-to-default covered in @sec-ch08-empirical. @campbell2008search combined accounting and market-based inputs, including volatility and equity returns, and improved out-of-sample ranking further. The sequence from Altman through Campbell is a textbook instance of the same phenomenon, climbing a ladder of statistical sophistication, while the underlying economics stay close to "leverage, profitability, liquidity, size."
 
 This chapter keeps the whole ladder in one place. @sec-ch06 derives LDA from scratch. @sec-ch06-altman reconstructs Altman's Z. Sections [-@sec-ch06-extensions] and [-@sec-ch06-empirical] step through its extensions and its empirical competitors. @sec-ch06-limitations returns to the original question: when does the linear-Gaussian generative model win against the discriminative logit?
 
@@ -37,11 +37,11 @@ A credit classifier produces a score $s(x) \in \mathbb{R}$ for each applicant ve
 
 Three ingredients separate LDA from its alternatives.
 
-1. A generative assumption on the class-conditional distribution. LDA posits $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$ with shared covariance. QDA relaxes to $\Sigma_k$. Naive Bayes factors the density across features. Logistic regression makes no density assumption at all and models $\Pr(Y \mid X)$ directly.
+1.  A generative assumption on the class-conditional distribution. LDA posits $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$ with shared covariance. QDA relaxes to $\Sigma_k$. Naive Bayes factors the density across features. Logistic regression makes no density assumption at all and models $\Pr(Y \mid X)$ directly.
 
-2. An estimation procedure. LDA uses the sample class means and pooled covariance, which are the maximum-likelihood estimators under Gaussianity. Logit uses maximum-likelihood estimation of the conditional density. Both converge at the standard parametric rate $n^{-1/2}$ to their respective targets.
+2.  An estimation procedure. LDA uses the sample class means and pooled covariance, which are the maximum-likelihood estimators under the Gaussian assumption. Logit uses maximum-likelihood estimation of the conditional density. Both converge at the standard parametric rate $n^{-1/2}$ to their respective targets.
 
-3. A decision function. LDA's is $\hat\Sigma^{-1}(\hat\mu_1 - \hat\mu_0)$. Logit's is the MLE of the log-odds coefficient. When the LDA assumptions hold, both targets coincide and the question is efficiency. When they fail, LDA's estimand is no longer the Bayes rule and logit wins by consistency.
+3.  A decision function. LDA's is $\hat\Sigma^{-1}(\hat\mu_1 - \hat\mu_0)$. Logit's is the MLE of the log-odds coefficient. When the LDA assumptions hold, both targets coincide and the question is efficiency. When they fail, LDA's estimand is no longer the Bayes rule and logit wins by consistency.
 
 The chapter walks through these three ingredients in order, first for the two-class case that matches corporate bankruptcy, then for the multi-class case that matches rating-grade assignment, then back to binary with the full credit-scoring machinery around it.
 
@@ -83,29 +83,23 @@ $$ {#eq-fisher-whitened}
 
 The Lagrangian now has the structure of an ordinary Rayleigh quotient. The optimal $u^\star$ is the top eigenvector of the symmetric matrix $L^{-1} S_B L^{-\top}$, and we recover $w^\star = L^{-\top} u^\star$. Equivalently, Fisher's projection is the linear direction that would be maximally separating in a whitened coordinate system where the within-class scatter is isotropic. This is also how @bickel2004some interpret LDA's failure in high dimensions: the whitening step breaks when $L$ is near-singular, and the finite-sample direction diverges from the true Bayes direction even with moderate dimension.
 
-### 6.1.1.1 Equivalence with the decorrelated signal-to-noise direction
+### Equivalence with the decorrelated signal-to-noise direction
 
-Start from a different angle. Suppose $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$. Whiten: let $Z = \Sigma^{-1/2}(X - \bar\mu)$ where $\bar\mu = (\mu_0 + \mu_1)/2$. Under the change of variables, $Z \mid Y = k \sim \mathcal{N}\bigl(\tfrac{1}{2}(-1)^{1-k} \Sigma^{-1/2}(\mu_1-\mu_0), I\bigr)$. The two class distributions are now unit-covariance Gaussians symmetric about the origin, separated along the direction $d = \Sigma^{-1/2}(\mu_1 - \mu_0)$. The Bayes rule reduces to thresholding the projection $d^\top Z$, and in the original coordinate system that projection is $(\Sigma^{-1/2})^\top d \cdot (X - \bar\mu) = \Sigma^{-1}(\mu_1-\mu_0) \cdot (X - \bar\mu)$. Same answer, different derivation, same coefficient $\beta = \Sigma^{-1}(\mu_1 - \mu_0)$.
+Start from a different angle. Suppose $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$. Let $Z = \Sigma^{-1/2}(X - \bar\mu)$ where $\bar\mu = (\mu_0 + \mu_1)/2$. Under the change of variables, $Z \mid Y = k \sim \mathcal{N}\bigl(\tfrac{1}{2}(-1)^{1-k} \Sigma^{-1/2}(\mu_1-\mu_0), I\bigr)$. The two class distributions are now unit-covariance Gaussians symmetric about the origin, separated along the direction $d = \Sigma^{-1/2}(\mu_1 - \mu_0)$. The Bayes rule reduces to thresholding the projection $d^\top Z$, and in the original coordinate system that projection is $(\Sigma^{-1/2})^\top d \cdot (X - \bar\mu) = \Sigma^{-1}(\mu_1-\mu_0) \cdot (X - \bar\mu)$. Same answer, different derivation, same coefficient $\beta = \Sigma^{-1}(\mu_1 - \mu_0)$.
 
-The Mahalanobis distance @eq-mahalanobis controls the discriminability. When $\Delta$ is small, no linear rule separates well; any competing non-linear rule that does better must be exploiting non-Gaussianity, not geometry. When $\Delta$ is large, almost any sensible rule works, and the optimization details stop mattering. @anderson1951classification formalized this and gave the asymptotic error rate for Fisher's rule as $\Phi(-\Delta/2)$ when the priors are equal, which is the quantity most later empirical papers use as a benchmark.
+The Mahalanobis distance @eq-mahalanobis controls the discriminability. When $\Delta$ is small, no linear rule separates well; any competing non-linear rule that does better must be exploiting non-Gaussian, not geometry. When $\Delta$ is large, almost any sensible rule works, and the optimization details stop mattering. @anderson1951classification formalized this and gave the asymptotic error rate for Fisher's rule as $\Phi(-\Delta/2)$ when the priors are equal, which is the quantity most later empirical papers use as a benchmark.
 
-### 6.1.1.2 Sample-size corrections and plug-in bias
+### Sample-size corrections and plug-in bias
 
-In practice $\Sigma$ is unknown and we plug in a sample estimate. The unbiased within-class covariance is
+In practice, $\Sigma$ is unknown and we plug in a sample estimate. The unbiased within-class covariance is
 
 $$
 \hat\Sigma = \frac{1}{n-2}\left[\sum_{i: y_i=0} (x_i - \hat\mu_0)(x_i - \hat\mu_0)^\top + \sum_{i: y_i=1} (x_i - \hat\mu_1)(x_i - \hat\mu_1)^\top\right].
 $$ {#eq-pooled-cov}
 
-Plugging $\hat\Sigma$ and $\hat\mu_k$ into the Bayes rule produces a linear classifier whose error exceeds the Bayes error by an $O(p/n)$ term [@anderson1951classification]. @bickel2004some show that as $p/n \to \gamma > 0$ the classifier loses all discriminative power unless $\Sigma$ has structure (sparsity, block-diagonality, a factor model). In the $p \ll n$ regime relevant to Altman's 5-variable model on 66 firms, the plug-in correction is small. In the consumer-credit regime with 50 to 200 dummies on a few thousand applicants, it is not.
+Plugging $\hat\Sigma$ and $\hat\mu_k$ into the Bayes rule produces a linear classifier whose error exceeds the Bayes error by an $O(p/n)$ term [@anderson1951classification]. @bickel2004some show that as $p/n \to \gamma > 0$, the classifier loses all discriminative power unless $\Sigma$ has structure (sparsity, block-diagonality, a factor model). In the $p \ll n$ regime relevant to Altman's 5-variable model on 66 firms, the plug-in correction is small. In the consumer-credit regime with 50 to 200 dummies on a few thousand applicants, it is not.
 
-A partial fix is regularized discriminant analysis [@friedman1989regularized], which replaces $\hat\Sigma_k$ with a two-parameter shrinkage,
-
-$$
-\hat\Sigma_k(\alpha, \gamma) = (1 - \gamma)\left[(1 - \alpha)\hat\Sigma_k + \alpha \hat\Sigma_{\text{pool}}\right] + \gamma \operatorname{diag}\!\left(\hat\Sigma_k\right).
-$$ {#eq-rda-shrink}
-
-At $\alpha = 1, \gamma = 0$ this is LDA. At $\alpha = 0, \gamma = 0$ this is QDA. At $\alpha = 1, \gamma = 1$ this is diagonal LDA (equivalent to naive Bayes under Gaussian marginals). The two hyperparameters are tuned by cross-validation. For small samples with modest $p$, RDA typically outperforms both pure LDA and pure QDA, and it is a good default when the modeler is uncertain about the covariance structure.
+A partial fix is regularized discriminant analysis [@friedman1989regularized], which shrinks $\hat\Sigma_k$ toward a pooled covariance and a diagonal target to trade bias against variance. The full derivation, the hyperparameter grid, and a runnable comparison against LDA and QDA appear in @sec-ch06-rda.
 
 ### Bayes decision under Gaussian equal-covariance
 
@@ -137,7 +131,7 @@ $$ {#eq-lda-sigmoid}
 
 is correctly calibrated when the Gaussian assumption holds. When it does not hold, the resulting probabilities are often miscalibrated even if the ranking remains good. This matters for credit scorecards because regulators expect the probability of default, not only its rank.
 
-### Quadratic discriminant analysis
+### Quadratic discriminant analysis {#sec-ch06-qda}
 
 Drop the equal-covariance assumption. Let $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma_k)$. The same algebra yields
 
@@ -147,7 +141,126 @@ $$ {#eq-qda-logit}
 
 where $C$ collects the scalar intercept with $\log(\pi_1/\pi_0)$, $\log|\Sigma_k|$ terms, and quadratic terms in the class means. The decision surface is now a quadric, not a hyperplane. QDA has $p(p+1)$ parameters in the covariance blocks versus $p(p+1)/2$ for LDA, so it overfits quickly when $p$ grows relative to $n$ [@friedman1989regularized].
 
-For credit work, QDA is the natural upgrade when defaulters show a different covariance structure from survivors. That is common in practice: distressed firms have fatter tails and more correlated deterioration across ratios. Whether QDA actually beats LDA depends on whether you have enough defaulters to estimate $\Sigma_1$ well. The regularized discriminant analysis of @friedman1989regularized shrinks $\Sigma_k$ toward a pooled $\Sigma$ and then toward a diagonal, giving a continuous path from QDA to LDA to diagonal LDA [@bickel2004some].
+For credit work, QDA is the natural upgrade when defaulters show a different covariance structure from survivors. That is common in practice: distressed firms have fatter tails and more correlated deterioration across ratios. Whether QDA actually beats LDA depends on whether you have enough defaulters to estimate $\Sigma_1$ well. When the defaulter sample is too thin to support separate covariances but LDA's equal-covariance constraint is visibly wrong, the regularized path in @sec-ch06-rda is the practical middle ground.
+
+### Regularized discriminant analysis {#sec-ch06-rda}
+
+@friedman1989regularized proposed a two-parameter shrinkage that interpolates between LDA (@sec-ch06-discriminant) and QDA (@sec-ch06-qda) and then shrinks each covariance toward its diagonal:
+
+$$
+\hat\Sigma_k(\alpha, \gamma) = (1 - \gamma)\left[(1 - \alpha)\hat\Sigma_k + \alpha \hat\Sigma_{\text{pool}}\right] + \gamma \operatorname{diag}\!\left(\hat\Sigma_k\right).
+$$ {#eq-rda-shrink}
+
+The two hyperparameters index a rectangle of models. At $\alpha = 1, \gamma = 0$ the pooled covariance recovers LDA. At $\alpha = 0, \gamma = 0$ the class-specific covariances recover QDA. At $\alpha = 1, \gamma = 1$ the pooled diagonal reproduces diagonal LDA, which under Gaussian marginals is Gaussian naive Bayes. The interior of the rectangle covers the intermediate regularization paths.
+
+The first parameter $\alpha$ controls covariance pooling. Pure QDA uses $\hat\Sigma_k$ estimated on the $n_k$ observations of class $k$, which has $p(p+1)/2$ free parameters per class. When the rarer class carries a few dozen observations (the Altman 33 defaulters, a stressed emerging-market corporate book, a tail-event sample), $\hat\Sigma_1$ is noisy and QDA's quadratic decision surface follows the noise. Shrinking toward $\hat\Sigma_{\text{pool}}$ borrows strength from the larger class at the cost of a small bias if the covariances truly differ.
+
+The second parameter $\gamma$ controls diagonal shrinkage. The off-diagonal entries of $\hat\Sigma_k$ are noisier than the diagonal in high dimension [@bickel2004some], and setting $\gamma > 0$ throws away the noisiest entries. The limit $\gamma = 1$ is diagonal LDA, which assumes feature independence within a class; the limit $\gamma = 0$ keeps the full sample covariance.
+
+For small samples with modest $p$, a cross-validated RDA typically outperforms both pure LDA and pure QDA. It is a good default when the modeler is uncertain about the covariance structure, because the optimal $(\alpha, \gamma)$ tells the modeler which assumption was closer to the data without a separate hypothesis test.
+
+```{python}
+#| fig-cap: "Validation log-loss surface for RDA on an eight-feature heteroskedastic sample with a thin minority class (n=60 defaulters, Altman-scale). Red markers locate the pure-LDA, pure-QDA, and diagonal-LDA corners; the black cross marks the cross-validated optimum, which sits in the interior."
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.discriminant_analysis import (
+    LinearDiscriminantAnalysis,
+    QuadraticDiscriminantAnalysis,
+)
+from sklearn.metrics import log_loss
+
+
+def rda_covariances(X, y, alpha, gamma):
+    classes = np.unique(y)
+    covs_class, priors, means = {}, {}, {}
+    Xc_all = []
+    for c in classes:
+        Xc = X[y == c]
+        means[c] = Xc.mean(0)
+        priors[c] = len(Xc) / len(X)
+        covs_class[c] = np.cov(Xc, rowvar=False, bias=False)
+        Xc_all.append(Xc - means[c])
+    Sigma_pool = np.cov(np.vstack(Xc_all), rowvar=False, bias=False)
+    reg_covs = {}
+    for c in classes:
+        S = (1 - alpha) * covs_class[c] + alpha * Sigma_pool
+        S = (1 - gamma) * S + gamma * np.diag(np.diag(S))
+        reg_covs[c] = S
+    return means, priors, reg_covs
+
+
+def rda_predict_proba(X_tr, y_tr, X_te, alpha, gamma):
+    means, priors, covs = rda_covariances(X_tr, y_tr, alpha, gamma)
+    logs = []
+    for c in sorted(means):
+        S = covs[c]
+        sign, logdet = np.linalg.slogdet(S)
+        diff = X_te - means[c]
+        quad = np.einsum("ni,ij,nj->n", diff, np.linalg.inv(S), diff)
+        logs.append(np.log(priors[c]) - 0.5 * logdet - 0.5 * quad)
+    logs = np.column_stack(logs)
+    logs -= logs.max(1, keepdims=True)
+    P = np.exp(logs)
+    return P / P.sum(1, keepdims=True)
+
+
+# Eight financial-ratio features, Altman-scale minority class.
+rng_h = np.random.default_rng(3)
+p_feat, n0h, n1h = 8, 400, 60
+mu0 = np.zeros(p_feat)
+mu1 = np.ones(p_feat) * 0.6
+Sigma0 = 0.3 * np.ones((p_feat, p_feat)) + 0.7 * np.eye(p_feat)
+A_rand = rng_h.standard_normal((p_feat, p_feat))
+Sigma1 = A_rand @ A_rand.T / p_feat + 0.5 * np.eye(p_feat)
+X0h = rng_h.multivariate_normal(mu0, Sigma0, n0h)
+X1h = rng_h.multivariate_normal(mu1, Sigma1, n1h)
+Xh_rda = np.vstack([X0h, X1h])
+yh_rda = np.hstack([np.zeros(n0h), np.ones(n1h)])
+perm = rng_h.permutation(len(yh_rda))
+split = int(0.7 * len(yh_rda))
+tr, te = perm[:split], perm[split:]
+
+alphas = np.linspace(0.0, 1.0, 11)
+gammas = np.linspace(0.0, 1.0, 11)
+loss = np.zeros((len(alphas), len(gammas)))
+for i, a in enumerate(alphas):
+    for j, g in enumerate(gammas):
+        P = rda_predict_proba(Xh_rda[tr], yh_rda[tr], Xh_rda[te], a, g)
+        loss[i, j] = log_loss(yh_rda[te], P[:, 1], labels=[0, 1])
+
+i_star, j_star = np.unravel_index(np.argmin(loss), loss.shape)
+a_star, g_star = alphas[i_star], gammas[j_star]
+
+fig, ax = plt.subplots(figsize=(6.5, 4.5))
+cs = ax.contourf(gammas, alphas, loss, levels=15, cmap="viridis")
+ax.contour(gammas, alphas, loss, levels=15, colors="k", linewidths=0.4, alpha=0.4)
+plt.colorbar(cs, ax=ax, label="validation log-loss")
+ax.scatter([0.0], [0.0], color="red", s=80, label="QDA")
+ax.scatter([0.0], [1.0], color="red", s=80, marker="s", label="LDA")
+ax.scatter([1.0], [1.0], color="red", s=80, marker="^", label="diagonal LDA")
+ax.scatter([g_star], [a_star], color="black", s=120, marker="x",
+           label=f"RDA optimum ({a_star:.1f}, {g_star:.1f})")
+ax.set_xlabel(r"$\gamma$ (diagonal shrinkage)")
+ax.set_ylabel(r"$\alpha$ (pooling)")
+ax.set_title("RDA hyperparameter surface")
+ax.legend(loc="lower right", fontsize=8)
+fig.tight_layout()
+plt.show()
+
+lda_ll = log_loss(yh_rda[te],
+                  LinearDiscriminantAnalysis().fit(Xh_rda[tr], yh_rda[tr])
+                      .predict_proba(Xh_rda[te])[:, 1], labels=[0, 1])
+qda_ll = log_loss(yh_rda[te],
+                  QuadraticDiscriminantAnalysis().fit(Xh_rda[tr], yh_rda[tr])
+                      .predict_proba(Xh_rda[te])[:, 1], labels=[0, 1])
+print(f"LDA  log-loss: {lda_ll:.3f}")
+print(f"QDA  log-loss: {qda_ll:.3f}")
+print(f"RDA  log-loss: {loss[i_star, j_star]:.3f} at (alpha, gamma) = ({a_star:.2f}, {g_star:.2f})")
+```
+
+RDA finds an interior $(\alpha, \gamma)$ that beats both corners. On a Gaussian-equal-covariance sample the optimum would collapse to the LDA corner; on a sample with distinct covariances and a small minority class the optimum is typically in the interior. For credit work this matters most in two settings: corporate distress scoring with a dozen or two defaulters per year, and consumer-credit segments like fraud-adjacent cohorts where the rarer class is both thin and heteroskedastic. Either way the cost is one cross-validation grid over a $11 \times 11$ rectangle, which is negligible next to the downstream calibration and monitoring pipeline.
+
+A caveat: RDA inherits LDA's generative Gaussian assumption. It handles covariance misspecification but not the failure modes documented in @sec-ch06-limitations (heavy categoricals, skewed amounts, rare-event bias). On a mixed-type consumer design matrix, a well-tuned regularized logit remains the better default; RDA is the right tool when the predictors are continuous financial ratios and the sample is too thin for unconstrained QDA.
 
 ### From-scratch Fisher LDA
 
@@ -231,7 +344,7 @@ Both implementations return the same linear decision rule up to a positive scali
 
 ### Decision boundary plot
 
-The LDA boundary is the set where @eq-lda-logit equals zero. For the shared-covariance case it is a straight line. QDA adds quadratic terms, producing a conic boundary.
+The LDA boundary is the set where @eq-lda-logit equals zero. For the shared-covariance case it is a straight line. QDA (@sec-ch06-qda) adds the quadratic terms in @eq-qda-logit, producing a conic boundary.
 
 ```{python}
 #| fig-cap: "Decision boundaries for LDA and QDA on the shared-covariance sample. LDA recovers the Bayes linear rule; QDA adds a spurious curvature because it overfits the sample covariance."
@@ -256,12 +369,12 @@ plt.tight_layout()
 plt.show()
 ```
 
-### QDA on heteroscedastic data
+### QDA on heteroskedastic data
 
 When the two classes have different covariance structures the LDA hyperplane systematically cuts into one of them. Simulate a sample where class 1 has a rotated and stretched covariance relative to class 0.
 
 ```{python}
-#| fig-cap: "LDA versus QDA on heteroscedastic classes. The LDA line is a lower-dimensional projection of a problem whose Bayes boundary is a quadric."
+#| fig-cap: "LDA versus QDA on heteroskedastic classes. The LDA line is a lower-dimensional projection of a problem whose Bayes boundary is a quadric."
 rng = np.random.default_rng(1)
 mu0h = np.array([-1.0, 0.0])
 mu1h = np.array([1.5, 0.0])
@@ -300,11 +413,11 @@ QDA beats LDA by several percentage points on this specific simulation because t
 
 @efron1975efficiency studied the asymptotic relative efficiency of LDA and logistic regression under Gaussian class-conditionals. When the Gaussian model holds, LDA is more efficient than logit by up to about 40 percent at extreme class separations. When the Gaussian model fails, logit is consistent for the log-odds while LDA is not, so the ordering flips. @press1978choosing made the same observation on binary-heavy data and recommended logit for application scoring. The folklore that "logistic regression almost always beats LDA on real credit data" traces to this efficiency argument. It is about model misspecification, not about LDA being a bad estimator under its own assumptions.
 
-The efficiency result is worth unpacking, because it contradicts a common intuition. Both LDA and logit are consistent for the same linear Bayes rule when the Gaussian model holds, so an asymptotic comparison is between two unbiased estimators of the same coefficient vector, and the question becomes whose sampling variance is smaller. LDA exploits the additional information that the class-conditional distributions are Gaussian, giving it access to the covariance matrix estimated on all $n$ observations rather than only the information captured by the gradient of the log-likelihood at $\beta$. Logit ignores the full covariance and extracts only the first-order information at the decision boundary. Under Gaussianity, LDA's information is strictly richer, which is where the efficiency gain comes from. Under misspecification, the information LDA uses is wrong, and the extra signal becomes a biased signal.
+The efficiency result is worth unpacking, because it contradicts a common intuition. Both LDA and logit are consistent for the same linear Bayes rule when the Gaussian model holds, so an asymptotic comparison is between two unbiased estimators of the same coefficient vector, and the question becomes whose sampling variance is smaller. LDA exploits the additional information that the class-conditional distributions are Gaussian, giving it access to the covariance matrix estimated on all $n$ observations rather than only the information captured by the gradient of the log-likelihood at $\beta$. Logit ignores the full covariance and extracts only the first-order information at the decision boundary. Under Gaussian, LDA's information is strictly richer, which is where the efficiency gain comes from. Under misspecification, the information LDA uses is wrong, and the extra signal becomes a biased signal.
 
 A useful diagnostic is the Henze-Zirkler test or the Mardia skew and kurtosis tests for multivariate normality on each class. If the class-conditional density is heavily non-Gaussian, the efficiency argument no longer applies and a discriminative model like logit is the safer default. In corporate bankruptcy work, financial ratios after a log-plus-Winsorize transformation are typically close enough to Gaussian that LDA's efficiency is a real bonus. In consumer credit work, the mix of dummies makes the Gaussian assumption a fantasy.
 
-### 6.1.7.1 Multiclass discriminant analysis
+### Multiclass discriminant analysis
 
 Bankruptcy is the binary case. A rating agency or a banking supervisor usually wants a multi-class classifier that assigns firms to one of several rating grades. For $K$ classes, Fisher's criterion generalizes to
 
@@ -339,7 +452,7 @@ $$ {#eq-altman-z}
 with ratios defined as
 
 | Ratio | Definition | Story |
-|-------|------------|-------|
+|--------------------|---------------------------------|--------------------|
 | $X_1$ | Working capital / Total assets | Short-term liquidity buffer. |
 | $X_2$ | Retained earnings / Total assets | Cumulative profitability and age. |
 | $X_3$ | EBIT / Total assets | Operating efficiency, independent of leverage and tax. |
@@ -348,17 +461,17 @@ with ratios defined as
 
 The original paper expresses $X_1$ through $X_4$ as percentages (so the 1.2 coefficient multiplies a raw decimal of 0.10 as 1.2 multiplied by 10 percent). Altman's later monographs reformulated the equation so that the ratios are entered as decimals and the coefficients become 0.012, 0.014, 0.033, 0.006, 0.999, which is algebraically the same model. The version in @eq-altman-z uses the percentage convention, which is how it appears in most textbooks.
 
-### 6.2.1.1 Why five ratios and not more
+### Why five ratios and not more
 
 A modern analyst faced with the same problem today would reach for a regularized logit or an XGBoost model with several hundred candidate features, not a hand-selected five. Altman's constraint was different. He had 66 observations and a desk analyst as the intended consumer. Five ratios was the natural upper bound on what the analyst could compute from a paper balance sheet and what MDA could fit without overfitting.
 
 The information content of the five ratios also reflects five distinct mechanisms of corporate distress.
 
-- Liquidity ($X_1$) captures the short-term survival buffer. A firm with deeply negative working capital cannot pay suppliers next month and is forced to restructure or file for protection.
-- Cumulative profitability ($X_2$) captures firm age and past performance. Retained earnings over assets is low for young firms and for firms that have been paying out everything they earn. Both subgroups default at higher rates.
-- Operating efficiency ($X_3$) captures the core economic engine. EBIT is independent of leverage and tax and measures how well the operating assets generate cash, which is the most fundamental driver of long-run survival.
-- Market solvency ($X_4$) captures the market's forward-looking assessment. Equity value over debt is the option-theoretic buffer in Merton's sense.
-- Asset turnover ($X_5$) captures managerial efficiency. High turnover firms extract more revenue from their asset base and tend to survive shocks better.
+-   Liquidity ($X_1$) captures the short-term survival buffer. A firm with deeply negative working capital cannot pay suppliers next month and is forced to restructure or file for protection.
+-   Cumulative profitability ($X_2$) captures firm age and past performance. Retained earnings over assets is low for young firms and for firms that have been paying out everything they earn. Both subgroups default at higher rates.
+-   Operating efficiency ($X_3$) captures the core economic engine. EBIT is independent of leverage and tax and measures how well the operating assets generate cash, which is the most fundamental driver of long-run survival.
+-   Market solvency ($X_4$) captures the market's forward-looking assessment. Equity value over debt is the option-theoretic buffer in Merton's sense.
+-   Asset turnover ($X_5$) captures managerial efficiency. High turnover firms extract more revenue from their asset base and tend to survive shocks better.
 
 A modern feature-engineered ratio set would add volatility measures, size effects, industry controls, and macroeconomic conditioning. The gains from those additions are real but incremental. Altman's five variables still capture the largest part of the predictable signal, which is why they show up as top predictors in later work with much richer feature sets [@tian2015variable, @das2009accounting].
 
@@ -545,24 +658,24 @@ On the simulated panel the three flavors rank similarly, as expected since the l
 
 The literature on corporate default prediction is a sequence of ladder steps. Each step added either better statistical machinery or better inputs.
 
-1. @altman1968zscore: MDA, five accounting ratios, static matched sample.
-2. @ohlson1980financial: logit, nine variables including a size factor and funds-from-operations, unmatched sample of ~2,000 firms.
-3. @zmijewski1984methodological: probit on three variables, introduced choice-based sampling corrections.
-4. @shumway2001forecasting: multi-period hazard model with accounting and market inputs, reducing selection bias from static design.
-5. @hillegeist2004assessing: Merton-based KMV distance-to-default compared against accounting models.
-6. @chava2004bankruptcy: industry-adjusted hazard model, larger sample.
-7. @campbell2008search: hazard model with equity returns and volatility added, multi-period logit.
-8. @bharath2008forecasting: test of whether the KMV structural distance contains information beyond a simplified version of it.
+1.  @altman1968zscore: MDA, five accounting ratios, static matched sample.
+2.  @ohlson1980financial: logit, nine variables including a size factor and funds-from-operations, unmatched sample of \~2,000 firms.
+3.  @zmijewski1984methodological: probit on three variables, introduced choice-based sampling corrections.
+4.  @shumway2001forecasting: multi-period hazard model with accounting and market inputs, reducing selection bias from static design.
+5.  @hillegeist2004assessing: Merton-based KMV distance-to-default compared against accounting models.
+6.  @chava2004bankruptcy: industry-adjusted hazard model, larger sample.
+7.  @campbell2008search: hazard model with equity returns and volatility added, multi-period logit.
+8.  @bharath2008forecasting: test of whether the KMV structural distance contains information beyond a simplified version of it.
 
 By the time you reach @campbell2008search, the distance-to-default input (Merton-style, @merton1974pricing) is no longer treated as a complete model: it is one feature among many in a hazard regression. The Altman Z, by the same logic, is one feature. Later chapters in this book cover the hazard machinery and the structural models. This chapter's narrower question is how the original MDA Z compares to what came after on out-of-sample data.
 
-### 6.4.1.1 What "out of sample" means in the Altman literature
+### What "out of sample" means in the Altman literature
 
 A reader of this literature encounters three different out-of-sample protocols, and they are not equivalent.
 
-1. Hold-out within the training period. Split the 66-firm sample into an estimation set and a validation set. This tells you something about in-sample variance but nothing about temporal generalization.
-2. Hold-out out of period. Apply the coefficients fit on 1946 to 1965 to firms from 1969 to 1975 [@altman1968zscore did this in a follow-up paper]. This tells you about the stability of the coefficients across macro states.
-3. Hold-out out of country or industry. Apply the coefficients to a different jurisdiction or sector. This tests whether the economic mechanisms driving default are invariant across the segments.
+1.  Hold-out within the training period. Split the 66-firm sample into an estimation set and a validation set. This tells you something about in-sample variance but nothing about temporal generalization.
+2.  Hold-out out of period. Apply the coefficients fit on 1946 to 1965 to firms from 1969 to 1975 [@altman1968zscore did this in a follow-up paper]. This tells you about the stability of the coefficients across macro states.
+3.  Hold-out out of country or industry. Apply the coefficients to a different jurisdiction or sector. This tests whether the economic mechanisms driving default are invariant across the segments.
 
 Different papers report different protocols and the choice matters. Begley, Ming, and Watts [@begley1996bankruptcy] showed that the Altman coefficients applied to 1980s firms suffered a sharp degradation in Type I error rate, while a refit on 1980s data recovered most of the accuracy. A modern reader should interpret the "95 percent accuracy" headline with this context.
 
@@ -572,15 +685,15 @@ Ohlson's model, O-score, is a nine-predictor logistic regression. The predictors
 
 Ohlson's nine variables are
 
-- $\log(\text{TA}/\text{GNP deflator})$: a size control.
-- $\text{TL}/\text{TA}$: leverage.
-- $\text{WC}/\text{TA}$: liquidity.
-- $\text{CL}/\text{CA}$: short-term stress.
-- $\text{OENEG}$: a binary indicator for $\text{TL} > \text{TA}$ (negative equity).
-- $\text{NI}/\text{TA}$: profitability.
-- $\text{FFO}/\text{TL}$: coverage.
-- $\text{INTWO}$: a binary indicator for negative net income in each of the last two years.
-- $\text{CHIN} = (\text{NI}_t - \text{NI}_{t-1})/(|\text{NI}_t| + |\text{NI}_{t-1}|)$: a relative change in net income.
+-   $\log(\text{TA}/\text{GNP deflator})$: a size control.
+-   $\text{TL}/\text{TA}$: leverage.
+-   $\text{WC}/\text{TA}$: liquidity.
+-   $\text{CL}/\text{CA}$: short-term stress.
+-   $\text{OENEG}$: a binary indicator for $\text{TL} > \text{TA}$ (negative equity).
+-   $\text{NI}/\text{TA}$: profitability.
+-   $\text{FFO}/\text{TL}$: coverage.
+-   $\text{INTWO}$: a binary indicator for negative net income in each of the last two years.
+-   $\text{CHIN} = (\text{NI}_t - \text{NI}_{t-1})/(|\text{NI}_t| + |\text{NI}_{t-1}|)$: a relative change in net income.
 
 The coefficients in Ohlson's primary model are reported to four significant figures in his Table 4. The inclusion of binary flags like OENEG and INTWO is what first made the logit framework visibly superior to LDA on this data: LDA has no natural way to handle discrete indicators inside its Gaussian assumption. Logit takes them in stride.
 
@@ -596,7 +709,7 @@ $$ {#eq-shumway-hazard}
 
 on annual firm-year panels, with $\alpha_t$ a baseline year effect. The econometric content is the same as a pooled logit on firm-years with time fixed effects, but the interpretation differs: each firm contributes every observation year until it either defaults or exits the sample. Shumway reported that his hazard model beat both the Altman Z and the Ohlson O on out-of-sample ranking across 1962 to 1992.
 
-### 6.4.3.1 The structural distance-to-default
+### The structural distance-to-default
 
 Before reaching CHS it is worth pausing on the market-based alternative Altman could not use in 1968. @merton1974pricing models equity as a call option on the firm's assets. Under the Black-Scholes framework [@black1973pricing], equity value $E$ and asset value $V$ are linked by
 
@@ -612,7 +725,7 @@ $$ {#eq-dd}
 
 with associated default probability $\Phi(-\mathrm{DD})$ under the physical measure. KMV's commercial implementation solves the two-equation system (@eq-merton-equity plus a volatility identity) for $(V, \sigma_V)$ from observed $(E, \sigma_E, D)$. @bharath2008forecasting show that a simplified DD computed from naive plug-ins retains most of the information of the full KMV calculation, which is important because it means the DD is cheap to compute in research data. @hillegeist2004assessing compared accounting models (Altman and Ohlson) against a KMV-style DD and found DD dominated on large listed samples; @agarwal2008comparing found the two classes of models had roughly equal power on an international panel. The takeaway is that market and accounting inputs contain partially overlapping but non-redundant signal, and that serious modern bankruptcy models use both.
 
-### 6.4.3.2 Pooled logit as the practical benchmark
+### Pooled logit as the practical benchmark
 
 Shumway's likelihood is identical to a pooled logit on firm-year panels with year fixed effects. That observation is important for practitioners because it means Shumway's model is a one-line estimation in any statistics package that supports logistic regression. The estimation treats each firm-year as an independent observation conditional on the firm surviving to that year, which is a discrete-time hazard parameterization. For a balanced panel of $N$ firms observed for $T$ years each, the likelihood is
 
@@ -632,10 +745,10 @@ The practical lesson is that the gap between Altman's MDA and a modern bankruptc
 
 The evidence on decade-level stability of these models is documented in @begley1996bankruptcy for the 1980s (Altman's Type I error rate roughly doubled when the original coefficients were applied out of sample, reaffirmed when the model was refit), in @agarwal2008comparing for the late 1990s (accounting-only, market-only, and combined models all beat each other on different segments), and in @altman2017financial for an international panel of over 1.5 million firm-years (the Z'' ranks similarly to logit on a balanced sample and loses ground on unbalanced samples). The robust summary:
 
-- The original Altman coefficients are stale after 10 to 15 years. Refitting coefficients on fresh data recovers most of the accuracy.
-- Logit beats LDA out of sample in most documented replications, usually by 2 to 5 percentage points of AUC at one-year horizons.
-- Market-based inputs (volatility, returns) beat accounting-only models on listed firms by a further 3 to 8 percentage points of AUC.
-- No single model dominates across time and geography, which is why modern practice builds ensembles.
+-   The original Altman coefficients are stale after 10 to 15 years. Refitting coefficients on fresh data recovers most of the accuracy.
+-   Logit beats LDA out of sample in most documented replications, usually by 2 to 5 percentage points of AUC at one-year horizons.
+-   Market-based inputs (volatility, returns) beat accounting-only models on listed firms by a further 3 to 8 percentage points of AUC.
+-   No single model dominates across time and geography, which is why modern practice builds ensembles.
 
 ### 6.4.5.1 Decomposing the sequence of improvements
 
@@ -842,7 +955,7 @@ LDA's calibration error roughly doubles once the heavy interaction dummies enter
 
 A cleaner fix for LDA in a mixed-type setting is to use location models: continuous features conditioned on the discrete cells, with a separate covariance per cell if you have enough data. That lifts LDA into a hierarchical version that takes back some of the territory logit gets from flexible conditional distributions. In practice the cost of maintaining a cell-conditioned model exceeds the benefit, which is why logit and trees dominate the consumer-credit stack.
 
-### 6.5.3.1 Illustrating the calibration failure with class-conditional histograms
+### Illustrating the calibration failure with class-conditional histograms
 
 The calibration pattern in the reliability plot earlier in the chapter has a simple explanation once you look at the class-conditional densities of the LDA projection. On a mixed-type design, the projected score is not Gaussian within each class. The logit is robust to this because it learns the sigmoid coefficients that best map the score to the binary outcome. LDA instead assumes the projected score is Gaussian within each class and computes the posterior from the class-conditional Gaussian densities. When the real class-conditional is skewed or bimodal, the posterior formula systematically overweights or underweights the tails.
 
@@ -867,9 +980,9 @@ The defaulter distribution has a long tail pulling to the left (lower score, hig
 
 Three conditions favor LDA in real work.
 
-1. Small samples, low feature dimension, nearly continuous features. If you are scoring 200 middle-market corporates on 6 financial ratios, the Gaussian assumption is a soft approximation and the efficiency gain from using it is real.
-2. Strict interpretability requirements with a linear scoring function. Altman's Z-score is still the default because a credit analyst can compute it in a spreadsheet. Regulators accept it because its coefficients do not change with data batches.
-3. Extreme class imbalance with a small tail of defaulters. LDA's estimator for the class-1 mean $\mu_1$ is an unbiased sample mean and does not suffer from logit's rare-event bias [@king2001logistic], which penalizes the intercept of a maximum-likelihood logit when defaults are below, say, one percent.
+1.  Small samples, low feature dimension, nearly continuous features. If you are scoring 200 middle-market corporates on 6 financial ratios, the Gaussian assumption is a soft approximation and the efficiency gain from using it is real.
+2.  Strict interpretability requirements with a linear scoring function. Altman's Z-score is still the default because a credit analyst can compute it in a spreadsheet. Regulators accept it because its coefficients do not change with data batches.
+3.  Extreme class imbalance with a small tail of defaulters. LDA's estimator for the class-1 mean $\mu_1$ is an unbiased sample mean and does not suffer from logit's rare-event bias [@king2001logistic], which penalizes the intercept of a maximum-likelihood logit when defaults are below, say, one percent.
 
 Outside these conditions, logit beats LDA, and boosted trees beat both on out-of-sample ranking. Altman himself later moved to logit and hazard formulations in his empirical work [@altman2017financial], while keeping the Z-score as a monitoring signal.
 
@@ -877,8 +990,8 @@ Outside these conditions, logit beats LDA, and boosted trees beat both on out-of
 
 When an LDA model is selected for regulatory reasons despite its miscalibration on mixed data, the standard fix is a post-hoc calibration. Two choices dominate.
 
-1. Platt scaling [@platt1999probabilistic]. Fit a univariate logistic regression of the outcome on the LDA decision function, using a held-out sample. The two fitted coefficients (slope and intercept) absorb the calibration bias. Platt scaling assumes a sigmoid shape for the miscalibration, which is usually correct if the underlying score is approximately monotone in the true risk.
-2. Isotonic regression. Fit a monotone step function of the outcome on the LDA score. Isotonic is more flexible than Platt, but it needs more data to estimate reliably. With small validation sets the isotonic fit can overfit specific bins.
+1.  Platt scaling [@platt1999probabilistic]. Fit a univariate logistic regression of the outcome on the LDA decision function, using a held-out sample. The two fitted coefficients (slope and intercept) absorb the calibration bias. Platt scaling assumes a sigmoid shape for the miscalibration, which is usually correct if the underlying score is approximately monotone in the true risk.
+2.  Isotonic regression. Fit a monotone step function of the outcome on the LDA score. Isotonic is more flexible than Platt, but it needs more data to estimate reliably. With small validation sets the isotonic fit can overfit specific bins.
 
 ```{python}
 #| fig-cap: "LDA with Platt-scaled calibration on the German sample. Platt scaling removes most of the systematic bias at high-risk bins; the residual deviation is sample variation."
@@ -912,9 +1025,9 @@ The calibrated LDA tracks the diagonal much more closely than raw LDA. For Basel
 
 LDA's coefficients are a function of the class means and a common covariance. Both drift with the business cycle. @begley1996bankruptcy documented that Altman's original 1968 coefficients, applied in the 1980s without refit, had a Type I error rate roughly twice the one Altman reported. The same drift applies to modern refits. A reasonable monitoring protocol for a production LDA model includes:
 
-- A monthly or quarterly refresh of the class means $\hat\mu_0, \hat\mu_1$ on a rolling window of observations, with a formal test for mean equality against the previous window (a Hotelling's $T^2$ statistic suffices).
-- A monthly refresh of the pooled covariance $\hat\Sigma$, with a log of the condition number and a formal test for covariance equality across time windows (Box's M test, used with caution because it is sensitive to non-normality).
-- A check that the decision zones remain associated with their historical default rates. A population-stability index between the current score distribution and the calibration distribution is a reasonable summary.
+-   A monthly or quarterly refresh of the class means $\hat\mu_0, \hat\mu_1$ on a rolling window of observations, with a formal test for mean equality against the previous window (a Hotelling's $T^2$ statistic suffices).
+-   A monthly refresh of the pooled covariance $\hat\Sigma$, with a log of the condition number and a formal test for covariance equality across time windows (Box's M test, used with caution because it is sensitive to non-normality).
+-   A check that the decision zones remain associated with their historical default rates. A population-stability index between the current score distribution and the calibration distribution is a reasonable summary.
 
 ```{python}
 #| fig-cap: "Stability check: the effective coefficient vector of LDA refit on bootstrapped resamples of the German training data. The magnitude dispersion of coefficients is large relative to their mean because the sample is small; this is a warning sign a practitioner should act on before deploying the model."
@@ -974,11 +1087,11 @@ print(coef_table.to_string(index=False))
 
 Three observations are worth making to a non-statistical reader of such a table.
 
-1. The coefficient sign matches the direction of the class-mean gap. If defaulters have a higher average loan duration, the LDA coefficient on `duration` is positive (pushing the score toward default) after the standardization. If the sign disagrees with the class-mean gap, the feature is redundant given the others, and the correlation structure has flipped its apparent effect. This is the LDA analog of a Simpson's paradox diagnostic.
+1.  The coefficient sign matches the direction of the class-mean gap. If defaulters have a higher average loan duration, the LDA coefficient on `duration` is positive (pushing the score toward default) after the standardization. If the sign disagrees with the class-mean gap, the feature is redundant given the others, and the correlation structure has flipped its apparent effect. This is the LDA analog of a Simpson's paradox diagnostic.
 
-2. The magnitudes are comparable only after standardization, because the raw LDA coefficients inherit the scale of the input features. A coefficient of 0.1 on `amount` (measured in marks) and a coefficient of 0.5 on `installment_rate` (measured on a 1 to 4 scale) are not directly comparable until both features have been divided by their standard deviation.
+2.  The magnitudes are comparable only after standardization, because the raw LDA coefficients inherit the scale of the input features. A coefficient of 0.1 on `amount` (measured in marks) and a coefficient of 0.5 on `installment_rate` (measured on a 1 to 4 scale) are not directly comparable until both features have been divided by their standard deviation.
 
-3. The intercept encodes the base rate. Under Gaussian LDA, the intercept is $-\tfrac{1}{2}(\mu_0 + \mu_1)^\top \Sigma^{-1}(\mu_1 - \mu_0) + \log(\pi_1/\pi_0)$. The first term is purely geometric, and the second is the prior log-odds. Reporting both pieces separately (the geometric midpoint contribution and the prior contribution) helps a reviewer understand whether the model is moving the decision boundary because of the data or because of the prior assumption.
+3.  The intercept encodes the base rate. Under Gaussian LDA, the intercept is $-\tfrac{1}{2}(\mu_0 + \mu_1)^\top \Sigma^{-1}(\mu_1 - \mu_0) + \log(\pi_1/\pi_0)$. The first term is purely geometric, and the second is the prior log-odds. Reporting both pieces separately (the geometric midpoint contribution and the prior contribution) helps a reviewer understand whether the model is moving the decision boundary because of the data or because of the prior assumption.
 
 The coefficient table on a larger design is the same template. For a 50-feature LDA model, the table becomes long enough that a graphical representation (a forest plot of standardized coefficients with bootstrap confidence intervals) is more readable than a numerical table, but the content is the same.
 
@@ -1024,10 +1137,10 @@ The two curves are close but not identical. Altman's rule of thumb was construct
 
 LDA scales as $O(n p^2)$ for the covariance estimation plus $O(p^3)$ for the covariance inverse. In credit practice $p$ is small (tens of features) and $n$ runs to tens of millions at most, so the bottleneck is the streaming pass through the data to accumulate $S_W$. Both are embarrassingly parallel:
 
-- Pandas: single-pass `DataFrame.groupby` with `.cov()` or `.mean()` on the feature matrix.
-- Polars: same logic with the lazy API, chunked reads for data that do not fit in memory.
-- Dask: partition-level scatter-gather (`map_partitions` to emit per-class sums of squares, then reduce).
-- PySpark: `groupBy(label).agg(...)` on a Vector-type column, joined with a global Vector-aware summarizer to produce $\hat\Sigma$.
+-   Pandas: single-pass `DataFrame.groupby` with `.cov()` or `.mean()` on the feature matrix.
+-   Polars: same logic with the lazy API, chunked reads for data that do not fit in memory.
+-   Dask: partition-level scatter-gather (`map_partitions` to emit per-class sums of squares, then reduce).
+-   PySpark: `groupBy(label).agg(...)` on a Vector-type column, joined with a global Vector-aware summarizer to produce $\hat\Sigma$.
 
 Because LDA's training is a closed-form sufficient-statistic update, it is a good candidate for online and incremental fitting on a rolling window. Maintain running sums of observations, feature totals, and outer products; solve the generalized eigenvalue system on a schedule. The cost to refit daily on tens of millions of accounts is dominated by the data shuffle, not the math.
 
@@ -1175,29 +1288,29 @@ Internal escalation. In a typical Vietnamese joint-stock bank, the Credit Risk C
 
 ## Takeaways {.unnumbered}
 
-- LDA is the Bayes-optimal classifier under Gaussian equal-covariance. Its coefficients equal $\Sigma^{-1}(\mu_1 - \mu_0)$, and the Fisher direction is the unique generalized eigenvector of $S_W^{-1} S_B$.
-- Altman's 1968 Z-score is MDA applied to five financial ratios on 66 matched firms. The coefficients 1.2, 1.4, 3.3, 0.6, 1.0 are not magical; they are the multivariate separation direction in that specific sample. Refitting on new data gives new coefficients.
-- The decision zones (safe 2.99, distress 1.81) are empirical thresholds, not Bayes cutoffs. Z' and Z'' restate the model for private firms and for non-manufacturers, with refitted coefficients.
-- Logit beats LDA on mixed-type consumer data, usually by 1 to 3 points of AUC and substantially more on calibration. Hazard models with market-based inputs [@shumway2001forecasting, @campbell2008search] beat both on corporate data.
-- LDA still wins when features are near Gaussian, samples are small, or interpretability and regulatory acceptance dominate. For a middle-market corporate PD model on six ratios, LDA with a Platt-scale calibration remains a reasonable choice.
-- Monitor the condition number of $S_W$ and the stability of class means. LDA degrades silently under heavy one-hot interactions and under covariance drift.
+-   LDA is the Bayes-optimal classifier under Gaussian equal-covariance. Its coefficients equal $\Sigma^{-1}(\mu_1 - \mu_0)$, and the Fisher direction is the unique generalized eigenvector of $S_W^{-1} S_B$.
+-   Altman's 1968 Z-score is MDA applied to five financial ratios on 66 matched firms. The coefficients 1.2, 1.4, 3.3, 0.6, 1.0 are not magical; they are the multivariate separation direction in that specific sample. Refitting on new data gives new coefficients.
+-   The decision zones (safe 2.99, distress 1.81) are empirical thresholds, not Bayes cutoffs. Z' and Z'' restate the model for private firms and for non-manufacturers, with refitted coefficients.
+-   Logit beats LDA on mixed-type consumer data, usually by 1 to 3 points of AUC and substantially more on calibration. Hazard models with market-based inputs [@shumway2001forecasting, @campbell2008search] beat both on corporate data.
+-   LDA still wins when features are near Gaussian, samples are small, or interpretability and regulatory acceptance dominate. For a middle-market corporate PD model on six ratios, LDA with a Platt-scale calibration remains a reasonable choice.
+-   Monitor the condition number of $S_W$ and the stability of class means. LDA degrades silently under heavy one-hot interactions and under covariance drift.
 
 ## Further reading {.unnumbered}
 
-- @fisher1936use: the original discriminant function.
-- @rao1948utilization: the multiple discriminant generalization.
-- @anderson1951classification: the classification-theoretic derivation that connects LDA to the Bayes rule.
-- @efron1975efficiency: the asymptotic efficiency calculation that settles the LDA-versus-logit question under Gaussianity.
-- @press1978choosing: the empirical argument for logit on binary-heavy data.
-- @altman1968zscore: the 1968 paper every credit analyst should own.
-- @altman1977zeta: ZETA and the seven-variable extension.
-- @altman2000predicting: Altman's own review of the Z-score and ZETA after 30 years of data.
-- @altman2017financial: international evidence on Z-score stability across decades.
-- @ohlson1980financial: logit replaces MDA, on a larger sample.
-- @zmijewski1984methodological: choice-based sampling corrections for default models.
-- @shumway2001forecasting: the hazard-model reframing.
-- @campbell2008search: accounting plus market-based inputs in a hazard model.
-- @hillegeist2004assessing: accounting versus structural bankruptcy models.
-- @agarwal2008comparing: market-based versus accounting-based head to head.
-- @friedman1989regularized: regularized discriminant analysis for small samples.
-- @bickel2004some: LDA in high dimensions, where the naive version fails.
+-   @fisher1936use: the original discriminant function.
+-   @rao1948utilization: the multiple discriminant generalization.
+-   @anderson1951classification: the classification-theoretic derivation that connects LDA to the Bayes rule.
+-   @efron1975efficiency: the asymptotic efficiency calculation that settles the LDA-versus-logit question under Gaussian.
+-   @press1978choosing: the empirical argument for logit on binary-heavy data.
+-   @altman1968zscore: the 1968 paper every credit analyst should own.
+-   @altman1977zeta: ZETA and the seven-variable extension.
+-   @altman2000predicting: Altman's own review of the Z-score and ZETA after 30 years of data.
+-   @altman2017financial: international evidence on Z-score stability across decades.
+-   @ohlson1980financial: logit replaces MDA, on a larger sample.
+-   @zmijewski1984methodological: choice-based sampling corrections for default models.
+-   @shumway2001forecasting: the hazard-model reframing.
+-   @campbell2008search: accounting plus market-based inputs in a hazard model.
+-   @hillegeist2004assessing: accounting versus structural bankruptcy models.
+-   @agarwal2008comparing: market-based versus accounting-based head to head.
+-   @friedman1989regularized: regularized discriminant analysis for small samples.
+-   @bickel2004some: LDA in high dimensions, where the naive version fails.

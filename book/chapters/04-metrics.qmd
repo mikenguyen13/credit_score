@@ -2483,13 +2483,22 @@ print(f"5-fold stratified CV AUC = {np.mean(cv_auc):.4f}  "
 
 ### Out-of-time validation {#sec-ch04-oot}
 
-For a production credit model, k-fold shuffles through time and hides temporal drift. The supervisory preference is out-of-time (OOT) validation, and the design is deliberately simple. Pick a cutoff date $T$. Train on everything before $T$. Test on the single most recent window after $T$ that already contains matured outcomes (i.e., applications old enough that the default label has been observed). Report one AUC, one KS, one Brier, one profit number. The OOT performance is the honest answer to the question the bank cares about, namely how the model will behave on next quarter's applications, and it is the number that shows up in a model-validation memo to the regulator.
+For a production credit model, k-fold shuffles through time and hides temporal drift. The supervisory preference is out-of-time (OOT) validation, and the design is deliberately simple.
+
+1.  Pick a cutoff date $T$.
+2.  Train on everything before $T$.
+3.  Test on the single most recent window after $T$ that already contains matured outcomes (i.e., applications old enough that the default label has been observed).
+4.  Report one AUC, one KS, one Brier, one profit number.
+
+The OOT performance is the honest answer to the question the bank cares about, namely how the model will behave on next quarter's applications, and it is the number that shows up in a model-validation memo to the regulator.
 
 The price of the simplicity is that OOT is *one* estimate. You learn nothing about whether next quarter's number is better or worse than the quarter before it, and the sample size of that single window sets the width of the confidence interval.
 
 ### Walk-forward validation {#sec-ch04-walkforward}
 
-Walk-forward is OOT repeated. Slide the cutoff $T$ forward by one month (or one quarter), refit on the updated training window, evaluate on the next period, record the number, and continue. The design yields a *time series* of performance metrics rather than the single scalar OOT produces. Two things become visible that OOT hides: the shape of degradation between retrainings, and the natural month-to-month variance against which any single OOT estimate should be read. It also lets you compare training-window lengths directly, as the $6$-month and $12$-month lines below do. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation. In short: OOT is the point estimate, walk-forward is the series that puts error bars on it.
+Walk-forward is OOT repeated. Slide the cutoff $T$ forward by one month (or one quarter), refit on the updated training window, evaluate on the next period, record the number, and continue. The design yields a *time series* of performance metrics rather than the single scalar OOT produces. Two things become visible that OOT hides: the shape of degradation between retrainings, and the natural month-to-month variance against which any single OOT estimate should be read. It also lets you compare training-window lengths directly, as the $6$-month and $12$-month lines below do. @bergmeir2012use shows that walk-forward is consistent under mild stationarity conditions and recommends it as the default for time-series predictor evaluation.
+
+> In short: OOT is the point estimate, walk-forward is the series that puts error bars on it.
 
 Since neither UCI file carries timestamps, we synthesize a cohort with a mild temporal shift.
 
@@ -2563,17 +2572,149 @@ for tr, va in outer.split(X, y):
 print(f"Nested CV AUC = {np.mean(outer_scores):.4f} +- {np.std(outer_scores, ddof=1):.4f}")
 ```
 
+#### Production pattern: nested walk-forward CV {#sec-ch04-nested-walkforward}
+
+The code above uses `StratifiedKFold` in both loops and therefore inherits the temporal-leakage critique of plain shuffled k-fold. This subsection replaces both loops with time-respecting splits. The pattern is the one that goes into a model-validation memo: the outer loop walks the cutoff forward month by month exactly as in @sec-ch04-walkforward, and the inner loop is a chronological `TimeSeriesSplit` *within* the current outer training window. No row from month $t$ ever participates in selecting hyperparameters for a model that will be scored on month $\tau < t$, and no validation month ever contributes to the fit that predicts it.
+
+**Packages used.** `sklearn.model_selection.TimeSeriesSplit` for the inner chronological splitter [@pedregosa2011scikit]. No custom splitter is needed because the data is already grouped by month in the `data` list built in @sec-ch04-walkforward; the inner loop splits along the *month axis*, which is the unit that must stay ordered. If the cohort were a flat dataframe with a date column, the equivalent construction would be `TimeSeriesSplit` on the sorted unique month index, then `np.isin(df["month"], train_months)` to materialize each fold. `GridSearchCV` is deliberately avoided here: its default splitter does not see the month grouping, and passing a prebuilt list of `(train_idx, val_idx)` tuples through its `cv=` argument obscures the invariant this code is meant to make obvious.
+
+```{python}
+#| label: fig-nested-walkforward
+#| fig-cap: "Nested walk-forward CV on the drifting synthetic cohort. Top: outer out-of-time AUC per validation month, with the nested mean as a horizontal reference. Bottom: the regularization strength $C$ selected by the inner chronological grid search in each outer training window. The selected $C$ moves with the drift rather than sitting at a single value, which is the behavior the nested design is meant to expose."
+#| fig-width: 6.5
+#| fig-height: 5.5
+def inner_timeseries_select(train_months, C_grid, n_inner_splits=3):
+    """Grid-search `C` inside one outer training window using month-level TimeSeriesSplit.
+
+    `train_months` is a list of (X, y) tuples in chronological order.
+    Returns (best_C, mean_inner_auc_by_C).
+    """
+    n = len(train_months)
+    k = min(n_inner_splits, max(2, n - 1))
+    tscv = TimeSeriesSplit(n_splits=k)
+    scores = {C: [] for C in C_grid}
+    for tr_idx, va_idx in tscv.split(np.arange(n)):
+        X_tr = np.vstack([train_months[i][0] for i in tr_idx])
+        y_tr = np.concatenate([train_months[i][1] for i in tr_idx])
+        X_va = np.vstack([train_months[i][0] for i in va_idx])
+        y_va = np.concatenate([train_months[i][1] for i in va_idx])
+        for C in C_grid:
+            m = LogisticRegression(C=C, max_iter=2000).fit(X_tr, y_tr)
+            scores[C].append(roc_auc_score(y_va, m.predict_proba(X_va)[:, 1]))
+    mean_scores = {C: float(np.mean(v)) for C, v in scores.items()}
+    best_C = max(mean_scores, key=mean_scores.get)
+    return best_C, mean_scores
+
+C_grid = [0.01, 0.1, 1.0, 10.0]
+outer_window = 12
+outer_aucs, picked_C, val_month = [], [], []
+
+for t in range(outer_window, len(data)):
+    train_months = data[t - outer_window: t]
+    best_C, _ = inner_timeseries_select(train_months, C_grid, n_inner_splits=3)
+    X_tr = np.vstack([d[0] for d in train_months])
+    y_tr = np.concatenate([d[1] for d in train_months])
+    X_va, y_va = data[t]
+    m = LogisticRegression(C=best_C, max_iter=2000).fit(X_tr, y_tr)
+    outer_aucs.append(roc_auc_score(y_va, m.predict_proba(X_va)[:, 1]))
+    picked_C.append(best_C)
+    val_month.append(t)
+
+nested_mean = float(np.mean(outer_aucs))
+nested_sd = float(np.std(outer_aucs, ddof=1))
+print(f"Nested walk-forward AUC = {nested_mean:.4f} +- {nested_sd:.4f} "
+      f"over {len(outer_aucs)} outer months")
+
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, figsize=(6.5, 5.5), sharex=True,
+    gridspec_kw={"height_ratios": [2, 1]},
+)
+ax1.plot(val_month, outer_aucs, marker="o", color="#1f77b4",
+         label="outer OOT AUC")
+ax1.axhline(nested_mean, color="#555555", linestyle="--",
+            label=f"nested mean = {nested_mean:.3f}")
+ax1.set_ylabel("AUC")
+ax1.set_title("Nested walk-forward CV: outer OOT AUC and inner-selected C")
+ax1.legend(loc="lower left")
+
+ax2.step(val_month, picked_C, where="mid", color="#d62728")
+ax2.set_yscale("log")
+ax2.set_yticks(C_grid)
+ax2.set_yticklabels([str(C) for C in C_grid])
+ax2.set_xlabel("outer validation month")
+ax2.set_ylabel("selected C\n(log scale)")
+plt.tight_layout()
+plt.show()
+```
+
+Three details deserve emphasis.
+
+1. *The inner splitter runs on months, not on rows.* `TimeSeriesSplit(n_splits=k)` is called with `np.arange(n)` where `n` is the number of training months. Each inner fold is therefore a contiguous block of months, which is the grouping that actually matters for temporal leakage. Splitting on rows inside the outer window would recreate the same leakage this pattern is trying to avoid, because a single month's observations would straddle inner train and inner validation.
+
+2. *The reported number is the mean of the outer scores.* The selected $C$ per outer fold is a byproduct, not the deliverable. Papers that report the *single* hyperparameter chosen by nested CV are misreading the procedure: nested CV estimates the error of the *model-selection pipeline*, not of one fixed model. If the goal is a single deployable model, pick hyperparameters once on the full historical window using the same inner `TimeSeriesSplit`, and report the nested number as the honest generalization estimate for that pipeline.
+
+3. *The bottom panel is a diagnostic.* If the selected $C$ moves substantially across outer months, the pipeline is drift-sensitive and the nested estimate is the right summary to quote. If $C$ is flat across all outer folds, the inner search is adding variance without changing the answer, and the cheap substitute mentioned earlier, namely fixing hyperparameters from prior experience and running a single time-respecting CV, is likely adequate.
+
+When the data is a flat panel with a date column rather than a prebuilt list, the same construction is:
+
+```{python}
+#| label: nested-walkforward-panel
+#| eval: false
+months_sorted = np.sort(df["month"].unique())
+outer_tscv = TimeSeriesSplit(n_splits=8)
+results = []
+for outer_tr_m, outer_va_m in outer_tscv.split(months_sorted):
+    train_m = months_sorted[outer_tr_m]
+    val_m = months_sorted[outer_va_m]
+    inner_tscv = TimeSeriesSplit(n_splits=3)
+    best_C, best_auc = None, -np.inf
+    for inner_tr_m, inner_va_m in inner_tscv.split(train_m):
+        tr_mask = df["month"].isin(train_m[inner_tr_m])
+        va_mask = df["month"].isin(train_m[inner_va_m])
+        for C in C_grid:
+            m = LogisticRegression(C=C, max_iter=2000).fit(
+                df.loc[tr_mask, features], df.loc[tr_mask, "y"],
+            )
+            s = roc_auc_score(
+                df.loc[va_mask, "y"],
+                m.predict_proba(df.loc[va_mask, features])[:, 1],
+            )
+            if s > best_auc:
+                best_auc, best_C = s, C
+    tr_mask = df["month"].isin(train_m)
+    va_mask = df["month"].isin(val_m)
+    m = LogisticRegression(C=best_C, max_iter=2000).fit(
+        df.loc[tr_mask, features], df.loc[tr_mask, "y"],
+    )
+    results.append({
+        "val_from": val_m.min(), "val_to": val_m.max(),
+        "C": best_C,
+        "auc": roc_auc_score(
+            df.loc[va_mask, "y"],
+            m.predict_proba(df.loc[va_mask, features])[:, 1],
+        ),
+    })
+```
+
+The structure is identical: outer `TimeSeriesSplit` on sorted unique months, inner `TimeSeriesSplit` on the outer training months only, and row materialization through `isin` masks. The same pattern extends to `GradientBoostingClassifier`, `lightgbm.LGBMClassifier`, or any estimator whose hyperparameters need tuning; only the `param_grid` and `fit` call change.
+
 ## Statistical comparison of classifiers {#sec-ch04-compare}
 
 Every section so far has produced *point estimates*: one AUC, one KS, one Brier, one profit number. A practitioner now has to answer the question that point estimates cannot: given that model A scores higher than model B on the test set, is that difference a real improvement or is it within the sampling noise of this particular evaluation sample? The chapter intro flagged this already, that most benchmark-paper disagreements turn out to be about variance rather than algorithms [@baesens2003benchmarking; @lessmann2015benchmarking]. This section gives the standard procedures that let a model owner defend "A is better than B" to a validator, and that let a benchmark paper rank many classifiers across many datasets without pretending that small gaps are meaningful.
 
 Two settings come up, and they need different tools.
 
--   *Two classifiers, one evaluation sample.* This is the common case inside a single bank: the challenger model and the champion model are scored on the same OOT window, and the question is whether $\Delta\mathrm{AUC}$ is significantly nonzero. Because both AUCs are computed on the same observations, they are *correlated*, and an unpaired test would give the wrong standard error. @sec-ch04-compare subsection "DeLong test" below is the parametric paired procedure; "Bootstrap CIs and comparison" is the distribution-free paired alternative.
+-   *Two classifiers, one evaluation sample.* This is the common case inside a single bank: the challenger model and the champion model are scored on the same OOT window, and the question is whether $\Delta\mathrm{AUC}$ is significantly nonzero. Because both AUCs are computed on the same observations, they are *correlated*, and an unpaired test would give the wrong standard error. @sec-ch04-delong is the parametric paired procedure; @sec-ch04-bootstrap-ci is the distribution-free paired alternative.
 
--   *Many classifiers, many datasets.* This is the setting of a benchmark paper or a cross-portfolio comparison: $K$ algorithms each run on $N$ datasets, and the question is which algorithms sit significantly above the others overall. Pairwise tests do not compose here because of multiple-comparison inflation and because AUC on different datasets is not directly commensurable. The "Friedman and Nemenyi" subsection below gives the rank-based procedure that handles both issues.
+-   *Many classifiers, many datasets.* This is the setting of a benchmark paper or a cross-portfolio comparison: $K$ algorithms each run on $N$ datasets, and the question is which algorithms sit significantly above the others overall. Pairwise tests do not compose here because of multiple-comparison inflation and because AUC on different datasets is not directly commensurable. @sec-ch04-friedman gives the rank-based procedure that handles both issues.
 
-### DeLong test for two correlated AUCs
+A natural question: if Friedman-Nemenyi solves the multiple-comparison and scale problems, is it strictly better than DeLong? No. The two tests operate on different null hypotheses and different data structures, and the correct choice is dictated by how many datasets are on the table, not by which test has the cleaner statistical properties.
+
+-   *On one dataset, DeLong strictly dominates Friedman-Nemenyi.* DeLong exploits the pairing of predictions on the *same observations* and consumes the full placement structure (@eq-delong-place); Friedman-Nemenyi would have only $N = 1$ dataset, which is below the sample size the rank test needs to reject anything. Running Friedman on a single OOT window is not conservative, it is uninformative.
+-   *Across many datasets, DeLong does not compose.* Pairwise DeLong on $K$ classifiers gives $K(K-1)/2$ $p$-values with no built-in family-wise correction, and the variance estimator is per-dataset so there is no principled way to pool across datasets. Friedman-Nemenyi is the correct aggregation precisely because it moves to ranks.
+-   *In a hybrid workflow, use both.* Run DeLong inside each OOT window to defend pair-level improvements to the validator, and run Friedman-Nemenyi across OOT windows or portfolios to defend overall ranking in a benchmarking memo. The two answers rarely conflict, but when they do, each is answering a different question.
+
+### DeLong test for two correlated AUCs {#sec-ch04-delong}
 
 @delong1988comparing derive a nonparametric variance estimator for the difference between two AUCs computed on the same observations. Let $V_{10}^{(k)}(i)$ be the structural component for the $i$-th positive observation under scorer $k$, and $V_{01}^{(k)}(j)$ the component for the $j$-th negative. Define the placements
 
@@ -2639,7 +2780,7 @@ print(f"AUC(gb) = {res['auc'][0]:.4f}  AUC(lr) = {res['auc'][1]:.4f}")
 print(f"DeLong z = {res['z']:.3f}  p-value = {res['p_value']:.3e}")
 ```
 
-### Bootstrap CIs and comparison
+### Bootstrap CIs and comparison {#sec-ch04-bootstrap-ci}
 
 An alternative, distribution-free, is the paired bootstrap. Draw $B$ bootstrap samples of observation indices, compute the AUC difference in each, and take the empirical quantiles [@efron1979bootstrap].
 
@@ -2664,7 +2805,7 @@ print(f"DeLong z / p-value                = {res['z']:.3f} / {res['p_value']:.3e
 
 The two inferential procedures should broadly agree in large samples. When they diverge, DeLong's is the parametric answer under asymptotic normality, which fails for tiny defaulter counts; the paired bootstrap is the robust fallback.
 
-### Multi-classifier comparison: Friedman and Nemenyi
+### Multi-classifier comparison: Friedman and Nemenyi {#sec-ch04-friedman}
 
 DeLong and the paired bootstrap answer the two-classifier question. A bank benchmarking many candidate algorithms, or a paper like @lessmann2015benchmarking comparing dozens of classifiers across dozens of portfolios, faces a harder setup: $K$ classifiers each evaluated on $N$ datasets, and the question is which ones sit significantly above the others across the whole benchmark. Two problems rule out running DeLong or a bootstrap on every pair. First, pairwise testing inflates the family-wise error rate: at $K=10$ there are $45$ pairs, and naive $\alpha = 0.05$ tests will flag several "significant" differences by chance alone. Second, AUC numbers on different datasets are not on a common scale (an AUC of $0.72$ on a thin emerging-market file is not comparable to $0.72$ on a mature US portfolio), so averaging raw AUCs across datasets is not defensible.
 

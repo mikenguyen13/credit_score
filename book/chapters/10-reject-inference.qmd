@@ -310,6 +310,12 @@ The reject inference implication is subtle. When automation reduces disparities,
 
 This matters for regulatory documentation (@sec-ch10-scalability). A bank that migrates from manual to automated underwriting, and carries a reject inference method forward unchanged, has potentially invalidated the assumptions under which that method was benchmarked. Model risk management must revalidate the reject inference component every time the selection mechanism changes, not just when the features or the estimator change.
 
+### A unified training-and-evaluation framework
+
+@kozodoi2024sampling argue that sampling bias in credit scoring is not only a training problem but also an evaluation problem. The standard practice of benchmarking reject inference methods on the accepted sample (using a held-out slice of booked loans) is circular: the benchmark inherits the same selection that the method is trying to repair, so a method that memorizes the acceptance rule can outperform a method that generalizes to the through-the-door population. Their framework separates the two concerns. Training uses the biased sample with an explicit correction (reweighting, Heckman, or semi-supervised pseudo-labels). Evaluation uses a bias-aware protocol that reweights the accepted-sample metrics toward a proxy for the through-the-door distribution, using either bureau data on a matched population or a policy window in which the acceptance threshold was relaxed.
+
+The operational implication is that a reject inference experiment should report two AUCs: the accepted-sample AUC (what the scorecard will see in production conditional on approval) and the reweighted-evaluation AUC (what the scorecard would see if the acceptance rule were neutralized). A method that improves the first but not the second is optimizing for the biased sample. A method that improves the second at the cost of the first is generalizing at the expense of the booked pool. Which tradeoff a lender accepts depends on its growth ambition: a portfolio intending to expand into a new borrower segment needs the second; a mature portfolio optimizing the existing acceptance rule can lean on the first.
+
 ## Implementation from scratch
 
 The code below generates a synthetic through-the-door population with a known selection rule and a known default model. We run a naive fit, a Heckman two-step, fuzzy augmentation, self-training via `sklearn`, and an empirical demonstration of the impossibility result. All seeds are fixed and every code block is deterministic.

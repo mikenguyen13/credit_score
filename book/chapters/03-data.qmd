@@ -303,7 +303,7 @@ iv_tbl = (bp.summary()
 iv_tbl.head(15).round(4)
 ```
 
-`optbinning` [@navas2022optbinning] uses a mixed-integer programming formulation to find an optimal monotone binning that maximizes IV subject to monotonicity and bin-size constraints. The algorithm extends classical supervised discretization [@fayyad1993multi] by enforcing risk monotonicity, which is what underwriters expect from a scorecard. The highest-IV feature in the Taiwan data is the most recent delinquency code (`PAY_0`), followed by older payment codes, which matches the domain intuition.
+`optbinning` [@navas2016optimal] uses a mixed-integer programming formulation to find an optimal monotone binning that maximizes IV subject to monotonicity and bin-size constraints. The algorithm extends classical supervised discretization [@fayyad1993multi] by enforcing risk monotonicity, which is what underwriters expect from a scorecard. The highest-IV feature in the Taiwan data is the most recent delinquency code (`PAY_0`), followed by older payment codes, which matches the domain intuition.
 
 The `summary()` table includes two additional ranking columns alongside `iv`, both computed on the same binned distributions and sometimes preferred when IV is unstable.
 
@@ -406,7 +406,7 @@ This table is the canonical artifact a scorecard developer hands over for model 
 
 Three diagnostics in the binning table carry most of the validation signal. First, the WoE column should be monotone when the feature is ordinal and the business logic calls for monotonicity. An income feature that increases in WoE, then dips for the highest bin, then increases again, either has too many bins, has a sample-size problem, or has a real structural break (high earners with complicated tax situations, for instance) that needs a dedicated flag. Second, the bin-share column (often labeled `count (%)`) should not have any bin with less than 3 to 5 percent of the population. Small bins have unstable WoE and produce scorecards that swing wildly under resampling. Third, the event rate column should step smoothly across bins when ordered by WoE. Large jumps suggest that the bin boundaries are not where the risk boundary actually sits.
 
-The `optbinning` algorithm is a mixed-integer programming formulation that enforces these properties globally rather than through heuristic post-processing [@navas2022optbinning]. It extends the classical supervised discretization literature, which treats binning as a greedy information-gain split, by adding constraints that express what a scorecard developer would actually want. The classical reference is @fayyad1993multi, which uses a minimum description length principle to choose the number of bins. The MIP formulation subsumes this as a special case with different constraints.
+The `optbinning` algorithm is a mixed-integer programming formulation that enforces these properties globally rather than through heuristic post-processing [@navas2016optimal]. It extends the classical supervised discretization literature, which treats binning as a greedy information-gain split, by adding constraints that express what a scorecard developer would actually want. The classical reference is @fayyad1993multi, which uses a minimum description length principle to choose the number of bins. The MIP formulation subsumes this as a special case with different constraints.
 
 ### Edge cases in WoE encoding
 
@@ -1152,7 +1152,7 @@ The leaky feature looks best on a random split, because the random split leaks t
 
 ### Point-in-time feature construction
 
-The discipline that prevents leakage is point-in-time (PIT) feature engineering. A PIT feature store stores every feature with two timestamps: the **event time**, when the underlying fact occurred, and the **as-of time**, when that fact became visible to the lender. When a training row is built for observation date $t_0$, only facts with as-of time $\le t_0$ are joined. Systems like Feast, Tecton, and Databricks Feature Store expose this temporal-join primitive natively. @lopez2018advances makes the same argument for financial machine learning, where the analog is survivorship bias and lookahead bias in backtesting [@ooms2013lookahead; @mackinlay1997nonlinear].
+The discipline that prevents leakage is point-in-time (PIT) feature engineering. A PIT feature store stores every feature with two timestamps: the **event time**, when the underlying fact occurred, and the **as-of time**, when that fact became visible to the lender. When a training row is built for observation date $t_0$, only facts with as-of time $\le t_0$ are joined. Systems like Feast, Tecton, and Databricks Feature Store expose this temporal-join primitive natively. @lopez2018advances makes the same argument for financial machine learning, where the analog is survivorship bias and lookahead bias in backtesting [@mackinlay1997nonlinear].
 
 For cross-validation over time, @bergmeir2018note show that random K-fold on time series data is systematically biased. The right cross-validation scheme for scorecards is an expanding-window or rolling-window walk-forward: train on months 1 to $K$, test on month $K+1$, roll forward by one month, repeat. This gives $T - K$ out-of-time estimates, which can be averaged to give a performance distribution rather than a point estimate.
 
@@ -1885,9 +1885,9 @@ A practical Vietnamese data stack starts with a daily CIC delta feed, a weekly P
 -   @vanbuuren2011mice; @white2011multiple: MICE, the multivariate chained-equations approach to imputation, with guidance for applied researchers.
 -   @tibshirani1996regression; @friedman2010regularization; @zou2005regularization: the LASSO and its elastic-net refinement, including the coordinate-descent algorithm that underlies every modern implementation.
 -   @kursa2010boruta: the Boruta wrapper method.
--   @navas2022optbinning: the mixed-integer programming formulation of optimal monotone binning that the `optbinning` package implements.
+-   @navas2016optimal: the mixed-integer programming formulation of optimal monotone binning that the `optbinning` package implements.
 -   @berg2020rise; @gambacorta2024data; @bis2020data: the empirical literature on the marginal information content of digital footprints and transactional data beyond credit bureau scores.
 -   @khandani2010consumer: machine-learning credit models with a rigorous treatment of out-of-sample evaluation.
--   @lopez2018advances; @bergmeir2018note; @ooms2013lookahead: lookahead bias and walk-forward validation in financial machine learning.
+-   @lopez2018advances; @bergmeir2018note: lookahead bias and walk-forward validation in financial machine learning.
 -   @brevoort2016credit: the population of credit invisibles and unscored consumers, and why alternative data matters for inclusion.
 -   @avery2003overview: a canonical overview of consumer credit reporting data from the Federal Reserve.
