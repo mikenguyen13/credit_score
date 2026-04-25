@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.26">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="End-to-end treatment of credit scoring. Math, derivations, runnable Python, publicly available data, and cloud-agnostic deployment patterns.">
+
+<title>23&nbsp; XPER: Explaining Predictive Performance, Not Predictions – Credit Scoring: Theory, Methods, and Practice</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+  margin-bottom: 0em;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../chapters/22c-deep-xai.html" rel="next">
+<link href="../chapters/22-shap-practice.html" rel="prev">
+<link href="../figures/favicon.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-597958c53c93a607afca12fd375c57ed.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-7ac2f9da8c2617a4fdd15004b4601015.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-597958c53c93a607afca12fd375c57ed.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-c3a6a10803219f653a4a48a7d185b136.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-1f44f970a5d0d73123b8b4a37d5e8dac.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-c3a6a10803219f653a4a48a7d185b136.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-3X28VGG04Y"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-3X28VGG04Y', { 'anonymize_ip': true});
+</script>
+<style>html{ scroll-behavior: smooth; }</style>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+<script>
+window.PlotlyConfig = {MathJaxConfig: 'local'};
+if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.MathJax.Hub.Config({SVG: {font: "STIX-Web"}});}
+</script>
+<script type="module">import "https://cdn.plot.ly/plotly-3.5.0.min"</script>
+
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../chapters/21-xai.html">Part V - Explainability and Fairness</a></li><li class="breadcrumb-item"><a href="../chapters/22b-xper-performance.html"><span class="chapter-number">23</span>&nbsp; <span class="chapter-title">XPER: Explaining Predictive Performance, Not Predictions</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">Credit Scoring: Theory, Methods, and Practice</a> 
+        <div class="sidebar-tools-main tools-wide">
+    <a href="https://github.com/mikenguyen13/credit_score" title="Source Code" class="quarto-navigation-tool px-1" aria-label="Source Code"><i class="bi bi-github"></i></a>
+    <div class="dropdown">
+      <a href="" title="Download" id="quarto-navigation-tool-dropdown-0" class="quarto-navigation-tool dropdown-toggle px-1" data-bs-toggle="dropdown" aria-expanded="false" role="link" aria-label="Download"><i class="bi bi-download"></i></a>
+      <ul class="dropdown-menu" aria-labelledby="quarto-navigation-tool-dropdown-0">
+          <li>
+            <a class="dropdown-item sidebar-tools-main-item" href="../Credit-Scoring--Theory,-Methods,-and-Practice.pdf">
+              <i class="bi bi-file-pdf pe-1"></i>
+            Download PDF
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item sidebar-tools-main-item" href="../Credit-Scoring--Theory,-Methods,-and-Practice.epub">
+              <i class="bi bi-journal pe-1"></i>
+            Download ePub
+            </a>
+          </li>
+      </ul>
+    </div>
+    <div class="dropdown">
+      <a href="" title="Share" id="quarto-navigation-tool-dropdown-1" class="quarto-navigation-tool dropdown-toggle px-1" data-bs-toggle="dropdown" aria-expanded="false" role="link" aria-label="Share"><i class="bi bi-share"></i></a>
+      <ul class="dropdown-menu" aria-labelledby="quarto-navigation-tool-dropdown-1">
+          <li>
+            <a class="dropdown-item sidebar-tools-main-item" href="https://twitter.com/intent/tweet?url=|url|">
+              <i class="bi bi-twitter pe-1"></i>
+            Twitter
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item sidebar-tools-main-item" href="https://www.linkedin.com/sharing/share-offsite/?url=|url|">
+              <i class="bi bi-linkedin pe-1"></i>
+            LinkedIn
+            </a>
+          </li>
+      </ul>
+    </div>
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Toggle reader mode">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Preface</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part I - Foundations of Credit Scoring</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/01-introduction.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Historical Development</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/02-formal-setup.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">The Credit Scoring Problem: Formal Setup</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/03-data.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Data: Sources, Features, and Preprocessing</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/04-metrics.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Performance Metrics and Model Evaluation</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/05-regulation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Regulatory and Legal Framework</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part II - Classical Statistical Methods</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/06-discriminant-analysis.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Discriminant Analysis and the Altman Z-Score</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/07-logistic-scorecard.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Logistic Regression and the Scorecard</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/08-structural-models.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Structural Models: Merton and the KMV Framework</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/09-survival-analysis.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Survival Analysis and Time-to-Default</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/10-reject-inference.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">10</span>&nbsp; <span class="chapter-title">Reject Inference and Sample Selection</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part III - Machine Learning Methods</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/11-trees-rules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Decision Trees and Rule-Based Models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/12-ensembles.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">12</span>&nbsp; <span class="chapter-title">Ensembles: Bagging, Boosting, Stacking, and Gradient-Boosted Trees</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/13-svm.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">13</span>&nbsp; <span class="chapter-title">Support Vector Machines</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/14-neural-networks.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">14</span>&nbsp; <span class="chapter-title">Neural Networks and Deep Learning</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/15-imbalanced.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">15</span>&nbsp; <span class="chapter-title">Handling Imbalanced Data</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/16-benchmarking.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">16</span>&nbsp; <span class="chapter-title">Large-Scale Benchmarking of Classifiers</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part IV - Alternative Data and FinTech Scoring</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/17-digital-footprints.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">17</span>&nbsp; <span class="chapter-title">Digital Footprints and Behavioral Data</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/18-open-banking.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">18</span>&nbsp; <span class="chapter-title">Transaction Data and Open Banking</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/19-p2p-lending.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">19</span>&nbsp; <span class="chapter-title">P2P Lending Platforms and Social Data</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/20-bigtech-credit.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">20</span>&nbsp; <span class="chapter-title">BigTech Credit and Non-Traditional Lenders</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true">
+ <span class="menu-text">Part V - Explainability and Fairness</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/21-xai.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">21</span>&nbsp; <span class="chapter-title">Explainable AI (XAI) in Credit Scoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/22-shap-practice.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">22</span>&nbsp; <span class="chapter-title">SHAP in Practice: Explaining Credit Models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/22b-xper-performance.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">23</span>&nbsp; <span class="chapter-title">XPER: Explaining Predictive Performance, Not Predictions</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/22c-deep-xai.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">24</span>&nbsp; <span class="chapter-title">Deep Model Explainability: Gradients, Transformers, Images</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/22d-conformal-uncertainty.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">25</span>&nbsp; <span class="chapter-title">Conformal Prediction and Uncertainty for Credit Scores</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/22e-explanation-quality.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">26</span>&nbsp; <span class="chapter-title">Explanation Quality, Counterfactual Alternatives, and Prototypes</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/23-fairness-theory.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">27</span>&nbsp; <span class="chapter-title">Algorithmic Fairness: Theory and Definitions</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/24-fairness-empirical.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">28</span>&nbsp; <span class="chapter-title">Empirical Fairness in Credit Scoring</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part VI - Frontier Methods</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/25-nlp-text.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">29</span>&nbsp; <span class="chapter-title">NLP and Text Data in Credit</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/26-llm-credit.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">30</span>&nbsp; <span class="chapter-title">Large Language Models for Credit Risk</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/27-gnn-credit.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">31</span>&nbsp; <span class="chapter-title">Graph Neural Networks and Network Credit Risk</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/28-causal-credit.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">32</span>&nbsp; <span class="chapter-title">Causal Inference in Credit Scoring</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part VII - Specialized Applications and Future Directions</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/29-corporate-sme.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">33</span>&nbsp; <span class="chapter-title">Corporate Credit Rating and SME Scoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/30-mortgage.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">34</span>&nbsp; <span class="chapter-title">Mortgage Credit and Real Estate Scoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/31-inclusion-emerging.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">35</span>&nbsp; <span class="chapter-title">Financial Inclusion and Emerging Markets</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/32-dynamic-behavioral.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">36</span>&nbsp; <span class="chapter-title">Dynamic and Behavioral Scoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/33-future.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">37</span>&nbsp; <span class="chapter-title">Future Directions and Open Problems</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">Part VIII - Production and Regulatory Capital</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/34-mlops-deployment.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">38</span>&nbsp; <span class="chapter-title">MLOps and Production Deployment for Credit Models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/35-ifrs9-cecl-stress.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">39</span>&nbsp; <span class="chapter-title">IFRS 9, CECL, and Stress Testing</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../references.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">References</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">Appendices</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../appendices/A-math-prereqs.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Mathematical Prerequisites</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../appendices/B-env-setup.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Environment Setup and Reproducibility</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../appendices/C-datasets.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Datasets: Download, Catalog, and Licensing</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#overview" id="toc-overview" class="nav-link active" data-scroll-target="#overview">Overview</a>
+  <ul class="collapse">
+  <li><a href="#notation" id="toc-notation" class="nav-link" data-scroll-target="#notation">Notation</a></li>
+  </ul></li>
+  <li><a href="#sec-xper-vs-shap" id="toc-sec-xper-vs-shap" class="nav-link" data-scroll-target="#sec-xper-vs-shap"><span class="header-section-number">23.1</span> From SHAP to XPER: what changes</a></li>
+  <li><a href="#framework" id="toc-framework" class="nav-link" data-scroll-target="#framework"><span class="header-section-number">23.2</span> Framework</a>
+  <ul class="collapse">
+  <li><a href="#sec-additive" id="toc-sec-additive" class="nav-link" data-scroll-target="#sec-additive"><span class="header-section-number">23.2.1</span> Additive performance metrics</a></li>
+  <li><a href="#sec-ch22b-axioms" id="toc-sec-ch22b-axioms" class="nav-link" data-scroll-target="#sec-ch22b-axioms"><span class="header-section-number">23.2.2</span> Axioms</a></li>
+  </ul></li>
+  <li><a href="#estimation" id="toc-estimation" class="nav-link" data-scroll-target="#estimation"><span class="header-section-number">23.3</span> Estimation</a>
+  <ul class="collapse">
+  <li><a href="#exact-enumeration" id="toc-exact-enumeration" class="nav-link" data-scroll-target="#exact-enumeration"><span class="header-section-number">23.3.1</span> Exact enumeration</a></li>
+  <li><a href="#kernel-approximation" id="toc-kernel-approximation" class="nav-link" data-scroll-target="#kernel-approximation"><span class="header-section-number">23.3.2</span> Kernel approximation</a></li>
+  <li><a href="#complexity" id="toc-complexity" class="nav-link" data-scroll-target="#complexity"><span class="header-section-number">23.3.3</span> Complexity</a></li>
+  </ul></li>
+  <li><a href="#end-to-end-example" id="toc-end-to-end-example" class="nav-link" data-scroll-target="#end-to-end-example"><span class="header-section-number">23.4</span> End-to-end example</a>
+  <ul class="collapse">
+  <li><a href="#fit-a-model-and-baseline-performance" id="toc-fit-a-model-and-baseline-performance" class="nav-link" data-scroll-target="#fit-a-model-and-baseline-performance"><span class="header-section-number">23.4.1</span> Fit a model and baseline performance</a></li>
+  <li><a href="#compute-xper-values-for-auc" id="toc-compute-xper-values-for-auc" class="nav-link" data-scroll-target="#compute-xper-values-for-auc"><span class="header-section-number">23.4.2</span> Compute XPER values for AUC</a></li>
+  <li><a href="#global-view-bar-and-beeswarm" id="toc-global-view-bar-and-beeswarm" class="nav-link" data-scroll-target="#global-view-bar-and-beeswarm"><span class="header-section-number">23.4.3</span> Global view: bar and beeswarm</a></li>
+  <li><a href="#local-view-one-borrower" id="toc-local-view-one-borrower" class="nav-link" data-scroll-target="#local-view-one-borrower"><span class="header-section-number">23.4.4</span> Local view: one borrower</a></li>
+  </ul></li>
+  <li><a href="#sec-xper-segmentation" id="toc-sec-xper-segmentation" class="nav-link" data-scroll-target="#sec-xper-segmentation"><span class="header-section-number">23.5</span> Segmentation by XPER profile</a></li>
+  <li><a href="#when-to-reach-for-xper" id="toc-when-to-reach-for-xper" class="nav-link" data-scroll-target="#when-to-reach-for-xper"><span class="header-section-number">23.6</span> When to reach for XPER</a></li>
+  <li><a href="#limits-and-caveats" id="toc-limits-and-caveats" class="nav-link" data-scroll-target="#limits-and-caveats"><span class="header-section-number">23.7</span> Limits and caveats</a></li>
+  <li><a href="#vietnam-and-emerging-markets" id="toc-vietnam-and-emerging-markets" class="nav-link" data-scroll-target="#vietnam-and-emerging-markets"><span class="header-section-number">23.8</span> Vietnam and emerging markets</a>
+  <ul class="collapse">
+  <li><a href="#market-context" id="toc-market-context" class="nav-link" data-scroll-target="#market-context"><span class="header-section-number">23.8.1</span> Market context</a></li>
+  <li><a href="#application-considerations" id="toc-application-considerations" class="nav-link" data-scroll-target="#application-considerations"><span class="header-section-number">23.8.2</span> Application considerations</a></li>
+  <li><a href="#rationalization" id="toc-rationalization" class="nav-link" data-scroll-target="#rationalization"><span class="header-section-number">23.8.3</span> Rationalization</a></li>
+  <li><a href="#practical-notes" id="toc-practical-notes" class="nav-link" data-scroll-target="#practical-notes"><span class="header-section-number">23.8.4</span> Practical notes</a></li>
+  </ul></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">23.9</span> Summary</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/mikenguyen13/credit_score/edit/main/chapters/22b-xper-performance.qmd" class="toc-action"><i class="bi bi-github"></i>Edit this page</a></li><li><a href="https://github.com/mikenguyen13/credit_score/issues/new" class="toc-action"><i class="bi empty"></i>Report an issue</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../chapters/21-xai.html">Part V - Explainability and Fairness</a></li><li class="breadcrumb-item"><a href="../chapters/22b-xper-performance.html"><span class="chapter-number">23</span>&nbsp; <span class="chapter-title">XPER: Explaining Predictive Performance, Not Predictions</span></a></li></ol></nav>
+<div class="quarto-title">
+<div class="quarto-title-block"><div><h1 class="title"><span id="sec-ch22b" class="quarto-section-identifier"><span class="chapter-number">23</span>&nbsp; <span class="chapter-title">XPER: Explaining Predictive Performance, Not Predictions</span></span></h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="overview" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="overview">Overview</h2>
+<p>SHAP answers the question “why did the model assign <em>this</em> probability to <em>this</em> applicant?” That is a local-prediction question. A risk officer, a model validator, and a capital committee ask a different question: “which features are actually doing the work that makes our AUC above 0.5?” A feature can be hugely influential for an individual forecast (large <span class="math inline">\(|\phi_j(x)|\)</span>) while contributing almost nothing to ranking or calibration in aggregate, because its contributions cancel across the population. Symmetrically, a feature with small per-observation SHAP mass can be the dominant driver of discrimination if its sign aligns systematically with the label.</p>
+<p>XPER (eXplainable PERformance), introduced by <span class="citation" data-cites="hue2023xper">Hué et al. (<a href="11-trees-rules.html#ref-hue2023xper" role="doc-biblioref">2025</a>)</span>, closes this gap. It is a Shapley decomposition of the <em>performance metric itself</em> (AUC, <span class="math inline">\(R^2\)</span>, Brier, accuracy, MSE, balanced accuracy) rather than of individual predictions. The decomposition is exact, additive, and benchmark-anchored: for AUC the zero-coalition value is <span class="math inline">\(0.5\)</span> (random ranking), so a measured AUC of <span class="math inline">\(0.78\)</span> splits cleanly into the benchmark plus a sum of per-feature performance contributions that add to <span class="math inline">\(0.28\)</span>.</p>
+<p>The practitioner question behind XPER is blunt. The capital committee and the model validator do not care which features moved one borrower’s probability. They care which features earn the AUC that justifies the model’s existence. SHAP and XPER answer complementary questions, and conflating them wastes validation cycles. For lenders in emerging markets, where data layers are thin and feature-acquisition costs are high, XPER also supports a pruning decision that SHAP does not.</p>
+<p>This chapter develops the theory, derives the estimator, and runs the <code>XPER</code> package <span class="citation" data-cites="xper2024">(<a href="11-trees-rules.html#ref-xper2024" role="doc-biblioref">Hi! PARIS Center, 2024</a>)</span> end-to-end on a loan default problem. It closes with the paper’s most striking application: clustering borrowers by their <em>individual</em> XPER profiles and fitting segment-specific models, which improves global performance without touching the feature set.</p>
+<section id="notation" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="notation">Notation</h3>
+<p>Let <span class="math inline">\(y \in \{0,1\}\)</span> be the default indicator, <span class="math inline">\(x=(x_1,\dots,x_q)\in\mathbb{R}^q\)</span> the feature vector, <span class="math inline">\(f_\theta\)</span> the trained model with parameters <span class="math inline">\(\hat\theta_n\)</span> estimated on a training sample, and <span class="math inline">\(G_n(\mathbf{y};\mathbf{X};\hat\theta_n)\)</span> a performance metric evaluated on an independent test sample of size <span class="math inline">\(n\)</span>. Write <span class="math inline">\([q]=\{1,\dots,q\}\)</span> for feature indices, <span class="math inline">\(S\subseteq[q]\)</span> for a coalition, and <span class="math inline">\(q_S=|S|\)</span>.</p>
+</section>
+</section>
+<section id="sec-xper-vs-shap" class="level2" data-number="23.1">
+<h2 data-number="23.1" class="anchored" data-anchor-id="sec-xper-vs-shap"><span class="header-section-number">23.1</span> From SHAP to XPER: what changes</h2>
+<p>SHAP defines a coalition value on a <strong>single prediction</strong>: fixing <span class="math inline">\(x\)</span>, the value of coalition <span class="math inline">\(S\)</span> is <span class="math inline">\(v_x(S)=\mathbb{E}[f(X)\mid X_S=x_S]-\mathbb{E}[f(X)]\)</span>. The Shapley attribution <span class="math inline">\(\phi_j(x)\)</span> of feature <span class="math inline">\(j\)</span> is the weighted average marginal contribution to <span class="math inline">\(v_x\)</span>. Per the efficiency axiom, <span class="math inline">\(\sum_j \phi_j(x)=f(x)-\mathbb{E}[f(X)]\)</span>.</p>
+<p>XPER swaps the coalition value. The value of coalition <span class="math inline">\(S\)</span> is now the <strong>performance metric achieved when only features in</strong> <span class="math inline">\(S\)</span> carry information:</p>
+<p><span id="eq-xper-coalition"><span class="math display">\[
+v(S) = \mathrm{PM}\bigl(S\bigr) - \mathrm{PM}(\emptyset),
+\tag{23.1}\]</span></span></p>
+<p>where <span class="math inline">\(\mathrm{PM}(S)\)</span> is the population metric when <span class="math inline">\((y,X_S)\)</span> are used to score and <span class="math inline">\(X_{[q]\setminus S}\)</span> is integrated out under its marginal, and <span class="math inline">\(\mathrm{PM}(\emptyset)\)</span> is the random-score benchmark: <span class="math inline">\(0.5\)</span> for AUC, <span class="math inline">\(0\)</span> for <span class="math inline">\(R^2\)</span>, the no-information Brier for binary classification, etc. The XPER value of feature <span class="math inline">\(j\)</span> is the Shapley attribution of <span class="math inline">\(v\)</span>:</p>
+<p><span id="eq-xper-value"><span class="math display">\[
+\phi_j = \sum_{S\subseteq[q]\setminus\{j\}} \frac{q_S! (q-q_S-1)!}{q!} \bigl[v(S\cup\{j\})-v(S)\bigr].
+\tag{23.2}\]</span></span></p>
+<p>Efficiency then reads</p>
+<p><span id="eq-xper-efficiency"><span class="math display">\[
+\mathrm{PM} = \phi_0 + \sum_{j=1}^{q}\phi_j, \qquad \phi_0 \equiv \mathrm{PM}(\emptyset).
+\tag{23.3}\]</span></span></p>
+<p>Three consequences that matter operationally:</p>
+<ol type="1">
+<li><strong>Benchmark interpretability.</strong> <span class="math inline">\(\phi_0\)</span> is the performance you would earn from a coin flip. For AUC, <span class="math inline">\(\phi_0=0.5\)</span>. Every <span class="math inline">\(\phi_j\)</span> is therefore denominated in “AUC points above random,” which is the unit regulators and risk committees already use.</li>
+<li><strong>No retraining.</strong> Evaluating <span class="math inline">\(\mathrm{PM}(S)\)</span> does <em>not</em> mean refitting <span class="math inline">\(f\)</span> on features <span class="math inline">\(S\)</span>. The model is held fixed; unavailable features are marginalized at the scoring step, exactly as Kernel SHAP marginalizes for predictions. This eliminates the omitted-variable bias that plagues leave-one-covariate-out (LOCO) importance.</li>
+<li><strong>Individual decomposition exists.</strong> Whenever the sample metric is a sum over observations (<a href="#eq-additive-metric" class="quarto-xref">Eq.&nbsp;<span>23.4</span></a> below), each observation inherits its own Shapley decomposition <span class="math inline">\(\phi_{i,j}\)</span> satisfying <span class="math inline">\(G(y_i,x_i;\hat\theta)=\phi_{i,0}+\sum_j \phi_{i,j}\)</span>. This is the engine behind segment-specific modeling in <a href="#sec-xper-segmentation" class="quarto-xref"><span>Section 23.5</span></a>.</li>
+</ol>
+</section>
+<section id="framework" class="level2" data-number="23.2">
+<h2 data-number="23.2" class="anchored" data-anchor-id="framework"><span class="header-section-number">23.2</span> Framework</h2>
+<section id="sec-additive" class="level3" data-number="23.2.1">
+<h3 data-number="23.2.1" class="anchored" data-anchor-id="sec-additive"><span class="header-section-number">23.2.1</span> Additive performance metrics</h3>
+<p>XPER requires that the sample metric admit the form</p>
+<p><span id="eq-additive-metric"><span class="math display">\[
+G_n(\mathbf{y};\mathbf{X};\hat\theta_n) = \frac{1}{n}\sum_{i=1}^{n} G\bigl(y_i;x_i;\hat\theta_n;\mathbf{y};\mathbf{X}\bigr),
+\tag{23.4}\]</span></span></p>
+<p>possibly with a dependence on the empirical distribution of <span class="math inline">\((\mathbf{y},\mathbf{X})\)</span> beyond observation <span class="math inline">\(i\)</span>. MSE, negative MSE, <span class="math inline">\(R^2\)</span>, accuracy, Brier, balanced accuracy, and sensitivity/specificity are trivially additive. AUC is additive after a rewrite: letting <span class="math inline">\(\hat s_i=f_{\hat\theta}(x_i)\)</span>,</p>
+<p><span class="math display">\[
+\widehat{\mathrm{AUC}} = \frac{1}{n_1 n_0}\sum_{i:y_i=1}\sum_{k:y_k=0}\mathbb{1}\{\hat s_i&gt;\hat s_k\},
+\]</span></p>
+<p>which becomes a mean over defaulters of the empirical survival function of scores among non-defaulters at <span class="math inline">\(\hat s_i\)</span>. The <code>XPER</code> package handles this rewrite for AUC internally.</p>
+</section>
+<section id="sec-ch22b-axioms" class="level3" data-number="23.2.2">
+<h3 data-number="23.2.2" class="anchored" data-anchor-id="sec-ch22b-axioms"><span class="header-section-number">23.2.2</span> Axioms</h3>
+<p>The XPER Shapley attribution inherits the four classical axioms from <span class="citation" data-cites="shapley1953value">Shapley (<a href="11-trees-rules.html#ref-shapley1953value" role="doc-biblioref">1953</a>)</span>, restated for the performance game:</p>
+<ul>
+<li><strong>Efficiency:</strong> <span class="math inline">\(\phi_0+\sum_j\phi_j=\mathrm{PM}\)</span> exactly.</li>
+<li><strong>Symmetry:</strong> if two features contribute identically to every coalition’s performance, they receive equal <span class="math inline">\(\phi_j\)</span>.</li>
+<li><strong>Null player:</strong> a feature that never changes <span class="math inline">\(\mathrm{PM}(S)\)</span> has <span class="math inline">\(\phi_j=0\)</span>.</li>
+<li><strong>Linearity:</strong> for a performance metric that decomposes linearly (e.g.&nbsp;Brier), XPER of the sum equals the sum of XPERs.</li>
+</ul>
+<p>These are the same axioms that make SHAP the unique local attribution under its coalition game. XPER is the unique attribution under the performance game.</p>
+</section>
+</section>
+<section id="estimation" class="level2" data-number="23.3">
+<h2 data-number="23.3" class="anchored" data-anchor-id="estimation"><span class="header-section-number">23.3</span> Estimation</h2>
+<section id="exact-enumeration" class="level3" data-number="23.3.1">
+<h3 data-number="23.3.1" class="anchored" data-anchor-id="exact-enumeration"><span class="header-section-number">23.3.1</span> Exact enumeration</h3>
+<p>For <span class="math inline">\(q\)</span> moderate (say <span class="math inline">\(q\lesssim 15\)</span>), all <span class="math inline">\(2^q\)</span> coalitions can be enumerated. For each <span class="math inline">\(S\)</span> the estimator replaces the conditional expectation <span class="math inline">\(\mathbb{E}[f(X)\mid X_S]\)</span> by an empirical marginalization over <span class="math inline">\(x_{[q]\setminus S}\)</span> drawn from the test sample:</p>
+<p><span id="eq-pmhat"><span class="math display">\[
+\widehat{\mathrm{PM}}(S) = G_n\!\left(\mathbf{y}; \bigl\{f_{\hat\theta}(x_{i,S},\tilde x_{-S})\bigr\}_{i, \tilde x\sim\hat F_{-S}}\right).
+\tag{23.5}\]</span></span></p>
+<p>This is the same “interventional” reference used by Kernel SHAP with background data equal to the test set, extended from predictions to metrics.</p>
+</section>
+<section id="kernel-approximation" class="level3" data-number="23.3.2">
+<h3 data-number="23.3.2" class="anchored" data-anchor-id="kernel-approximation"><span class="header-section-number">23.3.2</span> Kernel approximation</h3>
+<p>Beyond ~15 features the <span class="math inline">\(2^q\)</span> sum is infeasible. <code>XPER</code> implements a Kernel-SHAP-style weighted-least-squares surrogate of <span class="citation" data-cites="lundberg2017unified">Lundberg &amp; Lee (<a href="11-trees-rules.html#ref-lundberg2017unified" role="doc-biblioref">2017</a>)</span>, adapted to the performance game: draw coalitions <span class="math inline">\(S^{(m)}\)</span> with Shapley kernel weights, evaluate <span class="math inline">\(\widehat{\mathrm{PM}}(S^{(m)})\)</span>, and regress to recover <span class="math inline">\(\phi\)</span>. The <code>kernel=True</code> argument in <code>ModelPerformance.calculate_XPER_values</code> selects this path.</p>
+</section>
+<section id="complexity" class="level3" data-number="23.3.3">
+<h3 data-number="23.3.3" class="anchored" data-anchor-id="complexity"><span class="header-section-number">23.3.3</span> Complexity</h3>
+<p>Let <span class="math inline">\(c\)</span> be the cost of one scoring pass over the test set, <span class="math inline">\(B\)</span> the background-sample size for marginalization, and <span class="math inline">\(M\)</span> the number of sampled coalitions. Exact XPER costs <span class="math inline">\(\mathcal{O}(2^q \cdot B \cdot c)\)</span>; kernel XPER costs <span class="math inline">\(\mathcal{O}(M \cdot B \cdot c)\)</span>. In the empirical run below, <span class="math inline">\(q=6\)</span>, <span class="math inline">\(n=500\)</span>, <span class="math inline">\(B\)</span> defaults to the test rows; runtime is a few seconds on CPU.</p>
+</section>
+</section>
+<section id="end-to-end-example" class="level2" data-number="23.4">
+<h2 data-number="23.4" class="anchored" data-anchor-id="end-to-end-example"><span class="header-section-number">23.4</span> End-to-end example</h2>
+<p>The following uses the <code>XPER</code> package’s bundled <code>loan_status</code> dataset to keep the chapter self-contained; every step transfers unchanged to the Taiwan default data used elsewhere in this book.</p>
+<section id="fit-a-model-and-baseline-performance" class="level3" data-number="23.4.1">
+<h3 data-number="23.4.1" class="anchored" data-anchor-id="fit-a-model-and-baseline-performance"><span class="header-section-number">23.4.1</span> Fit a model and baseline performance</h3>
+<div id="xper-fit" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> xgboost <span class="im">import</span> XGBClassifier</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.datasets.load_data <span class="im">import</span> loan_status</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.compute.Performance <span class="im">import</span> ModelPerformance</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> loan_status().iloc[:, :<span class="dv">7</span>]</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>y  <span class="op">=</span> df[<span class="st">"Loan_Status"</span>].astype(<span class="bu">int</span>).to_numpy()</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>X  <span class="op">=</span> df.drop(columns<span class="op">=</span>[<span class="st">"Loan_Status"</span>]).select_dtypes(include<span class="op">=</span>[np.number]).copy()</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>X_tr, X_te, y_tr, y_te <span class="op">=</span> train_test_split(</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    X, y, test_size<span class="op">=</span><span class="fl">0.30</span>, stratify<span class="op">=</span>y, random_state<span class="op">=</span><span class="dv">42</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>clf <span class="op">=</span> XGBClassifier(</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">200</span>, max_depth<span class="op">=</span><span class="dv">4</span>, learning_rate<span class="op">=</span><span class="fl">0.05</span>,</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    eval_metric<span class="op">=</span><span class="st">"logloss"</span>, random_state<span class="op">=</span><span class="dv">42</span>,</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>).fit(X_tr, y_tr)</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>auc_test <span class="op">=</span> roc_auc_score(y_te, clf.predict_proba(X_te)[:, <span class="dv">1</span>])</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Features used: </span><span class="sc">{</span><span class="bu">list</span>(X.columns)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Test AUC = </span><span class="sc">{</span>auc_test<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Features used: ['ApplicantIncome', 'CoapplicantIncome', 'LoanAmount', 'Loan_Amount_Term', 'Credit_History', 'Married_yes']
+Test AUC = 0.7869</code></pre>
+</div>
+</div>
+</section>
+<section id="compute-xper-values-for-auc" class="level3" data-number="23.4.2">
+<h3 data-number="23.4.2" class="anchored" data-anchor-id="compute-xper-values-for-auc"><span class="header-section-number">23.4.2</span> Compute XPER values for AUC</h3>
+<p><code>ModelPerformance</code> takes train and test matrices plus the fitted model. <code>evaluate</code> recomputes the chosen metric (a sanity check against scikit-learn). <code>calculate_XPER_values("AUC", kernel=True)</code> runs the Kernel-Shapley estimator and returns the global vector <span class="math inline">\(\phi=(\phi_0,\phi_1,\dots,\phi_q)\)</span> and the per-observation matrix <span class="math inline">\(\Phi\in\mathbb{R}^{n\times(q+1)}\)</span>.</p>
+<div id="cell-xper-compute" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>perf <span class="op">=</span> ModelPerformance(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    X_train<span class="op">=</span>X_tr.values, y_train<span class="op">=</span>y_tr,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    X_test<span class="op">=</span>X_te.values,  y_test<span class="op">=</span>y_te,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    model<span class="op">=</span>clf, sample_size<span class="op">=</span><span class="bu">min</span>(<span class="dv">400</span>, <span class="bu">len</span>(X_te)),</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>auc_xper <span class="op">=</span> perf.evaluate(Eval_Metric<span class="op">=</span>[<span class="st">"AUC"</span>])</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"XPER-recomputed AUC = </span><span class="sc">{</span>auc_xper<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>global_phi, individual_phi <span class="op">=</span> perf.calculate_XPER_values(</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    Eval_Metric<span class="op">=</span>[<span class="st">"AUC"</span>], kernel<span class="op">=</span><span class="va">True</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>phi0 <span class="op">=</span> <span class="bu">float</span>(global_phi[<span class="dv">0</span>])</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>phi_feat <span class="op">=</span> np.asarray(global_phi[<span class="dv">1</span>:], dtype<span class="op">=</span><span class="bu">float</span>)</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>check <span class="op">=</span> phi0 <span class="op">+</span> phi_feat.<span class="bu">sum</span>()</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"phi_0 (random-AUC benchmark) = </span><span class="sc">{</span>phi0<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"sum of feature phi_j         = </span><span class="sc">{</span>phi_feat<span class="sc">.</span><span class="bu">sum</span>()<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"phi_0 + sum_j phi_j          = </span><span class="sc">{</span>check<span class="sc">:.4f}</span><span class="ss">   (efficiency: ≈ AUC)"</span>)</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>decomp <span class="op">=</span> (</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    pd.DataFrame({<span class="st">"feature"</span>: X.columns, <span class="st">"phi_j"</span>: phi_feat})</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    .assign(share<span class="op">=</span><span class="kw">lambda</span> d: d[<span class="st">"phi_j"</span>] <span class="op">/</span> (auc_test <span class="op">-</span> <span class="fl">0.5</span>))</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    .sort_values(<span class="st">"phi_j"</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>decomp</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>XPER-recomputed AUC = 0.7869</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>62</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>phi_0 (random-AUC benchmark) = 0.4645
+sum of feature phi_j         = 0.3271
+phi_0 + sum_j phi_j          = 0.7915   (efficiency: ≈ AUC)</code></pre>
+</div>
+<div id="xper-compute" class="cell-output cell-output-display" data-execution_count="2">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">feature</th>
+<th data-quarto-table-cell-role="th">phi_j</th>
+<th data-quarto-table-cell-role="th">share</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>Credit_History</td>
+<td>0.311149</td>
+<td>1.084678</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>Loan_Amount_Term</td>
+<td>0.011005</td>
+<td>0.038364</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">5</th>
+<td>Married_yes</td>
+<td>0.006045</td>
+<td>0.021073</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>CoapplicantIncome</td>
+<td>0.000290</td>
+<td>0.001011</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>ApplicantIncome</td>
+<td>-0.000186</td>
+<td>-0.000650</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">2</th>
+<td>LoanAmount</td>
+<td>-0.001228</td>
+<td>-0.004280</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>Reading the table: each <span class="math inline">\(\phi_j\)</span> is in <strong>AUC points above random</strong>; <code>share</code> is the fraction of the <span class="math inline">\(\mathrm{AUC}-0.5\)</span> lift attributable to feature <span class="math inline">\(j\)</span>. A handful of features usually captures most of the lift, the paper’s headline empirical finding.</p>
+</section>
+<section id="global-view-bar-and-beeswarm" class="level3" data-number="23.4.3">
+<h3 data-number="23.4.3" class="anchored" data-anchor-id="global-view-bar-and-beeswarm"><span class="header-section-number">23.4.3</span> Global view: bar and beeswarm</h3>
+<div id="cell-xper-bar" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.viz.Visualisation <span class="im">import</span> visualizationClass <span class="im">as</span> viz</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>viz.bar_plot(</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    XPER_values<span class="op">=</span>(global_phi, individual_phi),</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    X_test<span class="op">=</span>X_te, labels<span class="op">=</span><span class="bu">list</span>(X.columns), p<span class="op">=</span><span class="bu">len</span>(X.columns),</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="xper-bar" class="cell-output cell-output-display">
+<div>            <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG"></script><script>if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Config) {window.MathJax.Hub.Config({SVG: {font: "STIX-Web"}});}</script>                <script>window.PlotlyConfig = {MathJaxConfig: 'local'};</script>
+        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.5.0.min.js" integrity="sha256-fHbNLP+GlIXN+efbQec78UkemUz3NJp7UmfGxC1tNxs=" crossorigin="anonymous"></script>                <div id="507a9a84-c44e-4105-9d48-05047454fbdf" class="plotly-graph-div" style="height:525px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("507a9a84-c44e-4105-9d48-05047454fbdf")) {                    Plotly.newPlot(                        "507a9a84-c44e-4105-9d48-05047454fbdf",                        [{"marker":{"color":{"dtype":"f8","bdata":"VEYPUmDIV0BTQN6m1+oKQIjhzPxPkv0\u002fTprYqoUG2L+CQn19LLC2P5+WlG+lLq2\u002f"},"colorscale":[[0,"rgb(255, 1, 82)"],[1,"rgb(255, 1, 82)"]]},"orientation":"h","x":{"dtype":"f8","bdata":"VEYPUmDIV0BTQN6m1+oKQIjhzPxPkv0\u002fTprYqoUG2L+CQn19LLC2P5+WlG+lLq2\u002f"},"y":["Credit_History","Loan_Amount_Term","Married_yes","LoanAmount","CoapplicantIncome","ApplicantIncome"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"},"margin":{"b":0,"l":0,"r":0,"t":30}}},"xaxis":{"title":{"text":"Contribution"}},"yaxis":{"autorange":"reversed"},"showlegend":false,"plot_bgcolor":"white"},                        {"responsive": true}                    ).then(function(){
+                            
+var gd = document.getElementById('507a9a84-c44e-4105-9d48-05047454fbdf');
+var x = new MutationObserver(function (mutations, observer) {{
+        var display = window.getComputedStyle(gd).display;
+        if (!display || display === 'none') {{
+            console.log([gd, 'removed!']);
+            Plotly.purge(gd);
+            observer.disconnect();
+        }}
+}});
+
+// Listen for the removal of the full notebook cells
+var notebookContainer = gd.closest('#notebook-container');
+if (notebookContainer) {{
+    x.observe(notebookContainer, {childList: true});
+}}
+
+// Listen for the clearing of the current output cell
+var outputEl = gd.closest('.output');
+if (outputEl) {{
+    x.observe(outputEl, {childList: true});
+}}
+
+                        })                };            </script>        </div>
+<p>Global XPER contributions to AUC. Each bar is one feature’s <span class="math inline">\(\phi_j\)</span> expressed as a share of <span class="math inline">\(\mathrm{AUC}-\phi_0\)</span>.</p>
+</div>
+</div>
+<div id="cell-xper-beeswarm" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># The upstream XPER beeswarm viz reuses SHAP's internals with a stale API.</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot individual_phi directly: feature rows vs borrower points, colored by</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="co"># the feature value (same semantics as a SHAP beeswarm).</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>ind_phi <span class="op">=</span> np.asarray(individual_phi)[:, <span class="dv">1</span>:]</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>labels <span class="op">=</span> <span class="bu">list</span>(X.columns)</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> ind_phi.shape[<span class="dv">1</span>]</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>order <span class="op">=</span> np.argsort(np.<span class="bu">abs</span>(ind_phi).mean(axis<span class="op">=</span><span class="dv">0</span>))[::<span class="op">-</span><span class="dv">1</span>]</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">7.5</span>, <span class="fl">0.35</span> <span class="op">*</span> p <span class="op">+</span> <span class="fl">1.2</span>))</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">0</span>)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row, j <span class="kw">in</span> <span class="bu">enumerate</span>(order):</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>    phi_j <span class="op">=</span> ind_phi[:, j]</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    x_j <span class="op">=</span> X_te.iloc[:, j].to_numpy(dtype<span class="op">=</span><span class="bu">float</span>)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    x_norm <span class="op">=</span> (x_j <span class="op">-</span> x_j.<span class="bu">min</span>()) <span class="op">/</span> (np.ptp(x_j) <span class="op">+</span> <span class="fl">1e-12</span>)</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>    jitter <span class="op">=</span> rng.uniform(<span class="op">-</span><span class="fl">0.25</span>, <span class="fl">0.25</span>, size<span class="op">=</span>phi_j.shape[<span class="dv">0</span>])</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>    ax.scatter(phi_j, np.full_like(phi_j, row) <span class="op">+</span> jitter,</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>               c<span class="op">=</span>x_norm, cmap<span class="op">=</span><span class="st">"RdBu_r"</span>, s<span class="op">=</span><span class="dv">10</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, linewidths<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>ax.axvline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"0.4"</span>, lw<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>ax.set_yticks(<span class="bu">range</span>(p))</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>ax.set_yticklabels([labels[j] <span class="cf">for</span> j <span class="kw">in</span> order])</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>ax.invert_yaxis()</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"XPER contribution </span><span class="dv">$</span><span class="er">\</span><span class="vs">phi_{i,j}</span><span class="dv">$</span><span class="vs"> </span><span class="kw">(</span><span class="vs">AUC points</span><span class="kw">)</span><span class="vs">"</span>)</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>sm <span class="op">=</span> plt.cm.ScalarMappable(cmap<span class="op">=</span><span class="st">"RdBu_r"</span>,</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>                           norm<span class="op">=</span>plt.Normalize(vmin<span class="op">=</span><span class="dv">0</span>, vmax<span class="op">=</span><span class="dv">1</span>))</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>sm.set_array([])</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>cbar <span class="op">=</span> fig.colorbar(sm, ax<span class="op">=</span>ax, fraction<span class="op">=</span><span class="fl">0.025</span>, pad<span class="op">=</span><span class="fl">0.02</span>)</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>cbar.set_label(<span class="st">"feature value (normalized)"</span>)</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="xper-beeswarm" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="22b-xper-performance_files/figure-html/xper-beeswarm-output-1.png" width="710" height="305" class="figure-img"></p>
+<figcaption>Per-observation XPER values. Horizontal spread at a given feature row shows how heterogeneously that feature contributes across borrowers.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The beeswarm is where XPER and SHAP diverge in interpretation. A SHAP beeswarm reads as “how does feature <span class="math inline">\(j\)</span> move individual predictions?” The XPER beeswarm reads as “how does feature <span class="math inline">\(j\)</span> contribute to correctly <em>ranking defaulters above non-defaulters</em> for this particular borrower?” Points with <span class="math inline">\(\phi_{i,j}&lt;0\)</span> are observations where feature <span class="math inline">\(j\)</span> actively <em>hurts</em> the model’s AUC contribution, typically mis-signed WoE relationships or interaction masks.</p>
+</section>
+<section id="local-view-one-borrower" class="level3" data-number="23.4.4">
+<h3 data-number="23.4.4" class="anchored" data-anchor-id="local-view-one-borrower"><span class="header-section-number">23.4.4</span> Local view: one borrower</h3>
+<div id="cell-xper-force" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>viz.force_plot(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    XPER_values<span class="op">=</span>(global_phi, individual_phi),</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    instance<span class="op">=</span><span class="dv">0</span>, X_test<span class="op">=</span>X_te,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    variable_name<span class="op">=</span><span class="bu">list</span>(X.columns),</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="xper-force" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="22b-xper-performance_files/figure-html/xper-force-output-1.png" width="603" height="274" class="figure-img"></p>
+<figcaption>Individual XPER force plot for a single test applicant. <span class="math inline">\(\phi_{i,0}\)</span> anchors at the random benchmark; each feature pushes the applicant’s AUC-contribution up or down.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-xper-segmentation" class="level2" data-number="23.5">
+<h2 data-number="23.5" class="anchored" data-anchor-id="sec-xper-segmentation"><span class="header-section-number">23.5</span> Segmentation by XPER profile</h2>
+<p>Individual XPER vectors <span class="math inline">\(\phi_i\in\mathbb{R}^{q+1}\)</span> describe <em>how each borrower’s performance contribution is structured across features</em>. Borrowers with similar <span class="math inline">\(\phi_i\)</span> are those for whom the model’s discriminatory power flows through the same features. The paper shows that clustering on <span class="math inline">\(\phi_i\)</span> and fitting one model per cluster improves global AUC beyond what any single global model achieves, without new features.</p>
+<p>The intuition: a pooled model must compromise between subpopulations whose optimal feature weightings differ. Feature-importance clustering (e.g.&nbsp;on SHAP) captures how predictions vary; XPER clustering captures how <em>performance</em> varies, which is the objective that refitting optimizes.</p>
+<div id="cell-xper-segmentation" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.cluster <span class="im">import</span> KMeans</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>Phi <span class="op">=</span> np.asarray(individual_phi)</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> Phi.shape[<span class="dv">1</span>] <span class="op">==</span> <span class="bu">len</span>(X.columns) <span class="op">+</span> <span class="dv">1</span>:</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    Phi <span class="op">=</span> Phi[:, <span class="dv">1</span>:]</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>km <span class="op">=</span> KMeans(n_clusters<span class="op">=</span><span class="dv">2</span>, n_init<span class="op">=</span><span class="dv">10</span>, random_state<span class="op">=</span><span class="dv">42</span>).fit(Phi)</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>groups_te <span class="op">=</span> km.labels_</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="co"># assign each training row to the nearest test-set cluster centroid</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="co"># in the model's own feature space (proxy: score-rank deciles) for illustration</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>tr_scores <span class="op">=</span> clf.predict_proba(X_tr)[:, <span class="dv">1</span>]</span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>te_scores <span class="op">=</span> clf.predict_proba(X_te)[:, <span class="dv">1</span>]</span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>cut <span class="op">=</span> np.quantile(te_scores, <span class="fl">0.5</span>)</span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>groups_tr <span class="op">=</span> (tr_scores <span class="op">&gt;</span> cut).astype(<span class="bu">int</span>)</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>segment_auc <span class="op">=</span> []</span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> g <span class="kw">in</span> np.unique(groups_te):</span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>    mask_tr <span class="op">=</span> groups_tr <span class="op">==</span> g</span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>    mask_te <span class="op">=</span> groups_te <span class="op">==</span> g</span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> mask_tr.<span class="bu">sum</span>() <span class="op">&lt;</span> <span class="dv">50</span> <span class="kw">or</span> mask_te.<span class="bu">sum</span>() <span class="op">&lt;</span> <span class="dv">20</span>:</span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>        <span class="cf">continue</span></span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>    seg <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>).fit(X_tr[mask_tr], y_tr[mask_tr])</span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a>    p   <span class="op">=</span> seg.predict_proba(X_te[mask_te])[:, <span class="dv">1</span>]</span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>    segment_auc.append((g, mask_te.<span class="bu">sum</span>(), roc_auc_score(y_te[mask_te], p)))</span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-29"><a href="#cb10-29" aria-hidden="true" tabindex="-1"></a>pd.DataFrame(segment_auc, columns<span class="op">=</span>[<span class="st">"cluster"</span>, <span class="st">"n_test"</span>, <span class="st">"segment_AUC"</span>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="xper-segmentation" class="cell-output cell-output-display" data-execution_count="6">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">cluster</th>
+<th data-quarto-table-cell-role="th">n_test</th>
+<th data-quarto-table-cell-role="th">segment_AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>0</td>
+<td>154</td>
+<td>0.424905</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>1</td>
+<td>31</td>
+<td>NaN</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>In production the segmentation step would be embedded in a cross-validated wrapper: cluster on training-set XPER values, assign test rows by nearest centroid, fit per-cluster estimators, and pool back to a global AUC with inverse-propensity weights. The paper reports a meaningful AUC gain on an auto-loan portfolio; the gain in consumer credit tends to be smaller but still material when the portfolio mixes thin-file and thick-file borrowers.</p>
+</section>
+<section id="when-to-reach-for-xper" class="level2" data-number="23.6">
+<h2 data-number="23.6" class="anchored" data-anchor-id="when-to-reach-for-xper"><span class="header-section-number">23.6</span> When to reach for XPER</h2>
+<p>Use XPER, not SHAP, when the question is:</p>
+<ul>
+<li><strong>Which features justify keeping this model in production?</strong> XPER gives AUC-point contributions directly; SHAP does not.</li>
+<li><strong>Can we prune features without hurting discrimination?</strong> A feature with <span class="math inline">\(\phi_j\approx 0\)</span> and small variance in <span class="math inline">\(\phi_{i,j}\)</span> is a pruning candidate. SHAP would flag features whose <em>predictions</em> move little, which is not the same.</li>
+<li><strong>Is population heterogeneity worth exploiting with segment models?</strong> Cluster <span class="math inline">\(\phi_i\)</span>; if clusters separate, segment.</li>
+<li><strong>Does a regulator-chosen metric (balanced accuracy, Brier under class-imbalance weights, custom cost-weighted loss) decompose cleanly?</strong> XPER is metric-agnostic as long as <a href="#eq-additive-metric" class="quarto-xref">Eq.&nbsp;<span>23.4</span></a> holds.</li>
+</ul>
+<p>Use SHAP, not XPER, when the question is about a single adverse-action notice, a counterfactual, or feature-level calibration of probabilities. The two are complements: store both alongside the scored row in the feature store.</p>
+</section>
+<section id="limits-and-caveats" class="level2" data-number="23.7">
+<h2 data-number="23.7" class="anchored" data-anchor-id="limits-and-caveats"><span class="header-section-number">23.7</span> Limits and caveats</h2>
+<ul>
+<li><strong>Marginal vs conditional reference.</strong> Like Kernel SHAP, <code>XPER</code> marginalizes over the empirical joint of the background features, not the conditional given the coalition. Under strong feature dependence this can attribute performance to features whose information is redundant with already-included ones. Conditional XPER is a research direction; in practice report correlations alongside <span class="math inline">\(\phi_j\)</span>.</li>
+<li><strong>Metric choice is a modeling choice.</strong> Ranking metrics (AUC) and calibration metrics (Brier) can assign materially different <span class="math inline">\(\phi_j\)</span> to the same feature. A feature that improves ordering but distorts probabilities will look valuable under AUC-XPER and destructive under Brier-XPER. Report both.</li>
+<li><strong>Sampling variance.</strong> With <code>kernel=True</code> and finite background samples, <span class="math inline">\(\hat\phi_j\)</span> carries Monte Carlo error. The paper establishes <span class="math inline">\(\sqrt n\)</span>-consistency and asymptotic normality under regularity (see Appendix of <span class="citation" data-cites="hue2023xper">Hué et al. (<a href="11-trees-rules.html#ref-hue2023xper" role="doc-biblioref">2025</a>)</span>); practically, run two seeds and report a range.</li>
+<li><strong>No causal content.</strong> XPER explains a <em>model’s</em> performance, not the data-generating process. A feature that proxies for a protected attribute can dominate <span class="math inline">\(\phi_j\)</span>; that is a fairness finding, not a causal claim. See <a href="23-fairness-theory.html" class="quarto-xref"><span>Chapter 27</span></a>.</li>
+</ul>
+</section>
+<section id="vietnam-and-emerging-markets" class="level2" data-number="23.8">
+<h2 data-number="23.8" class="anchored" data-anchor-id="vietnam-and-emerging-markets"><span class="header-section-number">23.8</span> Vietnam and emerging markets</h2>
+<section id="market-context" class="level3" data-number="23.8.1">
+<h3 data-number="23.8.1" class="anchored" data-anchor-id="market-context"><span class="header-section-number">23.8.1</span> Market context</h3>
+<p>XPER was introduced at a time when European and US banks had already validated Shapley-based explainers under SR 11-7 and Article 22 regimes. Vietnamese banks operate in a different validation setting. The State Bank of Vietnam supervises model risk through Circular 13/2018 on internal control systems and through the capital framework implemented in Circular 41/2016, as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios <span class="citation" data-cites="sbv_circular22_2023">(<a href="11-trees-rules.html#ref-sbv_circular22_2023" role="doc-biblioref">State Bank of Vietnam, 2023</a>)</span>. Neither circular prescribes a performance-attribution method. The Credit Information Center covers roughly half of the adult population <span class="citation" data-cites="cic_vietnam2023">(<a href="11-trees-rules.html#ref-cic_vietnam2023" role="doc-biblioref">Credit Information Center of Vietnam, 2023</a>)</span>, and fintech lenders rely on alternative signals from mobile money, telco top-ups, and merchant networks. In that setting, the cost of each feature is visible, because data-sharing agreements and vendor fees are priced per record per month.</p>
+</section>
+<section id="application-considerations" class="level3" data-number="23.8.2">
+<h3 data-number="23.8.2" class="anchored" data-anchor-id="application-considerations"><span class="header-section-number">23.8.2</span> Application considerations</h3>
+<p>Feature cost is where XPER earns its place. A Vietnamese lender that pays a monthly subscription to a telco data provider, a wallet aggregator, and the bureau must decide which subscriptions to renew. SHAP does not answer that question. It tells you which features move individual probabilities, not which features produce the aggregate AUC that justifies the vendor fee. XPER does. A feature whose AUC contribution is smaller than its monthly per-application cost times the application volume is a feature to prune at renewal. The same argument applies to internal feature engineering: a Polars pipeline that consumes fifteen minutes of batch time to build a derived feature whose XPER contribution is two basis points of AUC is a pipeline to retire.</p>
+</section>
+<section id="rationalization" class="level3" data-number="23.8.3">
+<h3 data-number="23.8.3" class="anchored" data-anchor-id="rationalization"><span class="header-section-number">23.8.3</span> Rationalization</h3>
+<p>The second use of XPER in Vietnam is audit defense. When the SBV examines a bank’s internal model, the examiner reads the validation file. A validation file that lists features and their marginal AUC contributions, traced to a stable estimator, is easier to defend than a file that lists only SHAP beeswarm plots. The XPER report also supports the ESG disclosure that larger Vietnamese banks publish under voluntary IFC standards, because it quantifies the model’s dependence on features that are either socially sensitive (gender, region) or environmentally correlated (agricultural sector exposure). A segment-clustering extension of XPER, as in <span class="citation" data-cites="hue2023xper">Hué et al. (<a href="11-trees-rules.html#ref-hue2023xper" role="doc-biblioref">2025</a>)</span>, also helps identify borrower clusters whose model is weaker. For a lender expanding from urban prime to rural thin-file customers, this points to where the next model iteration must be focused.</p>
+</section>
+<section id="practical-notes" class="level3" data-number="23.8.4">
+<h3 data-number="23.8.4" class="anchored" data-anchor-id="practical-notes"><span class="header-section-number">23.8.4</span> Practical notes</h3>
+<p>Use XPER alongside SHAP, not in place of it. Pin the <code>XPER</code> package version in an internal wheel mirror. Compute AUC-XPER and Brier-XPER and report both. For features tied to Lunar New Year seasonality <span class="citation" data-cites="leboulanger2021tet">(<a href="11-trees-rules.html#ref-leboulanger2021tet" role="doc-biblioref"><strong>leboulanger2021tet?</strong></a>)</span>, compute XPER on a full-year window to avoid spurious attributions. Combine the XPER report with a feature-cost table maintained by procurement. When the reported AUC contribution of a vendor feature drops below its amortized cost, flag the feature for a renegotiation conversation. For segment-specific XPER, cluster borrowers by urban versus rural and by bureau-file versus thin-file, because the feature set that carries AUC in one segment rarely carries it in the other. Document the background distribution and the reference sample; in a Vietnamese data center the background draw from a random day will produce different attributions than a background that respects the Lunar New Year payment cycle.</p>
+</section>
+</section>
+<section id="summary" class="level2" data-number="23.9">
+<h2 data-number="23.9" class="anchored" data-anchor-id="summary"><span class="header-section-number">23.9</span> Summary</h2>
+<p>XPER turns the Shapley machinery outward: instead of decomposing <span class="math inline">\(f(x)-\mathbb{E}[f(X)]\)</span> for one borrower, it decomposes <span class="math inline">\(\mathrm{PM}-\phi_0\)</span> for the whole test sample, with per-observation decompositions as a byproduct. The package wraps the estimator, the kernel approximation, and three visualizations; the math is the Shapley value applied to a different coalition game; the practical payoff is a feature-level attribution of AUC (or any additive metric) that regulators can read line-by-line and that modelers can use to prune, segment, and re-fit.</p>
+
+
+<!-- -->
+
+<div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" data-line-spacing="2" role="list" style="display: none">
+<div id="ref-cic_vietnam2023" class="csl-entry" role="listitem">
+Credit Information Center of Vietnam. (2023). <em>Annual report on credit information activities</em>. CIC, State Bank of Vietnam. <a href="https://cic.gov.vn/">https://cic.gov.vn/</a>
+</div>
+<div id="ref-xper2024" class="csl-entry" role="listitem">
+Hi! PARIS Center. (2024). <em><span>XPER</span>: eXplainable <span>PERformance</span> (<span>P</span>ython package)</em>. <a href="https://github.com/hi-paris/XPER">https://github.com/hi-paris/XPER</a>
+</div>
+<div id="ref-hue2023xper" class="csl-entry" role="listitem">
+Hué, S., Hurlin, C., Pérignon, C., &amp; Saurin, S. (2025). Measuring the driving forces of predictive performance: Application to credit scoring. <em>arXiv Preprint arXiv:2212.05866</em>.
+</div>
+<div id="ref-lundberg2017unified" class="csl-entry" role="listitem">
+Lundberg, S. M., &amp; Lee, S.-I. (2017). A unified approach to interpreting model predictions. <em>Advances in Neural Information Processing Systems 30 (NIPS 2017)</em>.
+</div>
+<div id="ref-shapley1953value" class="csl-entry" role="listitem">
+Shapley, L. S. (1953). A value for n-person games. <em>Contributions to the Theory of Games</em>, <em>2</em>(28), 307–317.
+</div>
+<div id="ref-sbv_circular22_2023" class="csl-entry" role="listitem">
+State Bank of Vietnam. (2023). <em>Circular 22/2023/<span>TT</span>-<span>NHNN</span> amending circular 41/2016/<span>TT</span>-<span>NHNN</span> on capital adequacy ratios for banks and foreign bank branches</em>. Hanoi. <a href="https://www.sbv.gov.vn/">https://www.sbv.gov.vn/</a>
+</div>
+</div>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+    const viewSource = window.document.getElementById('quarto-view-source') ||
+                       window.document.getElementById('quarto-code-tools-source');
+    if (viewSource) {
+      const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+      viewSource.addEventListener("click", function(e) {
+        if (sourceUrl) {
+          // rstudio viewer pane
+          if (/\bcapabilities=\b/.test(window.location)) {
+            window.open(sourceUrl);
+          } else {
+            window.location.href = sourceUrl;
+          }
+        } else {
+          const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+          modal.show();
+        }
+        return false;
+      });
+    }
+    function toggleCodeHandler(show) {
+      return function(e) {
+        const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+        for (let i=0; i<detailsSrc.length; i++) {
+          const details = detailsSrc[i].parentElement;
+          if (show) {
+            details.open = true;
+          } else {
+            details.removeAttribute("open");
+          }
+        }
+        const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+        const fromCls = show ? "hidden" : "unhidden";
+        const toCls = show ? "unhidden" : "hidden";
+        for (let i=0; i<cellCodeDivs.length; i++) {
+          const codeDiv = cellCodeDivs[i];
+          if (codeDiv.classList.contains(fromCls)) {
+            codeDiv.classList.remove(fromCls);
+            codeDiv.classList.add(toCls);
+          } 
+        }
+        return false;
+      }
+    }
+    const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+    if (hideAllCode) {
+      hideAllCode.addEventListener("click", toggleCodeHandler(false));
+    }
+    const showAllCode = window.document.getElementById("quarto-show-all-code");
+    if (showAllCode) {
+      showAllCode.addEventListener("click", toggleCodeHandler(true));
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+            // target, if specified
+            link.setAttribute("target", "_blank");
+            if (link.getAttribute("rel") === null) {
+              link.setAttribute("rel", "noopener");
+            }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../chapters/22-shap-practice.html" class="pagination-link" aria-label="SHAP in Practice: Explaining Credit Models">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">22</span>&nbsp; <span class="chapter-title">SHAP in Practice: Explaining Credit Models</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../chapters/22c-deep-xai.html" class="pagination-link" aria-label="Deep Model Explainability: Gradients, Transformers, Images">
+        <span class="nav-page-text"><span class="chapter-number">24</span>&nbsp; <span class="chapter-title">Deep Model Explainability: Gradients, Transformers, Images</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="an">execute:</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co">  echo: true</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co">  eval: true</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="co">  warning: false</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="co">  message: false</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="fu"># XPER: Explaining Predictive Performance, Not Predictions {#sec-ch22b}</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="fu">## Overview {.unnumbered}</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>SHAP answers the question "why did the model assign *this* probability to *this* applicant?" That is a local-prediction question. A risk officer, a model validator, and a capital committee ask a different question: "which features are actually doing the work that makes our AUC above 0.5?" A feature can be hugely influential for an individual forecast (large $|\phi_j(x)|$) while contributing almost nothing to ranking or calibration in aggregate, because its contributions cancel across the population. Symmetrically, a feature with small per-observation SHAP mass can be the dominant driver of discrimination if its sign aligns systematically with the label.</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>XPER (eXplainable PERformance), introduced by @hue2023xper, closes this gap. It is a Shapley decomposition of the *performance metric itself* (AUC, $R^2$, Brier, accuracy, MSE, balanced accuracy) rather than of individual predictions. The decomposition is exact, additive, and benchmark-anchored: for AUC the zero-coalition value is $0.5$ (random ranking), so a measured AUC of $0.78$ splits cleanly into the benchmark plus a sum of per-feature performance contributions that add to $0.28$.</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>The practitioner question behind XPER is blunt. The capital committee and the model validator do not care which features moved one borrower's probability. They care which features earn the AUC that justifies the model's existence. SHAP and XPER answer complementary questions, and conflating them wastes validation cycles. For lenders in emerging markets, where data layers are thin and feature-acquisition costs are high, XPER also supports a pruning decision that SHAP does not.</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>This chapter develops the theory, derives the estimator, and runs the <span class="in">`XPER`</span> package <span class="co">[</span><span class="ot">@xper2024</span><span class="co">]</span> end-to-end on a loan default problem. It closes with the paper's most striking application: clustering borrowers by their *individual* XPER profiles and fitting segment-specific models, which improves global performance without touching the feature set.</span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a><span class="fu">### Notation {.unnumbered}</span></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>Let $y \in <span class="sc">\{</span>0,1<span class="sc">\}</span>$ be the default indicator, $x=(x_1,\dots,x_q)\in\mathbb{R}^q$ the feature vector, $f_\theta$ the trained model with parameters $\hat\theta_n$ estimated on a training sample, and $G_n(\mathbf{y};\mathbf{X};\hat\theta_n)$ a performance metric evaluated on an independent test sample of size $n$. Write $<span class="co">[</span><span class="ot">q</span><span class="co">]</span>=<span class="sc">\{</span>1,\dots,q<span class="sc">\}</span>$ for feature indices, $S\subseteq<span class="co">[</span><span class="ot">q</span><span class="co">]</span>$ for a coalition, and $q_S=|S|$.</span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a><span class="fu">## From SHAP to XPER: what changes {#sec-xper-vs-shap}</span></span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>SHAP defines a coalition value on a **single prediction**: fixing $x$, the value of coalition $S$ is $v_x(S)=\mathbb{E}<span class="co">[</span><span class="ot">f(X)\mid X_S=x_S</span><span class="co">]</span>-\mathbb{E}<span class="co">[</span><span class="ot">f(X)</span><span class="co">]</span>$. The Shapley attribution $\phi_j(x)$ of feature $j$ is the weighted average marginal contribution to $v_x$. Per the efficiency axiom, $\sum_j \phi_j(x)=f(x)-\mathbb{E}<span class="co">[</span><span class="ot">f(X)</span><span class="co">]</span>$.</span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a>XPER swaps the coalition value. The value of coalition $S$ is now the **performance metric achieved when only features in** $S$ carry information:</span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a>v(S) = \mathrm{PM}\bigl(S\bigr) - \mathrm{PM}(\emptyset),</span>
+<span id="cb11-33"><a href="#cb11-33" aria-hidden="true" tabindex="-1"></a>$$ {#eq-xper-coalition}</span>
+<span id="cb11-34"><a href="#cb11-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-35"><a href="#cb11-35" aria-hidden="true" tabindex="-1"></a>where $\mathrm{PM}(S)$ is the population metric when $(y,X_S)$ are used to score and $X_{<span class="co">[</span><span class="ot">q</span><span class="co">]</span>\setminus S}$ is integrated out under its marginal, and $\mathrm{PM}(\emptyset)$ is the random-score benchmark: $0.5$ for AUC, $0$ for $R^2$, the no-information Brier for binary classification, etc. The XPER value of feature $j$ is the Shapley attribution of $v$:</span>
+<span id="cb11-36"><a href="#cb11-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-37"><a href="#cb11-37" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-38"><a href="#cb11-38" aria-hidden="true" tabindex="-1"></a>\phi_j = \sum_{S\subseteq<span class="co">[</span><span class="ot">q</span><span class="co">]</span>\setminus<span class="sc">\{</span>j<span class="sc">\}</span>} \frac{q_S! (q-q_S-1)!}{q!} \bigl<span class="co">[</span><span class="ot">v(S\cup\{j\})-v(S)\bigr</span><span class="co">]</span>.</span>
+<span id="cb11-39"><a href="#cb11-39" aria-hidden="true" tabindex="-1"></a>$$ {#eq-xper-value}</span>
+<span id="cb11-40"><a href="#cb11-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-41"><a href="#cb11-41" aria-hidden="true" tabindex="-1"></a>Efficiency then reads</span>
+<span id="cb11-42"><a href="#cb11-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-43"><a href="#cb11-43" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-44"><a href="#cb11-44" aria-hidden="true" tabindex="-1"></a>\mathrm{PM} = \phi_0 + \sum_{j=1}^{q}\phi_j, \qquad \phi_0 \equiv \mathrm{PM}(\emptyset).</span>
+<span id="cb11-45"><a href="#cb11-45" aria-hidden="true" tabindex="-1"></a>$$ {#eq-xper-efficiency}</span>
+<span id="cb11-46"><a href="#cb11-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-47"><a href="#cb11-47" aria-hidden="true" tabindex="-1"></a>Three consequences that matter operationally:</span>
+<span id="cb11-48"><a href="#cb11-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-49"><a href="#cb11-49" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Benchmark interpretability.** $\phi_0$ is the performance you would earn from a coin flip. For AUC, $\phi_0=0.5$. Every $\phi_j$ is therefore denominated in "AUC points above random," which is the unit regulators and risk committees already use.</span>
+<span id="cb11-50"><a href="#cb11-50" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**No retraining.** Evaluating $\mathrm{PM}(S)$ does *not* mean refitting $f$ on features $S$. The model is held fixed; unavailable features are marginalized at the scoring step, exactly as Kernel SHAP marginalizes for predictions. This eliminates the omitted-variable bias that plagues leave-one-covariate-out (LOCO) importance.</span>
+<span id="cb11-51"><a href="#cb11-51" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Individual decomposition exists.** Whenever the sample metric is a sum over observations (@eq-additive-metric below), each observation inherits its own Shapley decomposition $\phi_{i,j}$ satisfying $G(y_i,x_i;\hat\theta)=\phi_{i,0}+\sum_j \phi_{i,j}$. This is the engine behind segment-specific modeling in @sec-xper-segmentation.</span>
+<span id="cb11-52"><a href="#cb11-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-53"><a href="#cb11-53" aria-hidden="true" tabindex="-1"></a><span class="fu">## Framework</span></span>
+<span id="cb11-54"><a href="#cb11-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-55"><a href="#cb11-55" aria-hidden="true" tabindex="-1"></a><span class="fu">### Additive performance metrics {#sec-additive}</span></span>
+<span id="cb11-56"><a href="#cb11-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-57"><a href="#cb11-57" aria-hidden="true" tabindex="-1"></a>XPER requires that the sample metric admit the form</span>
+<span id="cb11-58"><a href="#cb11-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-59"><a href="#cb11-59" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-60"><a href="#cb11-60" aria-hidden="true" tabindex="-1"></a>G_n(\mathbf{y};\mathbf{X};\hat\theta_n) = \frac{1}{n}\sum_{i=1}^{n} G\bigl(y_i;x_i;\hat\theta_n;\mathbf{y};\mathbf{X}\bigr),</span>
+<span id="cb11-61"><a href="#cb11-61" aria-hidden="true" tabindex="-1"></a>$$ {#eq-additive-metric}</span>
+<span id="cb11-62"><a href="#cb11-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-63"><a href="#cb11-63" aria-hidden="true" tabindex="-1"></a>possibly with a dependence on the empirical distribution of $(\mathbf{y},\mathbf{X})$ beyond observation $i$. MSE, negative MSE, $R^2$, accuracy, Brier, balanced accuracy, and sensitivity/specificity are trivially additive. AUC is additive after a rewrite: letting $\hat s_i=f_{\hat\theta}(x_i)$,</span>
+<span id="cb11-64"><a href="#cb11-64" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-65"><a href="#cb11-65" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-66"><a href="#cb11-66" aria-hidden="true" tabindex="-1"></a>\widehat{\mathrm{AUC}} = \frac{1}{n_1 n_0}\sum_{i:y_i=1}\sum_{k:y_k=0}\mathbb{1}<span class="sc">\{</span>\hat s_i&gt;\hat s_k<span class="sc">\}</span>,</span>
+<span id="cb11-67"><a href="#cb11-67" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-68"><a href="#cb11-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-69"><a href="#cb11-69" aria-hidden="true" tabindex="-1"></a>which becomes a mean over defaulters of the empirical survival function of scores among non-defaulters at $\hat s_i$. The <span class="in">`XPER`</span> package handles this rewrite for AUC internally.</span>
+<span id="cb11-70"><a href="#cb11-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-71"><a href="#cb11-71" aria-hidden="true" tabindex="-1"></a><span class="fu">### Axioms {#sec-ch22b-axioms}</span></span>
+<span id="cb11-72"><a href="#cb11-72" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-73"><a href="#cb11-73" aria-hidden="true" tabindex="-1"></a>The XPER Shapley attribution inherits the four classical axioms from @shapley1953value, restated for the performance game:</span>
+<span id="cb11-74"><a href="#cb11-74" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-75"><a href="#cb11-75" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Efficiency:** $\phi_0+\sum_j\phi_j=\mathrm{PM}$ exactly.</span>
+<span id="cb11-76"><a href="#cb11-76" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Symmetry:** if two features contribute identically to every coalition's performance, they receive equal $\phi_j$.</span>
+<span id="cb11-77"><a href="#cb11-77" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Null player:** a feature that never changes $\mathrm{PM}(S)$ has $\phi_j=0$.</span>
+<span id="cb11-78"><a href="#cb11-78" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Linearity:** for a performance metric that decomposes linearly (e.g. Brier), XPER of the sum equals the sum of XPERs.</span>
+<span id="cb11-79"><a href="#cb11-79" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-80"><a href="#cb11-80" aria-hidden="true" tabindex="-1"></a>These are the same axioms that make SHAP the unique local attribution under its coalition game. XPER is the unique attribution under the performance game.</span>
+<span id="cb11-81"><a href="#cb11-81" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-82"><a href="#cb11-82" aria-hidden="true" tabindex="-1"></a><span class="fu">## Estimation</span></span>
+<span id="cb11-83"><a href="#cb11-83" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-84"><a href="#cb11-84" aria-hidden="true" tabindex="-1"></a><span class="fu">### Exact enumeration</span></span>
+<span id="cb11-85"><a href="#cb11-85" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-86"><a href="#cb11-86" aria-hidden="true" tabindex="-1"></a>For $q$ moderate (say $q\lesssim 15$), all $2^q$ coalitions can be enumerated. For each $S$ the estimator replaces the conditional expectation $\mathbb{E}<span class="co">[</span><span class="ot">f(X)\mid X_S</span><span class="co">]</span>$ by an empirical marginalization over $x_{<span class="co">[</span><span class="ot">q</span><span class="co">]</span>\setminus S}$ drawn from the test sample:</span>
+<span id="cb11-87"><a href="#cb11-87" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-88"><a href="#cb11-88" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb11-89"><a href="#cb11-89" aria-hidden="true" tabindex="-1"></a>\widehat{\mathrm{PM}}(S) = G_n<span class="sc">\!</span>\left(\mathbf{y}; \bigl<span class="sc">\{</span>f_{\hat\theta}(x_{i,S},\tilde x_{-S})\bigr<span class="sc">\}</span>_{i, \tilde x\sim\hat F_{-S}}\right).</span>
+<span id="cb11-90"><a href="#cb11-90" aria-hidden="true" tabindex="-1"></a>$$ {#eq-pmhat}</span>
+<span id="cb11-91"><a href="#cb11-91" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-92"><a href="#cb11-92" aria-hidden="true" tabindex="-1"></a>This is the same "interventional" reference used by Kernel SHAP with background data equal to the test set, extended from predictions to metrics.</span>
+<span id="cb11-93"><a href="#cb11-93" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-94"><a href="#cb11-94" aria-hidden="true" tabindex="-1"></a><span class="fu">### Kernel approximation</span></span>
+<span id="cb11-95"><a href="#cb11-95" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-96"><a href="#cb11-96" aria-hidden="true" tabindex="-1"></a>Beyond \~15 features the $2^q$ sum is infeasible. <span class="in">`XPER`</span> implements a Kernel-SHAP-style weighted-least-squares surrogate of @lundberg2017unified, adapted to the performance game: draw coalitions $S^{(m)}$ with Shapley kernel weights, evaluate $\widehat{\mathrm{PM}}(S^{(m)})$, and regress to recover $\phi$. The <span class="in">`kernel=True`</span> argument in <span class="in">`ModelPerformance.calculate_XPER_values`</span> selects this path.</span>
+<span id="cb11-97"><a href="#cb11-97" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-98"><a href="#cb11-98" aria-hidden="true" tabindex="-1"></a><span class="fu">### Complexity</span></span>
+<span id="cb11-99"><a href="#cb11-99" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-100"><a href="#cb11-100" aria-hidden="true" tabindex="-1"></a>Let $c$ be the cost of one scoring pass over the test set, $B$ the background-sample size for marginalization, and $M$ the number of sampled coalitions. Exact XPER costs $\mathcal{O}(2^q \cdot B \cdot c)$; kernel XPER costs $\mathcal{O}(M \cdot B \cdot c)$. In the empirical run below, $q=6$, $n=500$, $B$ defaults to the test rows; runtime is a few seconds on CPU.</span>
+<span id="cb11-101"><a href="#cb11-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-102"><a href="#cb11-102" aria-hidden="true" tabindex="-1"></a><span class="fu">## End-to-end example</span></span>
+<span id="cb11-103"><a href="#cb11-103" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-104"><a href="#cb11-104" aria-hidden="true" tabindex="-1"></a>The following uses the <span class="in">`XPER`</span> package's bundled <span class="in">`loan_status`</span> dataset to keep the chapter self-contained; every step transfers unchanged to the Taiwan default data used elsewhere in this book.</span>
+<span id="cb11-105"><a href="#cb11-105" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-106"><a href="#cb11-106" aria-hidden="true" tabindex="-1"></a><span class="fu">### Fit a model and baseline performance</span></span>
+<span id="cb11-107"><a href="#cb11-107" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-110"><a href="#cb11-110" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-111"><a href="#cb11-111" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-fit</span></span>
+<span id="cb11-112"><a href="#cb11-112" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb11-113"><a href="#cb11-113" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb11-114"><a href="#cb11-114" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
+<span id="cb11-115"><a href="#cb11-115" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
+<span id="cb11-116"><a href="#cb11-116" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> xgboost <span class="im">import</span> XGBClassifier</span>
+<span id="cb11-117"><a href="#cb11-117" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-118"><a href="#cb11-118" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.datasets.load_data <span class="im">import</span> loan_status</span>
+<span id="cb11-119"><a href="#cb11-119" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.compute.Performance <span class="im">import</span> ModelPerformance</span>
+<span id="cb11-120"><a href="#cb11-120" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-121"><a href="#cb11-121" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
+<span id="cb11-122"><a href="#cb11-122" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> loan_status().iloc[:, :<span class="dv">7</span>]</span>
+<span id="cb11-123"><a href="#cb11-123" aria-hidden="true" tabindex="-1"></a>y  <span class="op">=</span> df[<span class="st">"Loan_Status"</span>].astype(<span class="bu">int</span>).to_numpy()</span>
+<span id="cb11-124"><a href="#cb11-124" aria-hidden="true" tabindex="-1"></a>X  <span class="op">=</span> df.drop(columns<span class="op">=</span>[<span class="st">"Loan_Status"</span>]).select_dtypes(include<span class="op">=</span>[np.number]).copy()</span>
+<span id="cb11-125"><a href="#cb11-125" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-126"><a href="#cb11-126" aria-hidden="true" tabindex="-1"></a>X_tr, X_te, y_tr, y_te <span class="op">=</span> train_test_split(</span>
+<span id="cb11-127"><a href="#cb11-127" aria-hidden="true" tabindex="-1"></a>    X, y, test_size<span class="op">=</span><span class="fl">0.30</span>, stratify<span class="op">=</span>y, random_state<span class="op">=</span><span class="dv">42</span></span>
+<span id="cb11-128"><a href="#cb11-128" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-129"><a href="#cb11-129" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-130"><a href="#cb11-130" aria-hidden="true" tabindex="-1"></a>clf <span class="op">=</span> XGBClassifier(</span>
+<span id="cb11-131"><a href="#cb11-131" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">200</span>, max_depth<span class="op">=</span><span class="dv">4</span>, learning_rate<span class="op">=</span><span class="fl">0.05</span>,</span>
+<span id="cb11-132"><a href="#cb11-132" aria-hidden="true" tabindex="-1"></a>    eval_metric<span class="op">=</span><span class="st">"logloss"</span>, random_state<span class="op">=</span><span class="dv">42</span>,</span>
+<span id="cb11-133"><a href="#cb11-133" aria-hidden="true" tabindex="-1"></a>).fit(X_tr, y_tr)</span>
+<span id="cb11-134"><a href="#cb11-134" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-135"><a href="#cb11-135" aria-hidden="true" tabindex="-1"></a>auc_test <span class="op">=</span> roc_auc_score(y_te, clf.predict_proba(X_te)[:, <span class="dv">1</span>])</span>
+<span id="cb11-136"><a href="#cb11-136" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Features used: </span><span class="sc">{</span><span class="bu">list</span>(X.columns)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb11-137"><a href="#cb11-137" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Test AUC = </span><span class="sc">{</span>auc_test<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb11-138"><a href="#cb11-138" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-139"><a href="#cb11-139" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-140"><a href="#cb11-140" aria-hidden="true" tabindex="-1"></a><span class="fu">### Compute XPER values for AUC</span></span>
+<span id="cb11-141"><a href="#cb11-141" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-142"><a href="#cb11-142" aria-hidden="true" tabindex="-1"></a><span class="in">`ModelPerformance`</span> takes train and test matrices plus the fitted model. <span class="in">`evaluate`</span> recomputes the chosen metric (a sanity check against scikit-learn). <span class="in">`calculate_XPER_values("AUC", kernel=True)`</span> runs the Kernel-Shapley estimator and returns the global vector $\phi=(\phi_0,\phi_1,\dots,\phi_q)$ and the per-observation matrix $\Phi\in\mathbb{R}^{n\times(q+1)}$.</span>
+<span id="cb11-143"><a href="#cb11-143" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-146"><a href="#cb11-146" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-147"><a href="#cb11-147" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-compute</span></span>
+<span id="cb11-148"><a href="#cb11-148" aria-hidden="true" tabindex="-1"></a>perf <span class="op">=</span> ModelPerformance(</span>
+<span id="cb11-149"><a href="#cb11-149" aria-hidden="true" tabindex="-1"></a>    X_train<span class="op">=</span>X_tr.values, y_train<span class="op">=</span>y_tr,</span>
+<span id="cb11-150"><a href="#cb11-150" aria-hidden="true" tabindex="-1"></a>    X_test<span class="op">=</span>X_te.values,  y_test<span class="op">=</span>y_te,</span>
+<span id="cb11-151"><a href="#cb11-151" aria-hidden="true" tabindex="-1"></a>    model<span class="op">=</span>clf, sample_size<span class="op">=</span><span class="bu">min</span>(<span class="dv">400</span>, <span class="bu">len</span>(X_te)),</span>
+<span id="cb11-152"><a href="#cb11-152" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-153"><a href="#cb11-153" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-154"><a href="#cb11-154" aria-hidden="true" tabindex="-1"></a>auc_xper <span class="op">=</span> perf.evaluate(Eval_Metric<span class="op">=</span>[<span class="st">"AUC"</span>])</span>
+<span id="cb11-155"><a href="#cb11-155" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"XPER-recomputed AUC = </span><span class="sc">{</span>auc_xper<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb11-156"><a href="#cb11-156" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-157"><a href="#cb11-157" aria-hidden="true" tabindex="-1"></a>global_phi, individual_phi <span class="op">=</span> perf.calculate_XPER_values(</span>
+<span id="cb11-158"><a href="#cb11-158" aria-hidden="true" tabindex="-1"></a>    Eval_Metric<span class="op">=</span>[<span class="st">"AUC"</span>], kernel<span class="op">=</span><span class="va">True</span></span>
+<span id="cb11-159"><a href="#cb11-159" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-160"><a href="#cb11-160" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-161"><a href="#cb11-161" aria-hidden="true" tabindex="-1"></a>phi0 <span class="op">=</span> <span class="bu">float</span>(global_phi[<span class="dv">0</span>])</span>
+<span id="cb11-162"><a href="#cb11-162" aria-hidden="true" tabindex="-1"></a>phi_feat <span class="op">=</span> np.asarray(global_phi[<span class="dv">1</span>:], dtype<span class="op">=</span><span class="bu">float</span>)</span>
+<span id="cb11-163"><a href="#cb11-163" aria-hidden="true" tabindex="-1"></a>check <span class="op">=</span> phi0 <span class="op">+</span> phi_feat.<span class="bu">sum</span>()</span>
+<span id="cb11-164"><a href="#cb11-164" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"phi_0 (random-AUC benchmark) = </span><span class="sc">{</span>phi0<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb11-165"><a href="#cb11-165" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"sum of feature phi_j         = </span><span class="sc">{</span>phi_feat<span class="sc">.</span><span class="bu">sum</span>()<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb11-166"><a href="#cb11-166" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"phi_0 + sum_j phi_j          = </span><span class="sc">{</span>check<span class="sc">:.4f}</span><span class="ss">   (efficiency: ≈ AUC)"</span>)</span>
+<span id="cb11-167"><a href="#cb11-167" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-168"><a href="#cb11-168" aria-hidden="true" tabindex="-1"></a>decomp <span class="op">=</span> (</span>
+<span id="cb11-169"><a href="#cb11-169" aria-hidden="true" tabindex="-1"></a>    pd.DataFrame({<span class="st">"feature"</span>: X.columns, <span class="st">"phi_j"</span>: phi_feat})</span>
+<span id="cb11-170"><a href="#cb11-170" aria-hidden="true" tabindex="-1"></a>    .assign(share<span class="op">=</span><span class="kw">lambda</span> d: d[<span class="st">"phi_j"</span>] <span class="op">/</span> (auc_test <span class="op">-</span> <span class="fl">0.5</span>))</span>
+<span id="cb11-171"><a href="#cb11-171" aria-hidden="true" tabindex="-1"></a>    .sort_values(<span class="st">"phi_j"</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb11-172"><a href="#cb11-172" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-173"><a href="#cb11-173" aria-hidden="true" tabindex="-1"></a>decomp</span>
+<span id="cb11-174"><a href="#cb11-174" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-175"><a href="#cb11-175" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-176"><a href="#cb11-176" aria-hidden="true" tabindex="-1"></a>Reading the table: each $\phi_j$ is in **AUC points above random**; <span class="in">`share`</span> is the fraction of the $\mathrm{AUC}-0.5$ lift attributable to feature $j$. A handful of features usually captures most of the lift, the paper's headline empirical finding.</span>
+<span id="cb11-177"><a href="#cb11-177" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-178"><a href="#cb11-178" aria-hidden="true" tabindex="-1"></a><span class="fu">### Global view: bar and beeswarm</span></span>
+<span id="cb11-179"><a href="#cb11-179" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-182"><a href="#cb11-182" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-183"><a href="#cb11-183" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-bar</span></span>
+<span id="cb11-184"><a href="#cb11-184" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "Global XPER contributions to AUC. Each bar is one feature's $\\phi_j$ expressed as a share of $\\mathrm{AUC}-\\phi_0$."</span></span>
+<span id="cb11-185"><a href="#cb11-185" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb11-186"><a href="#cb11-186" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> XPER.viz.Visualisation <span class="im">import</span> visualizationClass <span class="im">as</span> viz</span>
+<span id="cb11-187"><a href="#cb11-187" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-188"><a href="#cb11-188" aria-hidden="true" tabindex="-1"></a>viz.bar_plot(</span>
+<span id="cb11-189"><a href="#cb11-189" aria-hidden="true" tabindex="-1"></a>    XPER_values<span class="op">=</span>(global_phi, individual_phi),</span>
+<span id="cb11-190"><a href="#cb11-190" aria-hidden="true" tabindex="-1"></a>    X_test<span class="op">=</span>X_te, labels<span class="op">=</span><span class="bu">list</span>(X.columns), p<span class="op">=</span><span class="bu">len</span>(X.columns),</span>
+<span id="cb11-191"><a href="#cb11-191" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-192"><a href="#cb11-192" aria-hidden="true" tabindex="-1"></a>plt.show()</span>
+<span id="cb11-193"><a href="#cb11-193" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-194"><a href="#cb11-194" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-197"><a href="#cb11-197" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-198"><a href="#cb11-198" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-beeswarm</span></span>
+<span id="cb11-199"><a href="#cb11-199" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "Per-observation XPER values. Horizontal spread at a given feature row shows how heterogeneously that feature contributes across borrowers."</span></span>
+<span id="cb11-200"><a href="#cb11-200" aria-hidden="true" tabindex="-1"></a><span class="co"># The upstream XPER beeswarm viz reuses SHAP's internals with a stale API.</span></span>
+<span id="cb11-201"><a href="#cb11-201" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot individual_phi directly: feature rows vs borrower points, colored by</span></span>
+<span id="cb11-202"><a href="#cb11-202" aria-hidden="true" tabindex="-1"></a><span class="co"># the feature value (same semantics as a SHAP beeswarm).</span></span>
+<span id="cb11-203"><a href="#cb11-203" aria-hidden="true" tabindex="-1"></a>ind_phi <span class="op">=</span> np.asarray(individual_phi)[:, <span class="dv">1</span>:]</span>
+<span id="cb11-204"><a href="#cb11-204" aria-hidden="true" tabindex="-1"></a>labels <span class="op">=</span> <span class="bu">list</span>(X.columns)</span>
+<span id="cb11-205"><a href="#cb11-205" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> ind_phi.shape[<span class="dv">1</span>]</span>
+<span id="cb11-206"><a href="#cb11-206" aria-hidden="true" tabindex="-1"></a>order <span class="op">=</span> np.argsort(np.<span class="bu">abs</span>(ind_phi).mean(axis<span class="op">=</span><span class="dv">0</span>))[::<span class="op">-</span><span class="dv">1</span>]</span>
+<span id="cb11-207"><a href="#cb11-207" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">7.5</span>, <span class="fl">0.35</span> <span class="op">*</span> p <span class="op">+</span> <span class="fl">1.2</span>))</span>
+<span id="cb11-208"><a href="#cb11-208" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">0</span>)</span>
+<span id="cb11-209"><a href="#cb11-209" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> row, j <span class="kw">in</span> <span class="bu">enumerate</span>(order):</span>
+<span id="cb11-210"><a href="#cb11-210" aria-hidden="true" tabindex="-1"></a>    phi_j <span class="op">=</span> ind_phi[:, j]</span>
+<span id="cb11-211"><a href="#cb11-211" aria-hidden="true" tabindex="-1"></a>    x_j <span class="op">=</span> X_te.iloc[:, j].to_numpy(dtype<span class="op">=</span><span class="bu">float</span>)</span>
+<span id="cb11-212"><a href="#cb11-212" aria-hidden="true" tabindex="-1"></a>    x_norm <span class="op">=</span> (x_j <span class="op">-</span> x_j.<span class="bu">min</span>()) <span class="op">/</span> (np.ptp(x_j) <span class="op">+</span> <span class="fl">1e-12</span>)</span>
+<span id="cb11-213"><a href="#cb11-213" aria-hidden="true" tabindex="-1"></a>    jitter <span class="op">=</span> rng.uniform(<span class="op">-</span><span class="fl">0.25</span>, <span class="fl">0.25</span>, size<span class="op">=</span>phi_j.shape[<span class="dv">0</span>])</span>
+<span id="cb11-214"><a href="#cb11-214" aria-hidden="true" tabindex="-1"></a>    ax.scatter(phi_j, np.full_like(phi_j, row) <span class="op">+</span> jitter,</span>
+<span id="cb11-215"><a href="#cb11-215" aria-hidden="true" tabindex="-1"></a>               c<span class="op">=</span>x_norm, cmap<span class="op">=</span><span class="st">"RdBu_r"</span>, s<span class="op">=</span><span class="dv">10</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, linewidths<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb11-216"><a href="#cb11-216" aria-hidden="true" tabindex="-1"></a>ax.axvline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"0.4"</span>, lw<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb11-217"><a href="#cb11-217" aria-hidden="true" tabindex="-1"></a>ax.set_yticks(<span class="bu">range</span>(p))</span>
+<span id="cb11-218"><a href="#cb11-218" aria-hidden="true" tabindex="-1"></a>ax.set_yticklabels([labels[j] <span class="cf">for</span> j <span class="kw">in</span> order])</span>
+<span id="cb11-219"><a href="#cb11-219" aria-hidden="true" tabindex="-1"></a>ax.invert_yaxis()</span>
+<span id="cb11-220"><a href="#cb11-220" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"XPER contribution </span><span class="dv">$</span><span class="er">\</span><span class="vs">phi_{i,j}</span><span class="dv">$</span><span class="vs"> </span><span class="kw">(</span><span class="vs">AUC points</span><span class="kw">)</span><span class="vs">"</span>)</span>
+<span id="cb11-221"><a href="#cb11-221" aria-hidden="true" tabindex="-1"></a>sm <span class="op">=</span> plt.cm.ScalarMappable(cmap<span class="op">=</span><span class="st">"RdBu_r"</span>,</span>
+<span id="cb11-222"><a href="#cb11-222" aria-hidden="true" tabindex="-1"></a>                           norm<span class="op">=</span>plt.Normalize(vmin<span class="op">=</span><span class="dv">0</span>, vmax<span class="op">=</span><span class="dv">1</span>))</span>
+<span id="cb11-223"><a href="#cb11-223" aria-hidden="true" tabindex="-1"></a>sm.set_array([])</span>
+<span id="cb11-224"><a href="#cb11-224" aria-hidden="true" tabindex="-1"></a>cbar <span class="op">=</span> fig.colorbar(sm, ax<span class="op">=</span>ax, fraction<span class="op">=</span><span class="fl">0.025</span>, pad<span class="op">=</span><span class="fl">0.02</span>)</span>
+<span id="cb11-225"><a href="#cb11-225" aria-hidden="true" tabindex="-1"></a>cbar.set_label(<span class="st">"feature value (normalized)"</span>)</span>
+<span id="cb11-226"><a href="#cb11-226" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb11-227"><a href="#cb11-227" aria-hidden="true" tabindex="-1"></a>plt.show()</span>
+<span id="cb11-228"><a href="#cb11-228" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-229"><a href="#cb11-229" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-230"><a href="#cb11-230" aria-hidden="true" tabindex="-1"></a>The beeswarm is where XPER and SHAP diverge in interpretation. A SHAP beeswarm reads as "how does feature $j$ move individual predictions?" The XPER beeswarm reads as "how does feature $j$ contribute to correctly *ranking defaulters above non-defaulters* for this particular borrower?" Points with $\phi_{i,j}&lt;0$ are observations where feature $j$ actively *hurts* the model's AUC contribution, typically mis-signed WoE relationships or interaction masks.</span>
+<span id="cb11-231"><a href="#cb11-231" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-232"><a href="#cb11-232" aria-hidden="true" tabindex="-1"></a><span class="fu">### Local view: one borrower</span></span>
+<span id="cb11-233"><a href="#cb11-233" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-236"><a href="#cb11-236" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-237"><a href="#cb11-237" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-force</span></span>
+<span id="cb11-238"><a href="#cb11-238" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "Individual XPER force plot for a single test applicant. $\\phi_{i,0}$ anchors at the random benchmark; each feature pushes the applicant's AUC-contribution up or down."</span></span>
+<span id="cb11-239"><a href="#cb11-239" aria-hidden="true" tabindex="-1"></a>viz.force_plot(</span>
+<span id="cb11-240"><a href="#cb11-240" aria-hidden="true" tabindex="-1"></a>    XPER_values<span class="op">=</span>(global_phi, individual_phi),</span>
+<span id="cb11-241"><a href="#cb11-241" aria-hidden="true" tabindex="-1"></a>    instance<span class="op">=</span><span class="dv">0</span>, X_test<span class="op">=</span>X_te,</span>
+<span id="cb11-242"><a href="#cb11-242" aria-hidden="true" tabindex="-1"></a>    variable_name<span class="op">=</span><span class="bu">list</span>(X.columns),</span>
+<span id="cb11-243"><a href="#cb11-243" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-244"><a href="#cb11-244" aria-hidden="true" tabindex="-1"></a>plt.show()</span>
+<span id="cb11-245"><a href="#cb11-245" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-246"><a href="#cb11-246" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-247"><a href="#cb11-247" aria-hidden="true" tabindex="-1"></a><span class="fu">## Segmentation by XPER profile {#sec-xper-segmentation}</span></span>
+<span id="cb11-248"><a href="#cb11-248" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-249"><a href="#cb11-249" aria-hidden="true" tabindex="-1"></a>Individual XPER vectors $\phi_i\in\mathbb{R}^{q+1}$ describe *how each borrower's performance contribution is structured across features*. Borrowers with similar $\phi_i$ are those for whom the model's discriminatory power flows through the same features. The paper shows that clustering on $\phi_i$ and fitting one model per cluster improves global AUC beyond what any single global model achieves, without new features.</span>
+<span id="cb11-250"><a href="#cb11-250" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-251"><a href="#cb11-251" aria-hidden="true" tabindex="-1"></a>The intuition: a pooled model must compromise between subpopulations whose optimal feature weightings differ. Feature-importance clustering (e.g. on SHAP) captures how predictions vary; XPER clustering captures how *performance* varies, which is the objective that refitting optimizes.</span>
+<span id="cb11-252"><a href="#cb11-252" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-255"><a href="#cb11-255" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb11-256"><a href="#cb11-256" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: xper-segmentation</span></span>
+<span id="cb11-257"><a href="#cb11-257" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.cluster <span class="im">import</span> KMeans</span>
+<span id="cb11-258"><a href="#cb11-258" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
+<span id="cb11-259"><a href="#cb11-259" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
+<span id="cb11-260"><a href="#cb11-260" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-261"><a href="#cb11-261" aria-hidden="true" tabindex="-1"></a>Phi <span class="op">=</span> np.asarray(individual_phi)</span>
+<span id="cb11-262"><a href="#cb11-262" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> Phi.shape[<span class="dv">1</span>] <span class="op">==</span> <span class="bu">len</span>(X.columns) <span class="op">+</span> <span class="dv">1</span>:</span>
+<span id="cb11-263"><a href="#cb11-263" aria-hidden="true" tabindex="-1"></a>    Phi <span class="op">=</span> Phi[:, <span class="dv">1</span>:]</span>
+<span id="cb11-264"><a href="#cb11-264" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-265"><a href="#cb11-265" aria-hidden="true" tabindex="-1"></a>km <span class="op">=</span> KMeans(n_clusters<span class="op">=</span><span class="dv">2</span>, n_init<span class="op">=</span><span class="dv">10</span>, random_state<span class="op">=</span><span class="dv">42</span>).fit(Phi)</span>
+<span id="cb11-266"><a href="#cb11-266" aria-hidden="true" tabindex="-1"></a>groups_te <span class="op">=</span> km.labels_</span>
+<span id="cb11-267"><a href="#cb11-267" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-268"><a href="#cb11-268" aria-hidden="true" tabindex="-1"></a><span class="co"># assign each training row to the nearest test-set cluster centroid</span></span>
+<span id="cb11-269"><a href="#cb11-269" aria-hidden="true" tabindex="-1"></a><span class="co"># in the model's own feature space (proxy: score-rank deciles) for illustration</span></span>
+<span id="cb11-270"><a href="#cb11-270" aria-hidden="true" tabindex="-1"></a>tr_scores <span class="op">=</span> clf.predict_proba(X_tr)[:, <span class="dv">1</span>]</span>
+<span id="cb11-271"><a href="#cb11-271" aria-hidden="true" tabindex="-1"></a>te_scores <span class="op">=</span> clf.predict_proba(X_te)[:, <span class="dv">1</span>]</span>
+<span id="cb11-272"><a href="#cb11-272" aria-hidden="true" tabindex="-1"></a>cut <span class="op">=</span> np.quantile(te_scores, <span class="fl">0.5</span>)</span>
+<span id="cb11-273"><a href="#cb11-273" aria-hidden="true" tabindex="-1"></a>groups_tr <span class="op">=</span> (tr_scores <span class="op">&gt;</span> cut).astype(<span class="bu">int</span>)</span>
+<span id="cb11-274"><a href="#cb11-274" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-275"><a href="#cb11-275" aria-hidden="true" tabindex="-1"></a>segment_auc <span class="op">=</span> []</span>
+<span id="cb11-276"><a href="#cb11-276" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> g <span class="kw">in</span> np.unique(groups_te):</span>
+<span id="cb11-277"><a href="#cb11-277" aria-hidden="true" tabindex="-1"></a>    mask_tr <span class="op">=</span> groups_tr <span class="op">==</span> g</span>
+<span id="cb11-278"><a href="#cb11-278" aria-hidden="true" tabindex="-1"></a>    mask_te <span class="op">=</span> groups_te <span class="op">==</span> g</span>
+<span id="cb11-279"><a href="#cb11-279" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> mask_tr.<span class="bu">sum</span>() <span class="op">&lt;</span> <span class="dv">50</span> <span class="kw">or</span> mask_te.<span class="bu">sum</span>() <span class="op">&lt;</span> <span class="dv">20</span>:</span>
+<span id="cb11-280"><a href="#cb11-280" aria-hidden="true" tabindex="-1"></a>        <span class="cf">continue</span></span>
+<span id="cb11-281"><a href="#cb11-281" aria-hidden="true" tabindex="-1"></a>    seg <span class="op">=</span> LogisticRegression(max_iter<span class="op">=</span><span class="dv">1000</span>).fit(X_tr[mask_tr], y_tr[mask_tr])</span>
+<span id="cb11-282"><a href="#cb11-282" aria-hidden="true" tabindex="-1"></a>    p   <span class="op">=</span> seg.predict_proba(X_te[mask_te])[:, <span class="dv">1</span>]</span>
+<span id="cb11-283"><a href="#cb11-283" aria-hidden="true" tabindex="-1"></a>    segment_auc.append((g, mask_te.<span class="bu">sum</span>(), roc_auc_score(y_te[mask_te], p)))</span>
+<span id="cb11-284"><a href="#cb11-284" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-285"><a href="#cb11-285" aria-hidden="true" tabindex="-1"></a>pd.DataFrame(segment_auc, columns<span class="op">=</span>[<span class="st">"cluster"</span>, <span class="st">"n_test"</span>, <span class="st">"segment_AUC"</span>])</span>
+<span id="cb11-286"><a href="#cb11-286" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb11-287"><a href="#cb11-287" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-288"><a href="#cb11-288" aria-hidden="true" tabindex="-1"></a>In production the segmentation step would be embedded in a cross-validated wrapper: cluster on training-set XPER values, assign test rows by nearest centroid, fit per-cluster estimators, and pool back to a global AUC with inverse-propensity weights. The paper reports a meaningful AUC gain on an auto-loan portfolio; the gain in consumer credit tends to be smaller but still material when the portfolio mixes thin-file and thick-file borrowers.</span>
+<span id="cb11-289"><a href="#cb11-289" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-290"><a href="#cb11-290" aria-hidden="true" tabindex="-1"></a><span class="fu">## When to reach for XPER</span></span>
+<span id="cb11-291"><a href="#cb11-291" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-292"><a href="#cb11-292" aria-hidden="true" tabindex="-1"></a>Use XPER, not SHAP, when the question is:</span>
+<span id="cb11-293"><a href="#cb11-293" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-294"><a href="#cb11-294" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Which features justify keeping this model in production?** XPER gives AUC-point contributions directly; SHAP does not.</span>
+<span id="cb11-295"><a href="#cb11-295" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Can we prune features without hurting discrimination?** A feature with $\phi_j\approx 0$ and small variance in $\phi_{i,j}$ is a pruning candidate. SHAP would flag features whose *predictions* move little, which is not the same.</span>
+<span id="cb11-296"><a href="#cb11-296" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Is population heterogeneity worth exploiting with segment models?** Cluster $\phi_i$; if clusters separate, segment.</span>
+<span id="cb11-297"><a href="#cb11-297" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Does a regulator-chosen metric (balanced accuracy, Brier under class-imbalance weights, custom cost-weighted loss) decompose cleanly?** XPER is metric-agnostic as long as @eq-additive-metric holds.</span>
+<span id="cb11-298"><a href="#cb11-298" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-299"><a href="#cb11-299" aria-hidden="true" tabindex="-1"></a>Use SHAP, not XPER, when the question is about a single adverse-action notice, a counterfactual, or feature-level calibration of probabilities. The two are complements: store both alongside the scored row in the feature store.</span>
+<span id="cb11-300"><a href="#cb11-300" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-301"><a href="#cb11-301" aria-hidden="true" tabindex="-1"></a><span class="fu">## Limits and caveats</span></span>
+<span id="cb11-302"><a href="#cb11-302" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-303"><a href="#cb11-303" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Marginal vs conditional reference.** Like Kernel SHAP, <span class="in">`XPER`</span> marginalizes over the empirical joint of the background features, not the conditional given the coalition. Under strong feature dependence this can attribute performance to features whose information is redundant with already-included ones. Conditional XPER is a research direction; in practice report correlations alongside $\phi_j$.</span>
+<span id="cb11-304"><a href="#cb11-304" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Metric choice is a modeling choice.** Ranking metrics (AUC) and calibration metrics (Brier) can assign materially different $\phi_j$ to the same feature. A feature that improves ordering but distorts probabilities will look valuable under AUC-XPER and destructive under Brier-XPER. Report both.</span>
+<span id="cb11-305"><a href="#cb11-305" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Sampling variance.** With <span class="in">`kernel=True`</span> and finite background samples, $\hat\phi_j$ carries Monte Carlo error. The paper establishes $\sqrt n$-consistency and asymptotic normality under regularity (see Appendix of @hue2023xper); practically, run two seeds and report a range.</span>
+<span id="cb11-306"><a href="#cb11-306" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**No causal content.** XPER explains a *model's* performance, not the data-generating process. A feature that proxies for a protected attribute can dominate $\phi_j$; that is a fairness finding, not a causal claim. See @sec-ch23.</span>
+<span id="cb11-307"><a href="#cb11-307" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-308"><a href="#cb11-308" aria-hidden="true" tabindex="-1"></a><span class="fu">## Vietnam and emerging markets</span></span>
+<span id="cb11-309"><a href="#cb11-309" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-310"><a href="#cb11-310" aria-hidden="true" tabindex="-1"></a><span class="fu">### Market context</span></span>
+<span id="cb11-311"><a href="#cb11-311" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-312"><a href="#cb11-312" aria-hidden="true" tabindex="-1"></a>XPER was introduced at a time when European and US banks had already validated Shapley-based explainers under SR 11-7 and Article 22 regimes. Vietnamese banks operate in a different validation setting. The State Bank of Vietnam supervises model risk through Circular 13/2018 on internal control systems and through the capital framework implemented in Circular 41/2016, as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios <span class="co">[</span><span class="ot">@sbv_circular22_2023</span><span class="co">]</span>. Neither circular prescribes a performance-attribution method. The Credit Information Center covers roughly half of the adult population <span class="co">[</span><span class="ot">@cic_vietnam2023</span><span class="co">]</span>, and fintech lenders rely on alternative signals from mobile money, telco top-ups, and merchant networks. In that setting, the cost of each feature is visible, because data-sharing agreements and vendor fees are priced per record per month.</span>
+<span id="cb11-313"><a href="#cb11-313" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-314"><a href="#cb11-314" aria-hidden="true" tabindex="-1"></a><span class="fu">### Application considerations</span></span>
+<span id="cb11-315"><a href="#cb11-315" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-316"><a href="#cb11-316" aria-hidden="true" tabindex="-1"></a>Feature cost is where XPER earns its place. A Vietnamese lender that pays a monthly subscription to a telco data provider, a wallet aggregator, and the bureau must decide which subscriptions to renew. SHAP does not answer that question. It tells you which features move individual probabilities, not which features produce the aggregate AUC that justifies the vendor fee. XPER does. A feature whose AUC contribution is smaller than its monthly per-application cost times the application volume is a feature to prune at renewal. The same argument applies to internal feature engineering: a Polars pipeline that consumes fifteen minutes of batch time to build a derived feature whose XPER contribution is two basis points of AUC is a pipeline to retire.</span>
+<span id="cb11-317"><a href="#cb11-317" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-318"><a href="#cb11-318" aria-hidden="true" tabindex="-1"></a><span class="fu">### Rationalization</span></span>
+<span id="cb11-319"><a href="#cb11-319" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-320"><a href="#cb11-320" aria-hidden="true" tabindex="-1"></a>The second use of XPER in Vietnam is audit defense. When the SBV examines a bank's internal model, the examiner reads the validation file. A validation file that lists features and their marginal AUC contributions, traced to a stable estimator, is easier to defend than a file that lists only SHAP beeswarm plots. The XPER report also supports the ESG disclosure that larger Vietnamese banks publish under voluntary IFC standards, because it quantifies the model's dependence on features that are either socially sensitive (gender, region) or environmentally correlated (agricultural sector exposure). A segment-clustering extension of XPER, as in @hue2023xper, also helps identify borrower clusters whose model is weaker. For a lender expanding from urban prime to rural thin-file customers, this points to where the next model iteration must be focused.</span>
+<span id="cb11-321"><a href="#cb11-321" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-322"><a href="#cb11-322" aria-hidden="true" tabindex="-1"></a><span class="fu">### Practical notes</span></span>
+<span id="cb11-323"><a href="#cb11-323" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-324"><a href="#cb11-324" aria-hidden="true" tabindex="-1"></a>Use XPER alongside SHAP, not in place of it. Pin the <span class="in">`XPER`</span> package version in an internal wheel mirror. Compute AUC-XPER and Brier-XPER and report both. For features tied to Lunar New Year seasonality <span class="co">[</span><span class="ot">@leboulanger2021tet</span><span class="co">]</span>, compute XPER on a full-year window to avoid spurious attributions. Combine the XPER report with a feature-cost table maintained by procurement. When the reported AUC contribution of a vendor feature drops below its amortized cost, flag the feature for a renegotiation conversation. For segment-specific XPER, cluster borrowers by urban versus rural and by bureau-file versus thin-file, because the feature set that carries AUC in one segment rarely carries it in the other. Document the background distribution and the reference sample; in a Vietnamese data center the background draw from a random day will produce different attributions than a background that respects the Lunar New Year payment cycle.</span>
+<span id="cb11-325"><a href="#cb11-325" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-326"><a href="#cb11-326" aria-hidden="true" tabindex="-1"></a><span class="fu">## Summary</span></span>
+<span id="cb11-327"><a href="#cb11-327" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-328"><a href="#cb11-328" aria-hidden="true" tabindex="-1"></a>XPER turns the Shapley machinery outward: instead of decomposing $f(x)-\mathbb{E}<span class="co">[</span><span class="ot">f(X)</span><span class="co">]</span>$ for one borrower, it decomposes $\mathrm{PM}-\phi_0$ for the whole test sample, with per-observation decompositions as a byproduct. The package wraps the estimator, the kernel approximation, and three visualizations; the math is the Shapley value applied to a different coalition game; the practical payoff is a feature-level attribution of AUC (or any additive metric) that regulators can read line-by-line and that modelers can use to prune, segment, and re-fit.</span>
+</code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
+</div></div></div></div></div>
+</div> <!-- /content -->
+
+
+
+
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/mikenguyen13/credit_score/edit/main/chapters/22b-xper-performance.qmd" class="toc-action"><i class="bi bi-github"></i>Edit this page</a></li><li><a href="https://github.com/mikenguyen13/credit_score/issues/new" class="toc-action"><i class="bi empty"></i>Report an issue</a></li></ul></div></div></div></footer><script src="../site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>
