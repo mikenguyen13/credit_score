@@ -39,7 +39,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, brier_score_loss
 
-from creditutils import ks_statistic, gini
+from creditutils import ks_statistic, gini, stable_sigmoid
 
 rng = np.random.default_rng(42)
 np.random.seed(42)
@@ -237,7 +237,7 @@ logit = (
     + 0.3 * (agg["top3_share"] > 0.7).astype(float)
     - 0.4 * latent_quality[agg.index]
 )
-p_default = 1.0 / (1.0 + np.exp(-logit))
+p_default = stable_sigmoid(logit)
 y = (rng.uniform(0, 1, len(p_default)) < p_default).astype(int)
 agg["y"] = y
 
@@ -341,7 +341,7 @@ fig.tight_layout()
 plt.show()
 ```
 
-Calibration plots are the right diagnostic for the rural-urban question. A model with identical AUC across groups but miscalibrated scores for one of them will deny credit at different rates for the same underlying risk. The fairness objective in @hardt2016equality (equal true-positive rates across protected groups) and the calibration objective in @chouldechova2017fair are in tension in the Kenyan case because the base rates differ by group. The practical implication is that the lender must choose whether to equalize approval rate, expected loss, or calibration. @hurlin2024fairness provides a recent credit-scoring treatment of the tradeoff.
+Calibration plots are the right diagnostic for the rural-urban question. A model with identical AUC across groups but miscalibrated scores for one of them will deny credit at different rates for the same underlying risk. The fairness objective in @hardt2016equality (equal true-positive rates across protected groups) and the calibration objective in @chouldechova2017fair are in tension in the Kenyan case because the base rates differ by group. The practical implication is that the lender must choose whether to equalize approval rate, expected loss, or calibration. @hurlin2026fairness provides a recent credit-scoring treatment of the tradeoff.
 
 ## Mobile-money graph and centrality features
 
@@ -505,7 +505,7 @@ The risk profile is different from Kenya's. Indonesian FinTech lending splits in
 
 Vietnam has around 70 percent bank-account ownership and a rapidly growing FinTech credit segment, driven by platforms like MoMo, ZaloPay, and VNPay and by banking incumbents' digital subsidiaries. The State Bank of Vietnam issued Decree 94/2025/ND-CP [@sbv2023vietnam], which establishes a regulatory sandbox for FinTech activities in the banking sector. The sandbox is narrowly scoped (peer-to-peer lending, credit scoring, and open API services) and includes data-protection requirements aligned with the 2023 Personal Data Protection Decree.
 
-Scoring model practice in Vietnam has converged toward hybrid bureau-plus-transactional models, similar to the Chinese approach. Bureau coverage through the CIC (Credit Information Center of the State Bank of Vietnam) is around 70 percent of formal-sector adults, which is enough to support ensemble models with bureau as a base. @chu2024vietnam document that bank lending in Vietnam is sensitive to macroeconomic uncertainty, a feature that carries through to digital credit portfolios when funding comes from bank balance sheets.
+Scoring model practice in Vietnam has converged toward hybrid bureau-plus-transactional models, similar to the Chinese approach. Bureau coverage through the CIC (Credit Information Center of the State Bank of Vietnam) is around 70 percent of formal-sector adults, which is enough to support ensemble models with bureau as a base. Bank lending in Vietnam is sensitive to macroeconomic uncertainty, a feature that carries through to digital credit portfolios when funding comes from bank balance sheets.
 
 ### Comparative table
 

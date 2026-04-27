@@ -203,6 +203,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 sys.path.insert(0, '../code')
+from creditutils import stable_sigmoid
 
 rng = np.random.default_rng(29)
 
@@ -214,6 +215,8 @@ RATING_IDX = {r: i for i, r in enumerate(RATINGS)}
 ```
 
 The panel has 2,500 firms over 8 years with eight rating grades including default as absorbing. Firms carry a country, an industry, and a slowly evolving latent credit quality. Financial ratios are generated conditional on the latent quality and contaminated with firm-specific noise. This lets us compare a model's prediction on simulated ratios to the true underlying rating.
+
+Public data note: no free dataset combines anonymized firm identifiers, multi-year tracking, multi-grade ratings, country and industry attributes, and default events. The closest open corporate-default panel is @liang2016financial Taiwanese Bankruptcy Prediction (UCI 572, 6,819 firm-years with 95 ratios and binary bankruptcy used in @sec-ch06-altman-replication), but it ships no firm IDs and no rating labels, so it cannot drive a transition-matrix or downgrade-hazard demonstration. Compustat-CRSP linked panels with S&P or Moody's grade histories satisfy every requirement and are how production rating models are trained, but they are paywalled. The simulation below preserves the empirical features that matter for the methodology (rating distribution dominated by BBB and BB, default rate around 1 percent, persistence of latent quality) without distributing licensed data.
 
 ```{python}
 #| label: panel-simulation
@@ -250,7 +253,7 @@ def simulate_panel(n_firms=N_FIRMS, n_years=N_YEARS, seed=29):
         quality = 0.85 * quality + macro[t] + rng.normal(0.0, 0.5, size=n_firms)
 
         # Latent PD: logistic transform. Lower quality -> higher PD.
-        pd_latent = 1.0 / (1.0 + np.exp(3.5 + 1.8 * quality))
+        pd_latent = stable_sigmoid(-(3.5 + 1.8 * quality))
 
         # Draw actual default conditional on PD.
         defaults = (rng.random(n_firms) < pd_latent) & alive
@@ -984,7 +987,7 @@ The financial reporting environment is bifurcated. Large firms and listed subsid
 
 ### Application considerations
 
-Three adaptations of the generic corporate rating pipeline are needed for Vietnam. First, feature engineering must be VAS-aware. Liabilities must be reconciled to include off-balance-sheet operating lease commitments disclosed in the notes. Revenue must be reconciled across invoice-date and delivery-date recognition. Related-party receivables should be flagged rather than netted, because in the SME segment they are a leading indicator of distress. Second, the observable sample is biased toward formally registered firms. Informal and household businesses, which account for roughly a third of non-farm employment [@malesky2014know, @rand2014examining], are absent from the registry and from CIC records. A model trained only on registered SMEs overstates the addressable default rate for the formal segment and understates it for the unregistered segment the bank would like to acquire. Third, sector effects are large and policy-driven. Construction and real-estate SMEs, agriculture cooperatives, and export-oriented textile and seafood firms each carry a different policy overlay, sometimes including subsidized rates under Circular 39/2016 [@sbv_circular39_2016] and sometimes a credit-room carve-out. A single pooled rating model compresses these effects into noise.
+Three adaptations of the generic corporate rating pipeline are needed for Vietnam. First, feature engineering must be VAS-aware. Liabilities must be reconciled to include off-balance-sheet operating lease commitments disclosed in the notes. Revenue must be reconciled across invoice-date and delivery-date recognition. Related-party receivables should be flagged rather than netted, because in the SME segment they are a leading indicator of distress. Second, the observable sample is biased toward formally registered firms. Informal and household businesses, which account for roughly a third of non-farm employment [@malesky2009out, @rand2012firm], are absent from the registry and from CIC records. A model trained only on registered SMEs overstates the addressable default rate for the formal segment and understates it for the unregistered segment the bank would like to acquire. Third, sector effects are large and policy-driven. Construction and real-estate SMEs, agriculture cooperatives, and export-oriented textile and seafood firms each carry a different policy overlay, sometimes including subsidized rates under Circular 39/2016 [@sbv_circular39_2016] and sometimes a credit-room carve-out. A single pooled rating model compresses these effects into noise.
 
 ### Rationalization
 

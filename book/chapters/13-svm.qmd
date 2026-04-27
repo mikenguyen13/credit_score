@@ -328,7 +328,7 @@ sys.path.insert(0, '../code')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from creditutils import load_german_credit, load_taiwan_default, ks_statistic
+from creditutils import load_german_credit, load_taiwan_default, ks_statistic, stable_sigmoid
 np.random.seed(0)
 ```
 
@@ -745,7 +745,7 @@ logit = (-2.0
          + 0.6 * feat['delinq_12m'].to_numpy()
          + 0.4 * feat['inquiries_6m'].to_numpy()
          - 0.02 * feat['tenure_mo'].to_numpy() / 50.0)
-p = 1.0 / (1.0 + np.exp(-logit))
+p = stable_sigmoid(logit)
 y_sim = (rng.random(N) < p).astype(int)
 X_sim = feat.to_numpy()
 print(f"N = {N:,}   p = {X_sim.shape[1]}   "
@@ -817,7 +817,7 @@ Why use an SVM at all in Vietnam. Three reasons. First, as a challenger. When th
 
 ### Practical notes
 
-Operational defaults for an SVM on Vietnamese retail data. Standardize every numerical feature on the training fold only. Encode province and employment class with ordinal target-rate encoding before feeding the kernel. Use LinearSVC with a Platt calibration fold for the full-portfolio model. Cap kernel SVC training at 30,000 rows for diagnostic runs. Apply `class_weight='balanced'` when the default rate is below 5 percent. Log the Platt coefficients, the kernel hyperparameters, and a fingerprint of the support vector indices in MLflow so that an SBV reviewer or an offshore parent can re-run the classifier bit-for-bit. Monitor AUC and KS by province, channel, and vintage, because macroeconomic shocks propagate faster through Vietnamese retail books than through most OECD benchmarks [@chu2024vietnam]. Document every alternative-data feature against Decree 13/2023/ND-CP's data-minimization clause and drop features whose consent chain cannot be audited [@vn_decree13_2023].
+Operational defaults for an SVM on Vietnamese retail data. Standardize every numerical feature on the training fold only. Encode province and employment class with ordinal target-rate encoding before feeding the kernel. Use LinearSVC with a Platt calibration fold for the full-portfolio model. Cap kernel SVC training at 30,000 rows for diagnostic runs. Apply `class_weight='balanced'` when the default rate is below 5 percent. Log the Platt coefficients, the kernel hyperparameters, and a fingerprint of the support vector indices in MLflow so that an SBV reviewer or an offshore parent can re-run the classifier bit-for-bit. Monitor AUC and KS by province, channel, and vintage, because macroeconomic shocks propagate faster through Vietnamese retail books than through most OECD benchmarks. Document every alternative-data feature against Decree 13/2023/ND-CP's data-minimization clause and drop features whose consent chain cannot be audited [@vn_decree13_2023].
 
 ---
 

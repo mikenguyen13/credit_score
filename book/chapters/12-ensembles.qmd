@@ -261,7 +261,7 @@ import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import roc_auc_score, brier_score_loss
 from sklearn.ensemble import GradientBoostingClassifier
-from creditutils import load_taiwan_default, ks_statistic
+from creditutils import load_taiwan_default, ks_statistic, stable_sigmoid
 
 rng = np.random.default_rng(42)
 
@@ -281,7 +281,7 @@ class ScratchGBLogistic:
         self.random_state = random_state
 
     def _sigmoid(self, z):
-        return 1.0 / (1.0 + np.exp(-z))
+        return stable_sigmoid(z)
 
     def fit(self, X, y):
         X = np.asarray(X, dtype=float)
@@ -1580,15 +1580,15 @@ Vietnam offers a clean test case for boosted ensembles in an emerging market. Th
 
 Ensembles behave differently at Vietnamese sample sizes. Take the three failure modes in turn.
 
-Small-N training sets. A 50,000 to 200,000 row application book with a 3 to 8 percent default rate contains between 1,500 and 16,000 positives. A random forest with 500 trees of depth 20 will memorize that minority class in training and collapse on out-of-time validation. LightGBM and XGBoost with `num_leaves` in the 15 to 31 range, `min_data_in_leaf` of 200 or more, learning rate 0.03 to 0.05, and 200 to 500 rounds (with early stopping) is a safer default. @tran2022xgboost reports that carefully tuned gradient boosting beats logistic regression by 2 to 5 AUC points on Vietnamese consumer portfolios, a real but not overwhelming lift.
+Small-N training sets. A 50,000 to 200,000 row application book with a 3 to 8 percent default rate contains between 1,500 and 16,000 positives. A random forest with 500 trees of depth 20 will memorize that minority class in training and collapse on out-of-time validation. LightGBM and XGBoost with `num_leaves` in the 15 to 31 range, `min_data_in_leaf` of 200 or more, learning rate 0.03 to 0.05, and 200 to 500 rounds (with early stopping) is a safer default. @tran2021machine reports that carefully tuned gradient boosting beats logistic regression by 2 to 5 AUC points on Vietnamese consumer portfolios, a real but not overwhelming lift.
 
 Categorical handling on informal-sector features. Province, household-registration type, and employment class are high-cardinality (Vietnam's July 2025 administrative reorganization consolidated 63 provinces into 34 provincial-level units; any province-fixed-effect scheme must map pre-merger and post-merger codes; dozens of occupation codes). CatBoost's ordered target statistics are ideal here, because they avoid the target leakage that plain mean-encoding introduces on thin province-level buckets [@prokhorenkova2018catboost]. LightGBM's native categorical split is a reasonable alternative when CatBoost's training cost is prohibitive.
 
 Monotonicity and IRB migration. Vietnamese banks preparing for the IRB transition under the SBV roadmap need PD models monotone in utilization, past-due counts, and delinquency age. Apply `monotone_constraints` as early as candidate-model selection, not as a late patch. The AUC cost is typically 0.002 to 0.005, consistent with the benchmark reported for Taiwan in this chapter.
 
-Stacking and meta-learning are sometimes pitched as the response to small-N. In practice, a stack of logistic scorecard plus LightGBM plus CatBoost tends to overfit the validation fold when the underlying samples are small and correlated. A single regularized booster with a monotone constraint and a post-hoc isotonic calibration is usually a better bet than a stack on Vietnamese retail data [@chu2024vietnam].
+Stacking and meta-learning are sometimes pitched as the response to small-N. In practice, a stack of logistic scorecard plus LightGBM plus CatBoost tends to overfit the validation fold when the underlying samples are small and correlated. A single regularized booster with a monotone constraint and a post-hoc isotonic calibration is usually a better bet than a stack on Vietnamese retail data.
 
-A fourth consideration is alternative data. Mobile-channel features collected under Circular 16/2020/TT-NHNN (device fingerprint, session velocity, geolocation consistency) carry repayment signal in emerging-market settings [@bjorkegren2020behavior], but they drift quickly and can leak identity information under Decree 13/2023/ND-CP if not hashed at ingestion [@sbv_circular16_2020; @vn_decree13_2023]. A booster that consumes these features needs a feature-level consent audit trail and a PSI monitor by channel, not just by province. A fifth consideration is out-of-time validation. Vietnamese retail books exhibit faster concept drift than typical OECD benchmarks, with product mix and channel share shifting year over year [@chu2024vietnam]. A boosted model validated only on a random hold-out will overstate performance; a time-split validation with at least six months of out-of-time data is the defensible baseline, and the one that the SBV sandbox application is most likely to ask for [@vn_decree94_2025].
+A fourth consideration is alternative data. Mobile-channel features collected under Circular 16/2020/TT-NHNN (device fingerprint, session velocity, geolocation consistency) carry repayment signal in emerging-market settings [@bjorkegren2020behavior], but they drift quickly and can leak identity information under Decree 13/2023/ND-CP if not hashed at ingestion [@sbv_circular16_2020; @vn_decree13_2023]. A booster that consumes these features needs a feature-level consent audit trail and a PSI monitor by channel, not just by province. A fifth consideration is out-of-time validation. Vietnamese retail books exhibit faster concept drift than typical OECD benchmarks, with product mix and channel share shifting year over year. A boosted model validated only on a random hold-out will overstate performance; a time-split validation with at least six months of out-of-time data is the defensible baseline, and the one that the SBV sandbox application is most likely to ask for [@vn_decree94_2025].
 
 ### Rationalization
 
@@ -1596,7 +1596,7 @@ The choice between a boosted ensemble and a scorecard in Vietnam hinges on three
 
 ### Practical notes
 
-Operational defaults that have held up on Vietnamese consumer books. Use LightGBM or CatBoost with at most 500 rounds and a learning rate of 0.03 to 0.05. Set `min_data_in_leaf` to at least 200 on books under 100,000 rows. Apply monotone constraints on utilization, past-due counts, and delinquency age. Calibrate with isotonic regression on a held-out fold. Store the TreeSHAP explainer next to the model artifact so the adverse-action service can run without re-training. Document training data provenance to the CIC pull date and to any alternative-data vendor, because Decree 13/2023/ND-CP treats alternative data differently from bureau data [@vn_decree13_2023]. Monitor population stability by province and by channel (mobile, branch, agent), because eKYC-originated cohorts drift faster than branch-originated cohorts [@adb2023digital]. Retrain quarterly in a normal cycle, faster when macroeconomic uncertainty rises [@chu2024vietnam]. Finally, keep a bilingual model card, in Vietnamese and English, so the same artifact satisfies the SBV and an offshore parent's model-risk team.
+Operational defaults that have held up on Vietnamese consumer books. Use LightGBM or CatBoost with at most 500 rounds and a learning rate of 0.03 to 0.05. Set `min_data_in_leaf` to at least 200 on books under 100,000 rows. Apply monotone constraints on utilization, past-due counts, and delinquency age. Calibrate with isotonic regression on a held-out fold. Store the TreeSHAP explainer next to the model artifact so the adverse-action service can run without re-training. Document training data provenance to the CIC pull date and to any alternative-data vendor, because Decree 13/2023/ND-CP treats alternative data differently from bureau data [@vn_decree13_2023]. Monitor population stability by province and by channel (mobile, branch, agent), because eKYC-originated cohorts drift faster than branch-originated cohorts [@adb2023digital]. Retrain quarterly in a normal cycle, faster when macroeconomic uncertainty rises. Finally, keep a bilingual model card, in Vietnamese and English, so the same artifact satisfies the SBV and an offshore parent's model-risk team.
 
 ---
 

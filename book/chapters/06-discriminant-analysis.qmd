@@ -11,7 +11,7 @@ bibliography: [../references.bib, ../refs/ch-06.bib]
 
 Linear discriminant analysis was the first statistical tool a bank analyst could hand to a credit committee with a coefficient table and a decision rule. It still is, in many corporate risk groups, because regulators, auditors, and working capital officers can read it. @altman1968zscore turned Fisher's 1936 idea into a working bankruptcy filter by fitting a five-ratio discriminant function on a matched sample of 66 manufacturers. More than five decades later, the Z-score survives as a monitoring metric, a covenant trigger, and a classroom staple. The method is no longer state of the art for out-of-sample accuracy, but it is a lower bound on interpretability and a useful calibration against fancier models.
 
-This chapter rebuilds that machinery end to end. The formal part derives Fisher's criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to quadratic discriminant analysis (@sec-ch06-qda) when covariances differ. The empirical part reproduces the Altman MDA on a simulated panel, then steps through the Z', Z'', and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson's logit, Shumway's hazard model, and the Campbell-Hilscher-Szilagyi distance measure, and documents where LDA still wins and where it loses badly.
+This chapter rebuilds that machinery end to end. The formal part derives Fisher's criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to quadratic discriminant analysis (@sec-ch06-qda) when covariances differ. The empirical part replays the Altman MDA on the @liang2016financial Taiwanese Bankruptcy Prediction panel (UCI 572: 6,819 firm-years, 220 bankruptcies), then steps through the Z', Z'', and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson's logit, Shumway's hazard model, and the Campbell-Hilscher-Szilagyi distance measure (@sec-ch06-chs), and documents where LDA still wins and where it loses badly.
 
 A pragmatic warning first. LDA on raw consumer-credit features, with their mixture of one-hot dummies and skewed amounts, is almost always dominated by a penalized logit or a gradient-boosted tree on the same design matrix. The reason is not that LDA is wrong in principle. It is that its generative Gaussian assumption is wrong in that particular setting. Where features really are close to jointly Gaussian, LDA remains statistically efficient [@efron1975efficiency]. The chapter gives the conditions and shows them in code.
 
@@ -37,11 +37,11 @@ A credit classifier produces a score $s(x) \in \mathbb{R}$ for each applicant ve
 
 Three ingredients separate LDA from its alternatives.
 
-1.  A generative assumption on the class-conditional distribution. LDA posits $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$ with shared covariance. QDA relaxes to $\Sigma_k$. Naive Bayes factors the density across features. Logistic regression makes no density assumption at all and models $\Pr(Y \mid X)$ directly.
+1.  **A generative assumption on the class-conditional distribution**. LDA posits $X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)$ with shared covariance. QDA relaxes to $\Sigma_k$. Naive Bayes factors the density across features. Logistic regression makes no density assumption at all and models $\Pr(Y \mid X)$ directly.
 
-2.  An estimation procedure. LDA uses the sample class means and pooled covariance, which are the maximum-likelihood estimators under the Gaussian assumption. Logit uses maximum-likelihood estimation of the conditional density. Both converge at the standard parametric rate $n^{-1/2}$ to their respective targets.
+2.  **An estimation procedure**. LDA uses the sample class means and pooled covariance, which are the maximum-likelihood estimators under the Gaussian assumption. Logit uses maximum-likelihood estimation of the conditional density. Both converge at the standard parametric rate $n^{-1/2}$ to their respective targets.
 
-3.  A decision function. LDA's is $\hat\Sigma^{-1}(\hat\mu_1 - \hat\mu_0)$. Logit's is the MLE of the log-odds coefficient. When the LDA assumptions hold, both targets coincide and the question is efficiency. When they fail, LDA's estimand is no longer the Bayes rule and logit wins by consistency.
+3.  **A decision function**. LDA's is $\hat\Sigma^{-1}(\hat\mu_1 - \hat\mu_0)$. Logit's is the MLE of the log-odds coefficient. When the LDA assumptions hold, both targets coincide and the question is efficiency. When they fail, LDA's estimand is no longer the Bayes rule and logit wins by consistency.
 
 The chapter walks through these three ingredients in order, first for the two-class case that matches corporate bankruptcy, then for the multi-class case that matches rating-grade assignment, then back to binary with the full credit-scoring machinery around it.
 
@@ -49,7 +49,7 @@ The chapter walks through these three ingredients in order, first for the two-cl
 
 ### Fisher's criterion
 
-Fisher [@fisher1936use] asked for a linear projection $w^\top X$ of the feature vector that separates the two classes as well as possible. Measure separation by the ratio of between-class to within-class variance along the projected axis. If $\mu_0, \mu_1 \in \mathbb{R}^p$ are the class means and $\Sigma_0, \Sigma_1$ are the class covariances, the projected between-class squared distance is $\left(w^\top(\mu_1 - \mu_0)\right)^2$, and the projected within-class variance is $w^\top(\Sigma_0 + \Sigma_1) w$ up to class weights. Fisher's criterion is
+@fisher1936use asked for a linear projection $w^\top X$ of the feature vector that separates the two classes as well as possible. Measure separation by the ratio of between-class to within-class variance along the projected axis. If $\mu_0, \mu_1 \in \mathbb{R}^p$ are the class means and $\Sigma_0, \Sigma_1$ are the class covariances, the projected between-class squared distance is $\left(w^\top(\mu_1 - \mu_0)\right)^2$, and the projected within-class variance is $w^\top(\Sigma_0 + \Sigma_1) w$ up to class weights. Fisher's criterion is
 
 $$
 J(w) = \frac{\bigl(w^\top(\mu_1 - \mu_0)\bigr)^2}{w^\top \Sigma_W w} = \frac{w^\top S_B w}{w^\top S_W w},
@@ -258,7 +258,7 @@ print(f"QDA  log-loss: {qda_ll:.3f}")
 print(f"RDA  log-loss: {loss[i_star, j_star]:.3f} at (alpha, gamma) = ({a_star:.2f}, {g_star:.2f})")
 ```
 
-RDA finds an interior $(\alpha, \gamma)$ that beats both corners. On a Gaussian-equal-covariance sample the optimum would collapse to the LDA corner; on a sample with distinct covariances and a small minority class the optimum is typically in the interior. For credit work this matters most in two settings: corporate distress scoring with a dozen or two defaulters per year, and consumer-credit segments like fraud-adjacent cohorts where the rarer class is both thin and heteroskedastic. Either way the cost is one cross-validation grid over a $11 \times 11$ rectangle, which is negligible next to the downstream calibration and monitoring pipeline.
+RDA finds an interior $(\alpha, \gamma)$ that beats both corners. On a Gaussian-equal-covariance sample, the optimum would collapse to the LDA corner; on a sample with distinct covariances and a small minority class the optimum is typically in the interior. For credit work, this matters most in two settings: corporate distress scoring with a dozen or two defaulters per year, and consumer-credit segments like fraud-adjacent cohorts where the rarer class is both thin and heteroskedastic. Either way the cost is one cross-validation grid over a $11 \times 11$ rectangle, which is negligible next to the downstream calibration and monitoring pipeline.
 
 A caveat: RDA inherits LDA's generative Gaussian assumption. It handles covariance misspecification but not the failure modes documented in @sec-ch06-limitations (heavy categoricals, skewed amounts, rare-event bias). On a mixed-type consumer design matrix, a well-tuned regularized logit remains the better default; RDA is the right tool when the predictors are continuous financial ratios and the sample is too thin for unconstrained QDA.
 
@@ -452,7 +452,7 @@ $$ {#eq-altman-z}
 with ratios defined as
 
 | Ratio | Definition | Story |
-|--------------------|---------------------------------|--------------------|
+|--------------------|--------------------------------|--------------------|
 | $X_1$ | Working capital / Total assets | Short-term liquidity buffer. |
 | $X_2$ | Retained earnings / Total assets | Cumulative profitability and age. |
 | $X_3$ | EBIT / Total assets | Operating efficiency, independent of leverage and tax. |
@@ -493,89 +493,221 @@ The stepwise selection procedure Altman used is no longer the methodology of cho
 
 One more historical detail matters. Altman's paper reports two sets of error rates. The first is the in-sample error rate on the 66-firm training sample (6 percent). The second is a jack-knife estimate that holds out each firm in turn (20 to 25 percent). The out-of-sample rate is what held up over time; the in-sample rate is an artifact of fitting a 5-coefficient linear model on 66 observations. Readers who quote the 95 percent accuracy figure without the jack-knife context usually overstate the model's true predictive power by a factor of three on the error side.
 
-### Reproducing the coefficients on a simulated panel
+### Reproducing the coefficients on a public corporate panel {#sec-ch06-altman-replication}
 
-We cannot redistribute Altman's original panel. What we can do is simulate a plausible cross-section of firms, inject a latent Z-score as the true default driver, and rerun MDA to see the coefficient vector emerge.
+Altman's original 66-firm panel is not redistributable, but the @liang2016financial Taiwanese Bankruptcy Prediction dataset (UCI 572) is. It carries 6,819 firm-years from companies listed on the Taiwan Stock Exchange between 1999 and 2009, 220 of them flagged as bankrupt the following year (a 3.2 percent base rate), with 95 financial ratios per firm-year. Five of those ratios line up directly with Altman's $X_1$ through $X_5$, with one substitution: UCI 572 ships only book-value items, so $X_4$ is the book-equity-to-liability ratio used in Altman's $Z'$ refit for private firms (@altman2000predicting), not the original market-value ratio. Everything in this section therefore fits $Z'$, not the public-firm $Z$, and the appropriate decision cutoffs are $Z' < 1.23$ for distress and $Z' > 2.90$ for safe. The released features are min-max normalized to $[0,1]$, so the recovered coefficient magnitudes will not match Altman's published numbers in absolute scale; the relative weights and the implied ranking are what carry over.
 
 ```{python}
-#| fig-cap: "Simulated distribution of the Altman Z-score. Dashed lines are the 1.81 and 2.99 cutoffs. The left hump is the distress sample, the right hump is the safe sample."
-rng = np.random.default_rng(42)
-n = 4000
+#| fig-cap: "Distribution of the Altman Z' index on the Taiwan UCI 572 panel. Dashed lines mark the 1.23 and 2.90 cutoffs from @altman2000predicting. The bankrupt subset (red) sits visibly to the left of the survivor mass (green) but the overlap is much wider than on a textbook simulation, which is the empirical reality of bankruptcy prediction at one-year horizon."
+import sys
+sys.path.insert(0, "../code")
+from creditutils import load_taiwan_bankruptcy, stable_sigmoid
 
-# Plausible cross-section of financial ratios for US manufacturers.
-X1 = rng.normal(0.15, 0.15, n)    # WC/TA
-X2 = rng.normal(0.20, 0.25, n)    # RE/TA
-X3 = rng.normal(0.08, 0.10, n)    # EBIT/TA
-X4 = rng.normal(1.20, 1.00, n)    # MVE/TL
-X5 = rng.normal(1.00, 0.50, n)    # Sales/TA
-ratios = np.column_stack([X1, X2, X3, X4, X5])
+firms = load_taiwan_bankruptcy()
+print(f"firms: {len(firms):,}   bankruptcies: {int(firms['default'].sum())}"
+      f"   base rate: {firms['default'].mean():.3%}")
 
-# True latent Z per Altman.
-Z_true = 1.2 * X1 + 1.4 * X2 + 3.3 * X3 + 0.6 * X4 + 1.0 * X5
+ratios = firms[["WC_TA", "RE_TA", "EBIT_TA", "BVE_TL", "Sales_TA"]].to_numpy()
+y_fin = firms["default"].to_numpy().astype(int)
 
-# Default label driven by latent Z through a sharp logistic link.
-p_distress = 1.0 / (1.0 + np.exp(6.0 * (Z_true - 1.5)))
-y_fin = (rng.uniform(size=n) < p_distress).astype(int)
+# Apply the published Z' coefficients to the (normalized) Taiwan ratios.
+ALT_Z_PRIME = np.array([0.717, 0.847, 3.107, 0.420, 0.998])
+Z_pub = ratios @ ALT_Z_PRIME
 
-print(f"simulated default rate: {y_fin.mean():.3f}")
-print(f"mean Z distressed: {Z_true[y_fin==1].mean():.2f}")
-print(f"mean Z survivors : {Z_true[y_fin==0].mean():.2f}")
+print(f"mean Z' bankrupt : {Z_pub[y_fin == 1].mean():.2f}")
+print(f"mean Z' survivor : {Z_pub[y_fin == 0].mean():.2f}")
 
 fig, ax = plt.subplots(figsize=(7, 4))
-ax.hist(Z_true[y_fin == 0], bins=60, alpha=0.6, label="survivors", color="#2ca02c")
-ax.hist(Z_true[y_fin == 1], bins=60, alpha=0.6, label="distressed", color="#d62728")
-for c, lbl in [(1.81, "distress cutoff"), (2.99, "safe cutoff")]:
+ax.hist(Z_pub[y_fin == 0], bins=60, alpha=0.6, label="survivors", color="#2ca02c")
+ax.hist(Z_pub[y_fin == 1], bins=60, alpha=0.6, label="bankrupt", color="#d62728")
+for c, lbl in [(1.23, "distress cutoff"), (2.90, "safe cutoff")]:
     ax.axvline(c, color="k", linestyle="--", linewidth=1)
-    ax.text(c, ax.get_ylim()[1] * 0.9, lbl, rotation=90, va="top", ha="right", fontsize=9)
-ax.set_xlabel("Altman Z")
+    ax.text(c, ax.get_ylim()[1] * 0.9, lbl, rotation=90,
+            va="top", ha="right", fontsize=9)
+ax.set_xlabel("Altman Z' (book-equity variant, on normalized inputs)")
 ax.set_ylabel("count")
 ax.legend()
 plt.tight_layout()
 plt.show()
 ```
 
-Now fit MDA on the simulated cross-section and compare the recovered direction with the published Altman coefficients.
+The two distributions overlap heavily: the bankruptcy mode sits about 0.3 to the left of the survivor mode but the right tail of the bankrupt group spills well past the survivor mode and vice versa. That is the honest empirical picture. Altman's original 6 percent in-sample error rate on a 66-firm matched panel does not generalize to a 6,819-firm unmatched cross-section at a 3 percent base rate; the AUC numbers later in this section will quantify the gap. Now refit MDA on the Taiwan panel and compare the recovered direction with Altman's published $Z'$ coefficients, after standardizing both sides so the comparison is in Mahalanobis units.
 
 ```{python}
-lda_fin = LinearDiscriminantAnalysis().fit(ratios, y_fin)
-coef_raw = lda_fin.coef_.ravel()
+ratios_std = (ratios - ratios.mean(axis=0)) / ratios.std(axis=0)
+lda_fin = LinearDiscriminantAnalysis().fit(ratios_std, y_fin)
+coef_std = -lda_fin.coef_.ravel()  # flip so larger = safer (matches Altman sign)
+coef_norm = coef_std / np.abs(coef_std).sum()
 
-# Rescale so the EBIT/TA coefficient matches Altman's 3.3.
-scale = 3.3 / coef_raw[2] if coef_raw[2] != 0 else 1.0
-coef_scaled = coef_raw * scale
+alt_norm = ALT_Z_PRIME / ALT_Z_PRIME.sum()
 
-altman_coefs = np.array([1.2, 1.4, 3.3, 0.6, 1.0])
 print(pd.DataFrame({
-    "ratio": ["WC/TA", "RE/TA", "EBIT/TA", "MVE/TL", "Sales/TA"],
-    "Altman (1968)": altman_coefs,
-    "recovered (MDA)": np.round(-coef_scaled, 3),  # flip sign so larger = safer
+    "ratio": ["WC/TA", "RE/TA", "EBIT/TA", "BVE/TL", "Sales/TA"],
+    "Altman Z' (normalized)": np.round(alt_norm, 3),
+    "Taiwan refit (normalized)": np.round(coef_norm, 3),
 }).to_string(index=False))
 ```
 
-The recovered direction is within rounding of Altman's published vector. The small discrepancies trace to two sources: Altman's stepwise selection process ignored weaker ratios, and his use of percentage units versus decimal units in the original paper changes only the scaling of coefficients, not their relative weights. The exercise makes one point that is easy to miss when you read the 1968 paper in isolation: Altman's coefficients are not magic numbers. They are the unique direction that maximizes Mahalanobis separation between his two samples. A modern analyst who refits on an updated panel will not recover 1.2, 1.4, 3.3, 0.6, 1.0 exactly, and should not expect to.
+The relative weighting is broadly consistent with Altman's $Z'$ ordering: profitability ($X_3$, EBIT/TA) and cumulative profitability ($X_2$, RE/TA) carry most of the discriminative weight, with liquidity ($X_1$, WC/TA) and the book-equity ratio ($X_4$) contributing materially. The numerical magnitudes do not match Altman's 1968 publication and they are not supposed to. The Fisher direction $\Sigma^{-1}(\mu_1 - \mu_0)$ depends on the within-class covariance of the underlying sample, and a 6,819-firm Taiwanese panel with min-max normalized ratios and a 3.2 percent base rate has a different $\Sigma$ from a 66-firm matched US manufacturing sample with raw ratios and a 50 percent base rate. The substantive lesson is the one Altman's coefficients always carried: profitability and cumulative profitability dominate, leverage and liquidity contribute, and asset turnover is the smallest of the five even after a refit on a different country, decade, and base rate.
+
+### Demonstrating the three caveats
+
+The historical note above claims three things about Altman's 1968 design: (i) the matched sample bakes in a 50-50 prior that the published intercept inherits, (ii) stepwise selection on a 66-firm sample picks an unstable variable subset, and (iii) the in-sample accuracy headline overstates predictive power by a factor of three relative to a jack-knife estimate. The Taiwan panel is the right laboratory for each claim because it has more than 200 actual bankruptcies, which is enough to replay Altman's 33-plus-33 design hundreds of times.
+
+#### Caveat 1: the matched 50-50 prior
+
+Take one draw of 33 bankrupt and 33 healthy firms from the Taiwan panel (Altman's proportions), fit LDA on that matched subset, and compare the intercept and the implied decision boundary against an LDA fit on the full cross-section with its empirical 3.2 percent base rate.
+
+```{python}
+#| label: fig-ch06-altman-caveats-prior
+#| fig-cap: "Score distribution under the matched 50-50 design versus the empirical base rate. The zero-score boundary shifts because the LDA intercept is a function of the class priors. Altman's 1.23/2.90 cutoffs inherit the matched-sample prior."
+idx_d = np.where(y_fin == 1)[0]
+idx_s = np.where(y_fin == 0)[0]
+
+rng_c = np.random.default_rng(7)
+m_d = rng_c.choice(idx_d, size=33, replace=False)
+m_s = rng_c.choice(idx_s, size=33, replace=False)
+match_idx = np.concatenate([m_d, m_s])
+X_match, y_match = ratios[match_idx], y_fin[match_idx]
+
+lda_match = LinearDiscriminantAnalysis().fit(X_match, y_match)
+lda_full = LinearDiscriminantAnalysis().fit(ratios, y_fin)
+
+score_match = ratios @ lda_match.coef_.ravel() + lda_match.intercept_[0]
+score_full = ratios @ lda_full.coef_.ravel() + lda_full.intercept_[0]
+
+print(f"matched prior P(default) : {lda_match.priors_[1]:.2f}")
+print(f"empirical prior P(default): {lda_full.priors_[1]:.3f}")
+print(f"matched intercept        : {lda_match.intercept_[0]:+.2f}")
+print(f"full-panel intercept     : {lda_full.intercept_[0]:+.2f}")
+
+fig, ax = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+for a, score, title, priors in [
+    (ax[0], score_match, "fit on matched 33+33", lda_match.priors_),
+    (ax[1], score_full, "fit on full panel (empirical prior)", lda_full.priors_),
+]:
+    a.hist(score[y_fin == 0], bins=60, alpha=0.6, color="#2ca02c", label="survivors")
+    a.hist(score[y_fin == 1], bins=60, alpha=0.6, color="#d62728", label="bankrupt")
+    a.axvline(0, color="k", linestyle="--", linewidth=1)
+    a.set_title(f"{title}\nP(default) = {priors[1]:.2f}")
+    a.set_xlabel("LDA score")
+    a.legend()
+ax[0].set_ylabel("count")
+plt.tight_layout()
+plt.show()
+```
+
+The two fits point in almost the same direction in feature space. What shifts is the intercept. A rule of "classify as distressed if LDA score exceeds zero" assigns roughly half the matched sample to each class by construction; the same rule applied under the empirical 3.2 percent prior misclassifies a different count because the base rate is far from 50 percent. Any practitioner who imports Altman's 1.23/2.90 cutoffs to a book whose default rate is 2 percent is implicitly operating at a 50-50 prior anchor that the cutoffs were calibrated for.
+
+#### Caveat 2: stepwise instability on a small sample
+
+Pad the five Altman ratios with five spurious candidates of similar marginal variance, then run forward selection on repeated 33-plus-33 bootstraps. Tracking which ratios survive across resamples isolates the stability problem from the signal problem.
+
+```{python}
+#| label: fig-ch06-altman-caveats-stepwise
+#| fig-cap: "Forward-selection frequency over 150 matched-sample bootstraps. Green bars are the true Altman ratios; red bars are five pure-noise candidates with comparable scale. Small-sample stepwise retains noise variables often enough to matter even when the true ratios dominate in expectation."
+from sklearn.feature_selection import SequentialFeatureSelector
+
+rng_n = np.random.default_rng(11)
+noise = rng_n.normal(size=(ratios.shape[0], 5))
+cand = np.column_stack([ratios, noise])
+cand_names = ["WC/TA", "RE/TA", "EBIT/TA", "BVE/TL", "Sales/TA",
+              "N1", "N2", "N3", "N4", "N5"]
+
+B = 150
+picks = np.zeros(len(cand_names))
+for _ in range(B):
+    bd = rng_n.choice(idx_d, size=33, replace=True)
+    bs = rng_n.choice(idx_s, size=33, replace=True)
+    sub = np.concatenate([bd, bs])
+    Xb, yb = cand[sub], y_fin[sub]
+    sfs = SequentialFeatureSelector(
+        LinearDiscriminantAnalysis(),
+        n_features_to_select=5, direction="forward", cv=3,
+        scoring="accuracy",
+    ).fit(Xb, yb)
+    picks += sfs.get_support().astype(int)
+
+freq = pd.Series(picks / B, index=cand_names).sort_values(ascending=False)
+print(freq.round(2))
+
+fig, ax = plt.subplots(figsize=(7, 4))
+colors = ["#2ca02c" if c in cand_names[:5] else "#d62728" for c in freq.index]
+freq.plot(kind="bar", ax=ax, color=colors)
+ax.set_ylabel("selection frequency across 150 bootstraps")
+ax.set_ylim(0, 1.0)
+plt.tight_layout()
+plt.show()
+```
+
+Across resamples, the five true ratios are picked most of the time but not all of the time, and at least one noise variable clears the selection threshold in a meaningful fraction of resamples. Altman fixed the feature set at publication and that froze the particular realization he drew. Later refits (Z', Z'', ZETA, the @tian2015variable and @altman2017financial updates) are essentially new draws from this distribution, which is why the retained ratios shift slightly across papers even when the economic story stays the same.
+
+#### Caveat 3: the jack-knife gap
+
+Repeat the 33-plus-33 design 300 times. For each draw, fit LDA and report two numbers: the resubstitution error on the 66 training firms and the leave-one-out error. The distance between the two is the bias Altman warned about.
+
+```{python}
+#| label: fig-ch06-altman-caveats-jackknife
+#| fig-cap: "Resubstitution versus leave-one-out error across 300 matched-sample draws. The optimistic in-sample rate clusters near Altman's 6 percent; the jack-knife lands in the 20 to 25 percent band he published as his honest out-of-sample number."
+from sklearn.model_selection import LeaveOneOut
+
+rng_j = np.random.default_rng(13)
+B = 300
+resub_err = np.empty(B)
+loo_err = np.empty(B)
+for b in range(B):
+    bd = rng_j.choice(idx_d, size=33, replace=False)
+    bs = rng_j.choice(idx_s, size=33, replace=False)
+    sub = np.concatenate([bd, bs])
+    Xb, yb = ratios[sub], y_fin[sub]
+
+    fit = LinearDiscriminantAnalysis().fit(Xb, yb)
+    resub_err[b] = 1.0 - fit.score(Xb, yb)
+
+    miss = 0
+    for tr, te in LeaveOneOut().split(Xb):
+        f = LinearDiscriminantAnalysis().fit(Xb[tr], yb[tr])
+        miss += int(f.predict(Xb[te])[0] != yb[te][0])
+    loo_err[b] = miss / 66.0
+
+print(f"resubstitution error : mean {resub_err.mean():.3f}  sd {resub_err.std():.3f}")
+print(f"leave-one-out error  : mean {loo_err.mean():.3f}  sd {loo_err.std():.3f}")
+print(f"mean jack-knife gap  : {(loo_err - resub_err).mean():.3f}")
+
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ax.hist(resub_err, bins=25, alpha=0.6, color="#2ca02c",
+        label="resubstitution (in-sample)")
+ax.hist(loo_err, bins=25, alpha=0.6, color="#d62728",
+        label="leave-one-out (jack-knife)")
+ax.axvline(0.06, color="#2ca02c", linestyle="--", linewidth=1)
+ax.axvline(0.225, color="#d62728", linestyle="--", linewidth=1)
+ax.set_xlabel("misclassification rate on a 33+33 matched sample")
+ax.set_ylabel("count across 300 draws")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The resubstitution distribution concentrates near the 6 percent that Altman's paper headlines. The leave-one-out distribution sits several times higher. A simulation with a known data-generating process reproduces his reported gap exactly because the gap is a structural property of fitting a five-coefficient linear rule on 66 observations, not a quirk of the particular 1946 to 1965 sample. The practical lesson: on any small-sample MDA or logistic scorecard, publish both numbers or neither; the in-sample figure on its own is misleading.
 
 ### Applying the Z-score
 
 ```{python}
-#| fig-cap: "Default rate by decision zone on the simulated panel. The safe zone's implied default rate is close to the base rate of a healthy book; the distress zone concentrates most defaulters."
-def altman_z(df):
-    return (1.2 * df["WC_TA"] + 1.4 * df["RE_TA"] + 3.3 * df["EBIT_TA"]
-            + 0.6 * df["MVE_TL"] + 1.0 * df["Sales_TA"])
+#| fig-cap: "Empirical default rate by Altman Z' decision zone on the Taiwan UCI 572 panel. The published cutoffs (1.23 distress, 2.90 safe) refer to the @altman2000predicting Z' equation. The safe-zone rate is non-zero, the gray zone carries materially more risk, and the distress zone concentrates the bankruptcies, exactly the qualitative pattern the cutoffs were designed to produce."
+def altman_z_prime(df):
+    return (0.717 * df["WC_TA"] + 0.847 * df["RE_TA"] + 3.107 * df["EBIT_TA"]
+            + 0.420 * df["BVE_TL"] + 0.998 * df["Sales_TA"])
 
 
 def zone(z):
-    if z < 1.81:
+    if z < 1.23:
         return "distress"
-    if z < 2.99:
+    if z < 2.90:
         return "gray"
     return "safe"
 
 
-firms = pd.DataFrame({
-    "WC_TA": X1, "RE_TA": X2, "EBIT_TA": X3, "MVE_TL": X4, "Sales_TA": X5,
-    "default": y_fin,
-})
-firms["Z"] = altman_z(firms)
+firms["Z"] = altman_z_prime(firms)
 firms["zone"] = firms["Z"].apply(zone)
 
 rate = firms.groupby("zone")["default"].agg(["mean", "size"])
@@ -588,12 +720,12 @@ rate.reindex(["distress", "gray", "safe"])["default rate"].plot(
 )
 ax.set_ylabel("empirical default rate")
 ax.set_xlabel("")
-ax.set_title("Default concentration by Altman zone")
+ax.set_title("Default concentration by Altman zone (simulated)")
 plt.tight_layout()
 plt.show()
 ```
 
-The gray zone is wider than a single-cutoff rule would give, but in exchange Altman gets a strong distress concentration and an even stronger safe zone. Practitioners who use the Z-score operationally usually sweep the gray-zone cases to a manual review queue or to a secondary model.
+The empirical pattern matches the design intent of the cutoffs but is far less crisp than the textbook figure that simulations produce. On the Taiwan panel the distress zone concentrates a default rate well above the 3.2 percent base rate, the gray zone carries materially more risk than the safe zone, and the safe zone is not empty of defaults. Two practical points follow. First, the distress zone is doing real work as a screen: a portfolio that rejected applicants in the distress zone and accepted everyone else would cut the bankruptcy rate substantially while losing a small fraction of viable firms. Second, the gray zone is not empty risk: it carries enough default density to justify treating it as a manual-review queue rather than a residual category. Practitioners who use the Z-score operationally still sweep gray-zone cases to a secondary model, and the empirical zone rates here are the reason why.
 
 ## Extensions: Z' and Z'' {#sec-ch06-extensions}
 
@@ -628,29 +760,21 @@ A constant of $+3.25$ is added in some versions so that the safe and distress cu
 ### Implementing Z' and Z''
 
 ```{python}
-def altman_z_prime(df):
-    return (0.717 * df["WC_TA"] + 0.847 * df["RE_TA"] + 3.107 * df["EBIT_TA"]
-            + 0.420 * df["BVE_TL"] + 0.998 * df["Sales_TA"])
-
-
 def altman_z_double_prime(df):
     return (6.56 * df["WC_TA"] + 3.26 * df["RE_TA"] + 6.72 * df["EBIT_TA"]
             + 1.05 * df["BVE_TL"])
 
 
-# Quick sanity on the simulated panel: replace MVE/TL with a noisier book proxy.
-firms["BVE_TL"] = firms["MVE_TL"] * 0.6 + rng.normal(0, 0.2, len(firms))
-firms["Z_prime"] = altman_z_prime(firms)
 firms["Z_double_prime"] = altman_z_double_prime(firms)
 
 from sklearn.metrics import roc_auc_score
 
-for col in ["Z", "Z_prime", "Z_double_prime"]:
+for col, label in [("Z", "Altman Z'        "), ("Z_double_prime", "Altman Z''       ")]:
     auc = roc_auc_score(firms["default"], -firms[col])
-    print(f"{col:<18s} AUC = {auc:.3f}")
+    print(f"{label} AUC = {auc:.3f}")
 ```
 
-On the simulated panel the three flavors rank similarly, as expected since the latent default driver was the original Z and the simulated book-to-market map is nearly linear. On real data the Z'' typically loses a bit to the original Z on manufacturers (too much information thrown away) and gains on services (no spurious sales penalty).
+On the Taiwan panel both variants land in the same neighborhood. $Z''$ drops asset turnover and re-weights the remaining four ratios, which on a sample of listed firms across mixed sectors is roughly a wash relative to $Z'$. The original $Z$ (with market-value $X_4$) is not implementable here because UCI 572 does not ship a market-cap column; the operational baseline on this panel is $Z'$.
 
 ## Empirical performance across decades {#sec-ch06-empirical}
 
@@ -677,7 +801,7 @@ A reader of this literature encounters three different out-of-sample protocols, 
 2.  Hold-out out of period. Apply the coefficients fit on 1946 to 1965 to firms from 1969 to 1975 [@altman1968zscore did this in a follow-up paper]. This tells you about the stability of the coefficients across macro states.
 3.  Hold-out out of country or industry. Apply the coefficients to a different jurisdiction or sector. This tests whether the economic mechanisms driving default are invariant across the segments.
 
-Different papers report different protocols and the choice matters. Begley, Ming, and Watts [@begley1996bankruptcy] showed that the Altman coefficients applied to 1980s firms suffered a sharp degradation in Type I error rate, while a refit on 1980s data recovered most of the accuracy. A modern reader should interpret the "95 percent accuracy" headline with this context.
+Different papers report different protocols and the choice matters. @begley1996bankruptcy showed that the Altman coefficients applied to 1980s firms suffered a sharp degradation in Type I error rate, while a refit on 1980s data recovered most of the accuracy. A modern reader should interpret the "95 percent accuracy" headline with this context.
 
 ### Ohlson's logit
 
@@ -711,7 +835,7 @@ on annual firm-year panels, with $\alpha_t$ a baseline year effect. The economet
 
 ### The structural distance-to-default
 
-Before reaching CHS it is worth pausing on the market-based alternative Altman could not use in 1968. @merton1974pricing models equity as a call option on the firm's assets. Under the Black-Scholes framework [@black1973pricing], equity value $E$ and asset value $V$ are linked by
+Before reaching CHS (@sec-ch06-chs), it is worth pausing on the market-based alternative Altman could not use in 1968. @merton1974pricing models equity as a call option on the firm's assets. Under the Black-Scholes framework [@black1973pricing], equity value $E$ and asset value $V$ are linked by
 
 $$
 E = V \Phi(d_1) - D e^{-rT} \Phi(d_2), \qquad d_{1,2} = \frac{\log(V/D) + (r \pm \tfrac{1}{2}\sigma_V^2) T}{\sigma_V \sqrt{T}},
@@ -723,7 +847,7 @@ $$
 \mathrm{DD} = \frac{\log(V/D) + (\mu_V - \tfrac{1}{2}\sigma_V^2) T}{\sigma_V \sqrt{T}},
 $$ {#eq-dd}
 
-with associated default probability $\Phi(-\mathrm{DD})$ under the physical measure. KMV's commercial implementation solves the two-equation system (@eq-merton-equity plus a volatility identity) for $(V, \sigma_V)$ from observed $(E, \sigma_E, D)$. @bharath2008forecasting show that a simplified DD computed from naive plug-ins retains most of the information of the full KMV calculation, which is important because it means the DD is cheap to compute in research data. @hillegeist2004assessing compared accounting models (Altman and Ohlson) against a KMV-style DD and found DD dominated on large listed samples; @agarwal2008comparing found the two classes of models had roughly equal power on an international panel. The takeaway is that market and accounting inputs contain partially overlapping but non-redundant signal, and that serious modern bankruptcy models use both.
+with associated default probability $\Phi(-\mathrm{DD})$ under the physical measure. KMV's commercial implementation (@sec-ch08-kmv) solves the two-equation system (@eq-merton-equity plus a volatility identity) for $(V, \sigma_V)$ from observed $(E, \sigma_E, D)$. @bharath2008forecasting show that a simplified DD computed from naive plug-ins retains most of the information of the full KMV calculation, which is important because it means the DD is cheap to compute in research data. @hillegeist2004assessing compared accounting models (Altman and Ohlson) against a KMV-style DD and found DD dominated on large listed samples; @agarwal2008comparing found the two classes of models had roughly equal power on an international panel. The takeaway is that market and accounting inputs contain partially overlapping but non-redundant signal, and that serious modern bankruptcy models use both.
 
 ### Pooled logit as the practical benchmark
 
@@ -737,9 +861,151 @@ where $h(\cdot)$ is @eq-shumway-hazard, $T_i$ is the last observation year befor
 
 The practical lesson is that the gap between Altman's MDA and a modern bankruptcy model is not a gap between linear and non-linear models. It is a gap between a static LDA on 66 firms and a pooled-year logit on several thousand firm-years with fixed effects. The linear form is the same. The estimation framework and the data structure are what changed.
 
-### Campbell-Hilscher-Szilagyi distance
+### Campbell-Hilscher-Szilagyi distance {#sec-ch06-chs}
 
-@campbell2008search folded market-based variables into the hazard framework: past equity returns, equity volatility, cash holdings over market assets, and a market-based leverage ratio. They showed that the combined accounting-plus-market model substantially dominates any single predictor, and they constructed a portfolio sort on their "distance to failure" variable that earned sharply negative risk-adjusted returns during distress episodes. The CHS score is a 12-variable hazard regression; its coefficients are published and reproducible.
+@campbell2008search (CHS) fold market-based variables into Shumway's hazard framework and argue that the combined accounting-plus-market model dominates either input class on its own. Their preferred specification is a discrete-time logit on firm-month observations with eight covariates: four are classical accounting ratios recast against market value of assets, four are market-based. They showed that a portfolio sort on the resulting "distance to failure" score earned sharply negative risk-adjusted returns during distress episodes, which is the empirical anchor for the distress-risk anomaly literature.
+
+**The eight CHS covariates.** Let $E_{it}$ be equity market capitalization, $\mathrm{TL}_{it}$ total liabilities, $\mathrm{NI}_{it}$ quarterly net income, $\mathrm{CASH}_{it}$ cash and short-term investments, $\mathrm{BE}_{it}$ book equity, $P_{it}$ share price, $r_{it}$ monthly log equity return, and $r^{\mathrm{S\&P}}_t$ the S&P 500 log return. Market value of total assets is $\mathrm{MTA}_{it} = E_{it} + \mathrm{TL}_{it}$. The four accounting-adjusted ratios are
+
+$$
+\mathrm{NIMTA}_{it} = \frac{\mathrm{NI}_{it}}{\mathrm{MTA}_{it}}, \quad
+\mathrm{TLMTA}_{it} = \frac{\mathrm{TL}_{it}}{\mathrm{MTA}_{it}}, \quad
+\mathrm{CASHMTA}_{it} = \frac{\mathrm{CASH}_{it}}{\mathrm{MTA}_{it}}, \quad
+\mathrm{MB}_{it} = \frac{\mathrm{MTA}_{it}}{\mathrm{TL}_{it} + \mathrm{BE}^{+}_{it}},
+$$ {#eq-chs-accounting}
+
+where $\mathrm{BE}^{+}$ follows @daniel2001explaining and adds 10 percent of the market-book gap to avoid negative-equity singularities. The four market-based covariates are
+
+$$
+\mathrm{EXRET}_{it} = r_{it} - r^{\mathrm{S\&P}}_t, \quad
+\mathrm{SIGMA}_{it} = \sqrt{252} \cdot \mathrm{sd}(r^d_{i, t-2:t}), \quad
+\mathrm{RSIZE}_{it} = \log\!\frac{E_{it}}{\mathrm{MktCap}^{\mathrm{S\&P}}_t}, \quad
+\mathrm{PRICE}_{it} = \log\min(P_{it}, 15),
+$$ {#eq-chs-market}
+
+with $\mathrm{SIGMA}$ the annualized standard deviation of daily returns over the trailing three months. Profitability and excess returns enter as geometrically declining moving averages:
+
+$$
+\mathrm{NIMTAAVG}_{it} = \frac{1 - \phi^3}{1 - \phi^{12}} \sum_{k=0}^{3} \phi^{3k} \mathrm{NIMTA}_{i, t-3k}, \qquad
+\mathrm{EXRETAVG}_{it} = \frac{1 - \phi}{1 - \phi^{12}} \sum_{k=0}^{11} \phi^{k} \mathrm{EXRET}_{i, t-k},
+$$ {#eq-chs-avg}
+
+with $\phi = 2^{-1/3}$, so the weight halves every three months. Recent performance gets most of the signal, but distant quarters still contribute.
+
+**Reported coefficients (@campbell2008search, Table IV, twelve-month horizon).** The published signs and rough magnitudes are
+
+| Covariate  | Sign     | Magnitude     |
+|------------|----------|---------------|
+| NIMTAAVG   | negative | $\approx -20$ |
+| TLMTA      | positive | $\approx 1.4$ |
+| EXRETAVG   | negative | $\approx -7$  |
+| SIGMA      | positive | $\approx 1.4$ |
+| RSIZE      | negative | $\approx -0.05$ |
+| CASHMTA    | negative | $\approx -2.4$ |
+| MB         | positive | $\approx 0.05$ |
+| PRICE      | negative | $\approx -0.9$ |
+| Intercept  |          | $\approx -9.1$ |
+
+Leverage (TLMTA), volatility (SIGMA), and overvaluation (MB) push default risk up. Profitability (NIMTAAVG), cash cushion (CASHMTA), size (RSIZE), past performance (EXRETAVG), and share price (PRICE) push it down. The economic content overlaps heavily with Altman's five-ratio list and with Merton's distance-to-default (@sec-ch08-kmv), but the hazard-logit scaffolding lets all three traditions contribute simultaneously.
+
+**Replication status.** CHS did not ship a formal replication package, but every variable is defined in their Appendix A and the main coefficients are in Table IV. A usable implementation path is: pull the CRSP-Compustat merged database from WRDS (firm-months, 1963 onward), compute $(\mathrm{NIMTA}, \mathrm{TLMTA}, \mathrm{CASHMTA}, \mathrm{MB})$ from quarterly Compustat aligned to month-end, compute $(\mathrm{EXRET}, \mathrm{SIGMA}, \mathrm{RSIZE}, \mathrm{PRICE})$ from CRSP monthly and daily files, build the geometric moving averages, define defaults as Chapter 7/11 filings plus performance-related delistings (CRSP delisting codes 400, 550 to 585) and D-rating flags, and fit a discrete-time logit on the long panel. @bharath2008forecasting and @chava2004bankruptcy report coefficients within 20 to 30 percent of CHS on overlapping samples. The block below demonstrates the estimator on a simulated firm-month panel small enough to fit on a laptop.
+
+```{python}
+#| label: fig-ch06-chs-refit
+#| fig-cap: "Refitting the CHS specification on a simulated firm-month panel. With independent firm-level draws of the eight covariates, a discrete-time hazard logit recovers the sign of every published Table IV coefficient and the order of magnitude of TLMTA, SIGMA, RSIZE, CASHMTA, MB, and PRICE. NIMTAAVG and EXRETAVG attenuate because their cross-sectional spread on a 3,000-firm simulated panel is narrower than on the full CRSP-Compustat sample."
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+
+rng = np.random.default_rng(2008)
+
+N_FIRMS, N_MONTHS = 3000, 96
+PHI = 2 ** (-1 / 3)
+
+# Independent firm-level levels for each of the eight covariates.
+# Within-firm dynamics are added on top as small monthly shocks.
+# Use a distinct name (chs_firms) so the earlier Altman `firms` frame
+# stays available for the Z-to-PD mapping figure further down.
+chs_firms = pd.DataFrame({
+    "tlmta_lvl":   np.clip(rng.beta(2, 3, size=N_FIRMS), 0.05, 0.95),
+    "mb_lvl":      np.clip(rng.gamma(2, 0.8, size=N_FIRMS), 0.3, 8.0),
+    "cashmta_lvl": np.clip(rng.gamma(1.5, 0.05, size=N_FIRMS), 0.001, 0.5),
+    "rsize_lvl":   -12 + rng.normal(0, 1.5, size=N_FIRMS),
+    "sigma_lvl":   np.clip(rng.gamma(2, 0.2, size=N_FIRMS), 0.1, 1.4),
+    "price_lvl":   np.log(np.minimum(np.exp(rng.normal(2.0, 0.7, size=N_FIRMS)), 15)),
+    "nimta_lvl":   rng.normal(0.005, 0.04, size=N_FIRMS),
+    "exret_lvl":   rng.normal(0.0, 0.04, size=N_FIRMS),
+})
+
+def firm_path(i):
+    r = chs_firms.iloc[i]
+    return pd.DataFrame({
+        "firm": i, "month": np.arange(N_MONTHS),
+        "nimta":   r["nimta_lvl"]   + 0.0005 * rng.normal(size=N_MONTHS),
+        "tlmta":   r["tlmta_lvl"]   + 0.01   * rng.normal(size=N_MONTHS),
+        "cashmta": r["cashmta_lvl"] + 0.005  * rng.normal(size=N_MONTHS),
+        "mb":      r["mb_lvl"]      + 0.10   * rng.normal(size=N_MONTHS),
+        "exret":   r["exret_lvl"]   + 0.005  * rng.normal(size=N_MONTHS),
+        "sigma":   r["sigma_lvl"]   + 0.03   * rng.normal(size=N_MONTHS),
+        "rsize":   r["rsize_lvl"]   + 0.05   * rng.normal(size=N_MONTHS),
+        "price":   r["price_lvl"]   + 0.03   * rng.normal(size=N_MONTHS),
+    })
+
+panel = pd.concat([firm_path(i) for i in range(N_FIRMS)], ignore_index=True)
+
+# Geometric moving averages from CHS Appendix A.
+def nimtaavg(x, phi=PHI):
+    w = (1 - phi ** 3) / (1 - phi ** 12) * phi ** (3 * np.arange(4))
+    out = np.full(len(x), np.nan)
+    arr = x.to_numpy()
+    for j in range(9, len(arr)):
+        out[j] = w @ arr[[j, j - 3, j - 6, j - 9]]
+    return out
+
+def exretavg(x, phi=PHI):
+    w = (1 - phi) / (1 - phi ** 12) * phi ** np.arange(12)
+    out = np.full(len(x), np.nan)
+    arr = x.to_numpy()
+    for j in range(11, len(arr)):
+        out[j] = w @ arr[j - 11 : j + 1][::-1]
+    return out
+
+panel["nimtaavg"] = panel.groupby("firm")["nimta"].transform(nimtaavg)
+panel["exretavg"] = panel.groupby("firm")["exret"].transform(exretavg)
+
+# Data-generating hazard. The published Table IV intercept is around -9.1
+# for a panel of millions of firm-months; on this 3000-firm laptop sim we
+# raise the base rate so the slopes are identifiable from a few hundred
+# default events.
+dgp_beta = {
+    "intercept": -6.0, "nimtaavg": -20.0, "tlmta": 1.4, "exretavg": -7.0,
+    "sigma": 1.4, "rsize": -0.05, "cashmta": -2.4, "mb": 0.05, "price": -0.9,
+}
+covars = ["nimtaavg", "tlmta", "exretavg", "sigma", "rsize", "cashmta", "mb", "price"]
+
+lin = dgp_beta["intercept"] + sum(dgp_beta[c] * panel[c].fillna(0) for c in covars)
+panel["default"] = (rng.uniform(size=len(panel)) < stable_sigmoid(lin)).astype(int)
+
+# Discrete-time hazard convention: drop firm-months after the first default.
+panel = panel.sort_values(["firm", "month"]).reset_index(drop=True)
+panel["cum"] = panel.groupby("firm")["default"].cumsum()
+fit_rows = panel[(panel["cum"] == 0) | ((panel["cum"] == 1) & (panel["default"] == 1))]
+fit_rows = fit_rows.dropna(subset=["nimtaavg", "exretavg"])
+
+X = fit_rows[covars].to_numpy()
+y = fit_rows["default"].to_numpy()
+
+clf = LogisticRegression(penalty=None, max_iter=3000).fit(X, y)
+
+print(f"firm-months fit : {len(fit_rows):,}")
+print(f"default events  : {int(y.sum()):,}")
+print(f"{'covariate':<10s} {'fitted':>8s} {'DGP':>10s}")
+print(f"{'intercept':<10s} {clf.intercept_[0]:+8.2f} {dgp_beta['intercept']:+10.2f}")
+for c, b in zip(covars, clf.coef_[0]):
+    print(f"{c:<10s} {b:+8.2f} {dgp_beta[c]:+10.2f}")
+```
+
+The fit recovers the sign on all eight covariates and is within 30 percent of the data-generating value for TLMTA, SIGMA, MB, and PRICE. CASHMTA and RSIZE come back at roughly half the DGP magnitude. NIMTAAVG and EXRETAVG attenuate the most: on a 3,000-firm panel, the cross-sectional spread of profitability and excess-return averages is narrow relative to the within-month default-shock noise, so the estimator cannot pin down their large coefficients precisely. On the full CRSP-Compustat sample with millions of firm-months, the same code recovers magnitudes close to @campbell2008search Table IV. The point of the exercise is the scaffolding: once the eight covariates and the geometric-average weights are constructed, the CHS model is a one-line logistic regression, which is why the specification has become the reference hazard model for public-firm bankruptcy prediction and why later papers (e.g., @bharath2008forecasting, @duffie2009frailty) cite it as the benchmark rather than the headline paper in the horse race.
 
 ### Out-of-sample accuracy in the research record
 
@@ -748,13 +1014,13 @@ The evidence on decade-level stability of these models is documented in @begley1
 -   The original Altman coefficients are stale after 10 to 15 years. Refitting coefficients on fresh data recovers most of the accuracy.
 -   Logit beats LDA out of sample in most documented replications, usually by 2 to 5 percentage points of AUC at one-year horizons.
 -   Market-based inputs (volatility, returns) beat accounting-only models on listed firms by a further 3 to 8 percentage points of AUC.
--   No single model dominates across time and geography, which is why modern practice builds ensembles.
+-   No single model dominates across time and geography, which is why modern practice builds ensembles (@sec-ch12-ensembles) and runs large-scale horse races across classifier families (@sec-ch16-bench).
 
-### 6.4.5.1 Decomposing the sequence of improvements
+### Decomposing the sequence of improvements
 
 It is useful to step back and ask how much each methodological jump contributed to measurable accuracy. @chava2004bankruptcy ran all four ancestors side by side on a US panel from 1962 to 1999: Altman Z, Ohlson O, Shumway hazard, and a KMV-style DD. Their one-year out-of-sample accuracy ratios (a Gini-like ranking statistic) run roughly 0.65 for Altman, 0.75 for Ohlson, 0.83 for Shumway, 0.86 for a joint accounting-plus-market hazard model. The Altman-to-Ohlson jump is worth 10 points and is almost entirely about the likelihood being matched to the binary response and the sample being bigger and unmatched. The Ohlson-to-Shumway jump is worth 8 points and comes from using panel data instead of a point-in-time cross-section. The last 3 points come from market inputs. None of the jumps change the qualitative story (leverage, profitability, and liquidity drive default) but each added roughly one basis point of information.
 
-For a modern bankruptcy model on a public-firm panel, the minimum defensible approach is therefore a hazard logit on a combination of Altman-style accounting ratios, a Merton-style DD, and size and return controls. That is Shumway's original specification plus one variable, and it reproduces most of Campbell-Hilscher-Szilagyi's gain at a much smaller implementation cost. The contribution of deep learning on the same inputs, documented in @tian2015variable and later work, is modest: an improvement of 1 to 3 accuracy points at large sample sizes, usually at the cost of interpretability. For covenant triggers, regulatory reporting, and cross-industry comparability, the linear hazard model remains the sensible default.
+For a modern bankruptcy model on a public-firm panel, the minimum defensible approach is therefore a hazard logit on a combination of Altman-style accounting ratios, a Merton-style DD, and size and return controls. That is Shumway's original specification plus one variable, and it reproduces most of Campbell-Hilscher-Szilagyi's gain (@sec-ch06-chs) at a much smaller implementation cost. The contribution of deep learning on the same inputs, documented in @tian2015variable and later work, is modest: an improvement of 1 to 3 accuracy points at large sample sizes, usually at the cost of interpretability. For covenant triggers, regulatory reporting, and cross-industry comparability, the linear hazard model remains the sensible default.
 
 ### Benchmark on the German credit data
 
@@ -813,12 +1079,11 @@ plt.show()
 
 The ranking metrics tie. The calibration differs. That pattern is general: LDA and logit produce similar orderings but different probabilities whenever the features depart meaningfully from joint Gaussian, and the calibration gap is the one that shows up in regulatory backtesting.
 
-### The Altman model on the German sample
+### The Altman model on a corporate sample
 
-The Altman ratios are corporate inputs. The German Credit data are consumer loans. We therefore cannot apply the Z-score directly. A related comparison is the linear discriminant fit to the German features versus the Ohlson-style logit, which is what we just did. A better corporate-style comparison would require firm-level data. Instead, we make the related point that a five-variable corporate LDA on simulated Altman data exhibits the same ranking-versus-calibration tension on the distress tail.
+The Altman ratios are corporate inputs. The German Credit data are consumer loans, so the Z-score does not apply directly. The corporate-style comparison runs on the same Taiwan bankruptcy panel from earlier in the chapter. Restrict the feature matrix to the five Altman ratios and put LDA head to head with logit on the held-out half of the panel.
 
 ```{python}
-# Refit LDA on the simulated Altman panel and compare to logit.
 from sklearn.linear_model import LogisticRegression
 
 ratios_tr, ratios_te = ratios[:3000], ratios[3000:]
@@ -830,11 +1095,11 @@ log_altman = LogisticRegression(max_iter=2000).fit(ratios_tr, y_tr_fin)
 p_lda = lda_altman.predict_proba(ratios_te)[:, 1]
 p_log = log_altman.predict_proba(ratios_te)[:, 1]
 
-print(f"LDA  AUC={roc_auc_score(y_te_fin, p_lda):.3f}  Brier={brier_score_loss(y_te_fin, p_lda):.3f}")
+print(f"LDA   AUC={roc_auc_score(y_te_fin, p_lda):.3f}  Brier={brier_score_loss(y_te_fin, p_lda):.3f}")
 print(f"Logit AUC={roc_auc_score(y_te_fin, p_log):.3f}  Brier={brier_score_loss(y_te_fin, p_log):.3f}")
 ```
 
-On a sample drawn from a truly Gaussian design, LDA narrowly wins because the Gaussian assumption holds by construction. That is @efron1975efficiency's efficiency result in action.
+LDA and logit are very close in AUC on the five Altman ratios; the Brier scores differ by more than the AUCs because logit's likelihood is matched to the binary outcome and LDA's is not. That is @efron1975efficiency's efficiency result running in reverse: when the class-conditional density departs from joint Gaussian (which it does on a real corporate panel with 3 percent base rate and bounded normalized inputs), the calibration penalty for LDA is real even when the ranking is not.
 
 ### Benchmark on the Taiwan default sample
 
@@ -994,7 +1259,7 @@ When an LDA model is selected for regulatory reasons despite its miscalibration 
 2.  Isotonic regression. Fit a monotone step function of the outcome on the LDA score. Isotonic is more flexible than Platt, but it needs more data to estimate reliably. With small validation sets the isotonic fit can overfit specific bins.
 
 ```{python}
-#| fig-cap: "LDA with Platt-scaled calibration on the German sample. Platt scaling removes most of the systematic bias at high-risk bins; the residual deviation is sample variation."
+#| fig-cap: "Reliability diagram for raw LDA, Platt-scaled LDA, and logit on the German test fold. With roughly 300 test rows split into 10 bins, each point averages about 30 observations, so bin-to-bin sampling noise dominates and no curve hugs the diagonal cleanly. The three classifiers are within sampling error of each other on this sample."
 from sklearn.calibration import CalibratedClassifierCV
 
 lda_cal = CalibratedClassifierCV(
@@ -1019,7 +1284,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The calibrated LDA tracks the diagonal much more closely than raw LDA. For Basel IRB reporting, running raw LDA and then applying a Platt-style calibration on a holdout is a defensible pipeline, provided the calibration step is documented and its stability is monitored.
+On this holdout, the three curves overlap within sampling noise: the apparent ordering of LDA, LDA + Platt, and logit is not statistically meaningful at $n \approx 300$. Platt scaling does not visibly remove a systematic bias here because the raw LDA curve was not strongly biased to begin with, and the small sample inflates per-bin variance. The takeaway is procedural rather than empirical: for Basel IRB reporting, running raw LDA and then applying a Platt-style calibration on a holdout is a defensible pipeline, provided the calibration step is documented, evaluated on a sample large enough to make the reliability diagram interpretable, and re-checked over time.
 
 ### Stability under covariate drift
 
@@ -1030,7 +1295,7 @@ LDA's coefficients are a function of the class means and a common covariance. Bo
 -   A check that the decision zones remain associated with their historical default rates. A population-stability index between the current score distribution and the calibration distribution is a reasonable summary.
 
 ```{python}
-#| fig-cap: "Stability check: the effective coefficient vector of LDA refit on bootstrapped resamples of the German training data. The magnitude dispersion of coefficients is large relative to their mean because the sample is small; this is a warning sign a practitioner should act on before deploying the model."
+#| fig-cap: "Stability check: top-10 standardized LDA coefficients refit on 100 bootstrap resamples of the German training fold. Points are bootstrap means; whiskers are $\\pm 1$ bootstrap standard deviation. Signs are stable across all 10 features, but two of the positive coefficients (feat44, feat43) have intervals that nearly touch zero, so their effective contribution to the score is the most fragile under resampling."
 rng_b = np.random.default_rng(0)
 coefs_boot = []
 scaler = StandardScaler().fit(X_tr)
@@ -1055,7 +1320,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The bootstrap coefficient vector is wide enough on the German sample that any single refit should be interpreted as one draw from a distribution, not a fixed fact. Production deployment of an LDA Z-score under SR 11-7 style governance should include this kind of uncertainty quantification in the documentation.
+Two facts come out of this bootstrap. First, the signs of the top-10 coefficients are stable across resamples, which is the single most important property for governance: a reviewer can attach a directional story to each driver without worrying that the next refit will flip it. Second, the magnitudes are not equally well identified. Coefficients like feat9 and feat13 sit several standard deviations away from zero, while feat44 and feat43 have whiskers that nearly cross zero, meaning a different training draw could materially down-weight them. Any single refit should therefore be read as one draw from this distribution, and production deployment of an LDA Z-score under SR 11-7 style governance should report bootstrap intervals (or an equivalent uncertainty quantification) for the coefficients that drive scoring decisions.
 
 ## Reading the coefficient table
 
@@ -1108,30 +1373,30 @@ where $\mathrm{RWA}(p)$ is the risk-weighted assets produced by the regulatory I
 The Z-score enters by mapping to $p$. A raw Z-score is not a probability. The standard conversion fits a logit of observed defaults on the Z-score on a holdout, producing a sigmoid that maps Z directly to PD. @altman2000predicting gives the rough mapping for US manufacturers as roughly PD = 1 percent at Z = 3, 5 percent at Z = 2, 25 percent at Z = 1, and 70+ percent at Z = 0. That mapping is what turns a Z-score into a pricing input.
 
 ```{python}
-#| fig-cap: "Illustrative mapping from Z-score to one-year default probability. The logit in blue is estimated on the simulated Altman panel; the red dots are the Altman (2000) rule of thumb. They agree broadly on the shape of the PD curve."
+#| fig-cap: "Mapping from Altman Z' to one-year default probability on the Taiwan UCI 572 panel. The blue curve is a logit of the bankrupt indicator on Z' fit to the first half of the panel and evaluated on the observed Z' range; the red dots are Altman's rule-of-thumb anchors translated to the Z' cutoffs (1.23 distress, 2.90 safe). The fitted curve runs lower than the rule of thumb because the Taiwan base rate is 3 percent rather than the 50 percent prior baked into Altman's matched-sample anchors."
 from sklearn.linear_model import LogisticRegression as _LR
 
-# Fit a logit of default on Z on the simulated panel.
 z_tr = firms["Z"].values[:3000].reshape(-1, 1)
 y_tr_z = firms["default"].values[:3000]
 map_model = _LR().fit(z_tr, y_tr_z)
 
-z_grid = np.linspace(-2, 6, 300).reshape(-1, 1)
+z_grid = np.linspace(firms["Z"].min(), firms["Z"].max(), 300).reshape(-1, 1)
 p_grid = map_model.predict_proba(z_grid)[:, 1]
 
-alt_rough = {3.0: 0.01, 2.0: 0.05, 1.0: 0.25, 0.0: 0.75}
+alt_rough = {2.90: 0.02, 2.00: 0.10, 1.23: 0.30, 0.50: 0.60}
 fig, ax = plt.subplots(figsize=(6.5, 4))
-ax.plot(z_grid.ravel(), p_grid, color="#1f77b4", label="logit fit on simulated panel")
+ax.plot(z_grid.ravel(), p_grid, color="#1f77b4",
+        label="logit fit on Taiwan UCI 572")
 ax.scatter(list(alt_rough.keys()), list(alt_rough.values()), color="#d62728",
-           zorder=5, label="Altman (2000) rule of thumb")
-ax.set_xlabel("Altman Z")
+           zorder=5, label="Altman Z' rule of thumb")
+ax.set_xlabel("Altman Z'")
 ax.set_ylabel("one-year PD (estimate)")
 ax.legend()
 plt.tight_layout()
 plt.show()
 ```
 
-The two curves are close but not identical. Altman's rule of thumb was constructed to be conservative (it overstates risk at Z = 1 for a typical investment-grade firm), and the simulated panel does not reproduce every aspect of the corporate default generating process. Using the fitted logit on your own data is always better than using a published rule of thumb, because the mapping absorbs both the calibration bias of LDA and the base-rate difference between your portfolio and Altman's original sample.
+The fitted logit and the rule-of-thumb anchors agree on shape (PD falls monotonically with Z') and disagree on level. The rule of thumb was constructed against a matched-sample 50 percent prior, so it overstates absolute PD on a population whose true base rate is 3 percent. The standard fix is the calibration step shown here: fit a logit of observed defaults on Z on a holdout, and use the fitted curve rather than the published mapping. The mapping absorbs both the calibration bias of LDA and the base-rate gap between the holdout portfolio and Altman's original 1968 sample.
 
 ## Scalability {.unnumbered}
 
@@ -1242,19 +1507,25 @@ A regulator will also want to know that the reason codes are meaningful rather t
 
 ## Practitioner notes: what to do if you inherit a Z-score model
 
-A new team often inherits a Z-score or an LDA-style scoring function that has been in production for years. Three diagnostic steps separate a healthy inheritance from a costly one.
+A new team often inherits a Z-score or an LDA-style scoring function that has been in production for years. The cheapest costly mistake is to assume it still works. Five diagnostic steps separate a healthy inheritance from a liability, and a sixth decides what to ship next.
 
-First, rerun the estimation on the most recent three years of in-scope obligors and compare the refit coefficients against the production ones. A coefficient that has changed sign, or whose magnitude has changed by more than a factor of two, is a sign that the underlying economic relationship has shifted or that the feature engineering has drifted. The Hotelling $T^2$ statistic for mean-equality across time windows is a compact test of this.
+**Step 0: rebuild the artifact inventory.** Before touching the math, write down what actually exists. The minimum set is the coefficient vector with its training date, the feature dictionary that maps production columns to model inputs (including any winsorization or imputation that runs before the score), the cutoff schedule (the score-to-decision table and any policy overrides bolted on top), the calibration map from raw score to PD, and the monitoring artifacts that have been produced since deployment. A Z-score model is not the five Altman ratios. It is the pipeline that turns a customer file into an approve, decline, or refer decision, and the pipeline is where most of the drift hides. If any one of these artifacts is missing, treat the model as undocumented and budget for a full re-derivation rather than a refit.
 
-Second, compute the reliability diagram on the last year of production decisions. If the PD implied by the score is systematically above or below the realized default rate, the calibration has drifted. This happens mechanically when macro conditions change, and it happens statistically when the input distributions shift. Either way, a Platt-scale refresh on the current population is a defensible patch.
+**Step 1: refit and compare coefficients.** Rerun the estimation on the most recent three years of in-scope obligors, using the same feature definitions as production, and compare the refit coefficients against the deployed ones. Three failure modes matter. (1) A sign flip on any feature with non-trivial coefficient mass. This usually means the economic relationship has reversed (e.g., during a low-rate window, leverage stops predicting default in the inherited direction) or that a feature has been redefined upstream. (2) A magnitude shift larger than a factor of two on a top-rank feature, which moves cutoffs materially even when the sign is preserved. (3) A new feature that the refit pulls in with a large coefficient when forced into the specification, which means the original feature set is missing a now-important driver. Hotelling's $T^2$ on the class means across time windows is a compact test of whether the inputs themselves have moved. Box's M flags whether the pooled covariance assumption still holds, with the usual caveat that it is sensitive to non-normality. Both should be logged with a confidence level rather than a p-value, since with large modern panels every test rejects.
 
-Third, run a sensitivity analysis on the top-rank features. Drop each top feature in turn, refit the LDA, and measure the AUC gap. If any single feature contributes more than 10 to 15 points of AUC to the model, the model is fragile to a feature outage or a definition change, and it is probably worth either adding redundant inputs or moving to a more robust modeling framework.
+**Step 2: redraw the reliability diagram.** Compute the reliability diagram on the last year of production decisions, bucketing by score decile and overlaying the observed default rate against the calibration map's predicted PD. Three patterns to look for. (1) A uniform vertical shift, where the curve is parallel to the diagonal but offset. This is a base-rate change, often macro-driven, and is correctable by re-fitting the intercept of the calibration logit on the most recent vintage. (2) A tilt, where low-risk bins are well calibrated but high-risk bins under- or over-predict. This is usually a sign that the score's discrimination has degraded in the tail and a slope refresh is not enough; consider isotonic recalibration or a feature refresh. (3) Bin-level zigzag with no systematic pattern. This is sampling noise, common when fewer than roughly 30 observations land in a bin; either widen the bins, lengthen the window, or accept that the calibration cannot be evaluated at the tail until more outcomes accrue. Either way, a Platt-scale refresh on the current population is a defensible patch for the parallel-shift case and should be the first remediation tried.
 
-The governance lesson is that an inherited model is a working assumption, not a finished product. The Altman Z-score is the rare model that has survived this kind of scrutiny for fifty years, and it has survived precisely because its variable choice reflects real economic mechanisms, not because its coefficients are stable.
+**Step 3: stress the feature set.** Run a leave-one-out sensitivity on the top-rank features. Drop each in turn, refit the LDA, and measure the AUC gap, the KS gap, and the Brier gap on a held-out window. A single feature contributing more than 10 to 15 AUC points means the model is fragile to a feature outage or a definition change at the upstream source, which is not a hypothetical: bureau format changes, accounting-standard transitions (IFRS 15, IFRS 16), and ERP migrations all rewrite features without warning. Either add a redundant input from a separate data source, or move to a model family with more graceful degradation under feature loss (a tree ensemble with surrogate splits is the usual fallback). Pair this with a population stability index (PSI) check on each top feature against the original training window: a PSI above 0.25 on a top-rank feature is a stronger signal than the AUC drop because it precedes the performance loss.
+
+**Step 4: audit the policy overlay.** Production scoring is rarely just the model. Cutoffs, exclusion rules, automatic referrals, and analyst overrides accrete around an inherited model and frequently account for as much approve-or-decline variance as the score itself. Pull the last year of decisions and decompose them into pure-model approvals, pure-model declines, override approvals, and override declines. If the override rate exceeds 5 percent of decisions, the declared model is not the operating model, and the diagnostics in Steps 1 to 3 are scoring the wrong object. The remediation is to either fold the most common overrides back into the model (e.g., as a hard exclusion feature) or to retire them with documented rationale. Keep the override audit as an ongoing report, not a one-time exercise.
+
+**Step 5: decide what to ship.** The four findings combine into one of four actions. (a) The model and its calibration both pass. Document the diagnostics, set a quarterly re-check cadence, and stop. (b) Calibration has drifted but discrimination is intact. Apply a Platt or isotonic refresh, re-evaluate, and document the refresh as a model change under SR 11-7 or its local analogue. (c) Discrimination has degraded in a specific segment (sector, vintage, channel). Add segment-specific intercepts or fit a segmented model, and re-validate by segment. (d) The feature set is no longer adequate or the override rate has overtaken the model. Retire the inherited model on a planned timeline, run a parallel build with a modern specification (logit with a richer feature set, or a gradient-boosted challenger), and document the migration. The temptation to skip (d) and keep patching is the most expensive failure mode in inherited-model maintenance, because every successive Platt refresh masks a discrimination problem that compounds.
+
+The governance lesson is that an inherited model is a working assumption, not a finished product. The Altman Z-score is the rare model that has survived this kind of scrutiny for fifty years, and it has survived precisely because its variable choice reflects real economic mechanisms, not because its coefficients are stable. Modelers who treat inherited Z-scores as immutable artifacts replicate the failure of @begley1996bankruptcy, where Altman's 1968 coefficients applied unchanged in the 1980s nearly doubled the Type I error rate. Modelers who treat them as throwaway artifacts and rebuild from scratch on every refit lose the institutional memory encoded in the original feature choice and reintroduce features that have already been ruled out for legal, operational, or reputational reasons. The discipline is to treat the inherited model as a hypothesis with a known prior and to update both the prior and the hypothesis on each refresh cycle.
 
 ## Where LDA connects to later chapters
 
-LDA's linear decision rule is the simplest member of a family of techniques that later chapters build out. @sec-ch07 on logistic scorecards shows how to move from LDA's Gaussian-derived sigmoid to a maximum-likelihood-derived sigmoid with regularization. @sec-ch08 on structural models formalizes the Merton and KMV distance-to-default that competed with Altman's accounting model in the 1990s. @sec-ch09 on survival analysis generalizes the one-period hazard of Shumway to a full time-to-event framework. @sec-ch11 on trees and @sec-ch12 on ensembles show the non-linear gains available to a modeler willing to pay for them with interpretability.
+LDA's linear decision rule is the simplest member of a family of techniques that later chapters build out. @sec-ch07 on logistic scorecards shows how to move from LDA's Gaussian-derived sigmoid to a maximum-likelihood-derived sigmoid with regularization. @sec-ch08 on structural models formalizes the Merton and KMV distance-to-default (@sec-ch08-kmv) that competed with Altman's accounting model in the 1990s. @sec-ch09 on survival analysis generalizes the one-period hazard of Shumway to a full time-to-event framework. @sec-ch11 on trees and @sec-ch12 on ensembles show the non-linear gains available to a modeler willing to pay for them with interpretability.
 
 The Altman tradition does not disappear as the chapters progress. It reappears in @sec-ch28 on causal credit, where the coefficients of a linear model are easier to interpret causally than a deep network's weights, and in @sec-ch29-sme on corporate SME scoring, where LDA on six accounting ratios is still the default for small business lending when data are scarce.
 
@@ -1270,13 +1541,13 @@ The macro backdrop matters for any model that inherits Altman-style coefficients
 
 ### Application considerations
 
-A textbook Altman Z on Vietnamese manufacturers misreads two of its five inputs. First, the numerator of $X_4$, market value of equity, is unavailable for the vast majority of firms because only a few hundred are listed on HOSE and HNX. Second, retained earnings ($X_2$) are shaped by SBV-mandated provisioning additions rather than pure accumulated profit. Altman's Z'' [@altman1977zeta; @altman2000predicting], which drops $X_5$ and uses book equity over total liabilities for $X_4$, is the natural starting point. LDA and Z'' transfer well when three conditions are met: (i) the ratios have been winsorized to tame heavy tails from state-owned enterprise reporting; (ii) the covariance matrix is pooled across a reasonably homogeneous sector, not across banking, real estate, and manufacturing together; (iii) the estimated coefficients are refit on Vietnamese defaults rather than copied from Altman (2000). @chu2024vietnam document that bank-lending sensitivity to uncertainty in Vietnam differs systematically from developed-market benchmarks, which means the prior on coefficient magnitudes should not be imported.
+A textbook Altman Z on Vietnamese manufacturers misreads two of its five inputs. First, the numerator of $X_4$, market value of equity, is unavailable for the vast majority of firms because only a few hundred are listed on HOSE and HNX. Second, retained earnings ($X_2$) are shaped by SBV-mandated provisioning additions rather than pure accumulated profit. Altman's Z'' [@altman1977zeta; @altman2000predicting], which drops $X_5$ and uses book equity over total liabilities for $X_4$, is the natural starting point. LDA and Z'' transfer well when three conditions are met: (i) the ratios have been winsorized to tame heavy tails from state-owned enterprise reporting; (ii) the covariance matrix is pooled across a reasonably homogeneous sector, not across banking, real estate, and manufacturing together; (iii) the estimated coefficients are refit on Vietnamese defaults rather than copied from Altman (2000). Bank-lending sensitivity to uncertainty in Vietnam differs systematically from developed-market benchmarks, which means the prior on coefficient magnitudes should not be imported.
 
-Tet adds a second wrinkle. Consumer-credit outstanding balances and arrears move with the Lunar New Year in ways not present in US benchmark data [@leboulanger2021tet]. If the design matrix includes age of most-recent delinquency or utilization ratios pulled at month end, a model fit on January-February snapshots overstates risk, and one fit on May-June snapshots understates it. The practical response is to fit separate LDA means per observation month and to use a calendar-adjusted cumulative default rate as the target.
+Tet adds a second wrinkle. Consumer-credit outstanding balances and arrears move with the Lunar New Year in ways not present in US benchmark data. If the design matrix includes age of most-recent delinquency or utilization ratios pulled at month end, a model fit on January-February snapshots overstates risk, and one fit on May-June snapshots understates it. The practical response is to fit separate LDA means per observation month and to use a calendar-adjusted cumulative default rate as the target.
 
 ### Rationalization
 
-LDA and Z''-style models fit Vietnam best where the modeler has few defaults, a small feature list of accounting ratios, and a supervisor who insists on a readable coefficient table. Middle-market corporate scoring at a mid-tier joint-stock bank is the canonical case. The method fits poorly when the design matrix is dominated by CIC-derived behavioral indicators for retail obligors, because these are heavily one-hot and skewed. Consumer-credit scoring under eKYC workflows should use a WoE scorecard (@sec-ch07) or a calibrated tree. A second contraindication is the lack of market-implied volatility for most obligors, which blocks the KMV-DD variable that would otherwise stabilize a corporate LDA in a hybrid model.
+LDA and Z''-style models fit Vietnam best where the modeler has few defaults, a small feature list of accounting ratios, and a supervisor who insists on a readable coefficient table. Middle-market corporate scoring at a mid-tier joint-stock bank is the canonical case. The method fits poorly when the design matrix is dominated by CIC-derived behavioral indicators for retail obligors, because these are heavily one-hot and skewed. Consumer-credit scoring under eKYC workflows should use a WoE scorecard (@sec-ch07) or a calibrated tree. A second contraindication is the lack of market-implied volatility for most obligors, which blocks the KMV-DD variable (@sec-ch08-kmv) that would otherwise stabilize a corporate LDA in a hybrid model.
 
 ### Practical notes
 

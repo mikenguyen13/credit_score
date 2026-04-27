@@ -235,7 +235,7 @@ import numpy as np
 import pandas as pd
 import sys
 sys.path.insert(0, '../code')
-from creditutils import ks_statistic
+from creditutils import ks_statistic, stable_sigmoid
 
 rng = np.random.default_rng(42)
 N_CUSTOMERS = 1000
@@ -257,7 +257,7 @@ cust["monthly_rent"] = (cust["monthly_income"] * cust["monthly_rent_frac"]).roun
 def latent_pd(row):
     dsr = row["monthly_rent_frac"]
     base = -2.5 + 2.4 * dsr - 3.0 * row["savings_rate"] + 6.0 * row["gambling_prop"] + 10 * row["shock_prob"]
-    return 1.0 / (1.0 + np.exp(-base))
+    return stable_sigmoid(base)
 
 cust["pd_true"] = cust.apply(latent_pd, axis=1)
 cust["default"] = rng.binomial(1, cust["pd_true"])

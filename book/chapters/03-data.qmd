@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from creditutils import load_german_credit, load_taiwan_default
+from creditutils import load_german_credit, load_taiwan_default, stable_sigmoid
 
 rng = np.random.default_rng(42)
 np.random.seed(42)
@@ -1077,7 +1077,7 @@ for m in range(24):
     x = rng_t.normal(0, 1, N_per)
     state = 1.0 if m >= 18 else 0.0
     logits = -1.2 + 0.9 * x + 2.0 * state
-    p = 1.0 / (1.0 + np.exp(-logits))
+    p = stable_sigmoid(logits)
     y = (rng_t.random(N_per) < p).astype(int)
     rows.append(pd.DataFrame({"month": m, "x": x, "y": y}))
 df_t = pd.concat(rows, ignore_index=True)
@@ -1272,7 +1272,7 @@ for m in range(24):
     if pol == "P-2025-02":
         booked &= ~thin_file | has_cosigner
     logits = -1.0 + 0.9 * x - 0.4 * thin_file.astype(float)
-    p = 1.0 / (1.0 + np.exp(-logits))
+    p = stable_sigmoid(logits)
     y = (rng_p.random(N_per) < p).astype(int)
     apps.append(pd.DataFrame({
         "month": m, "x": x, "thin_file": thin_file.astype(int),

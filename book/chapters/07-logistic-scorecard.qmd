@@ -14,43 +14,48 @@ Logistic regression is still the workhorse of retail credit risk. Every large ba
 
 This chapter derives logistic regression the way a practitioner should know it. We build the MLE by hand using Newton-Raphson / IRLS, prove the equivalence between a logistic regression on weight-of-evidence features and an additive scorecard, derive the points-to-double-odds (PDO) scaling from first principles, train a full scorecard on Taiwan default and a regularized logistic on German credit, apply Platt and isotonic calibration with reliability diagrams, reproduce Ohlson's 1980 O-score, then walk the model through operational concerns: reason codes, monotonic constraints, PSI monitoring, recalibration versus refit, FastAPI deployment, ONNX export, MLflow logging, and PySpark MLlib for 1-million-row scale.
 
-By the end you will have a working, logged, versioned, testable scorecard pipeline that maps cleanly onto SR 11-7 [@sr117] and EBA IRB [@eba2017gl; @eba2022irb] expectations. None of the math is hidden, none of the code is stubbed.
+By the end, you will have a working, logged, versioned, testable scorecard pipeline that maps cleanly onto SR 11-7 [@sr117] and EBA IRB [@eba2017gl; @eba2022irb] expectations. None of the math is hidden, none of the code is stubbed.
 
 The chapter is deliberately long because scorecards sit at an unusual intersection. The statistics are classical, the engineering is production-grade, and the regulatory framing is enormous. A credit scorecard fails if any of those three legs wobbles, so we give each its own derivation, code, and failure modes. Readers who already know the math can skip ahead to @sec-ch07-scaling and @sec-ch07-impl; readers who already ship models may find the history and regulatory sections repetitive. The intent is that a graduate student can hand the chapter to a risk executive and vice versa.
 
-An emerging-market framing runs alongside the math. A Vietnamese retail lender opening files under eKYC faces applicants whose bureau footprint at CIC is two lines long, whose income arrives in cash, and whose outstanding balances compress violently around Tet [@leboulanger2021tet; @cicvn2023report]. WoE binning is the right tool because it turns a thin bureau line plus a noisy informal-income proxy into a stable score without over-parameterizing. The closing section returns to this with CIC data, SBV Circular 11/2021 default definitions, and the practical binning of informal-income indicators.
+An emerging-market framing runs alongside the math. A Vietnamese retail lender opening files under eKYC faces applicants whose bureau footprint at CIC is two lines long, whose income arrives in cash, and whose outstanding balances compress violently around Tet [@cicvn2023report]. WoE binning is the right tool because it turns a thin bureau line plus a noisy informal-income proxy into a stable score without over-parameterizing. The closing section returns to this with CIC data, SBV Circular 11/2021 default definitions, and the practical binning of informal-income indicators.
 
 A word on why logistic regression persists. @hand2006classifier argued nearly two decades ago that the "illusion of progress" in classification is that tiny AUC improvements dominate the literature while the costs and benefits of deployment dominate practice. Credit is the cleanest example. Regulated lenders care about monotone constraints, bin-level explainability, portability across booking systems, and the ability to retrain a vintage in a week. A 1% lift from a gradient-boosted ensemble often fails to pay for the governance overhead. @dumitrescu2022machine revisit this question on modern data and find that a carefully binned logistic scorecard is within one or two percent of AUC of tuned tree ensembles, sometimes ahead of them on small-sample out-of-time windows. That is the empirical case for this chapter still existing in a book that also contains a chapter on graph neural networks.
 
 ### Notation {.unnumbered}
 
 Let $y_i \in \{0,1\}$ denote default on obligor $i \in \{1,\dots,n\}$ and $x_i \in \mathbb{R}^p$ the covariate vector (already one-hot / WoE-encoded). Define $\beta \in \mathbb{R}^p$ as the regression coefficients and $\eta_i = x_i^\top \beta$ as the linear predictor. The conditional default probability is $\pi_i = P(y_i = 1 \mid x_i) = \sigma(\eta_i)$ where $\sigma(z) = (1 + e^{-z})^{-1}$ is the sigmoid. The log-odds of default is $\mathrm{logit}(\pi) = \log(\pi/(1-\pi)) = \eta$. The diagonal matrix $W$ with entries $W_{ii} = \pi_i(1-\pi_i)$ is the Fisher information weight. Bin $k$ of feature $j$ has weight of evidence
+
 $$
-\mathrm{WoE}_{jk} = \log\!\left(\frac{\Pr(x_j \in \text{bin } k \mid y=0)}{\Pr(x_j \in \text{bin } k \mid y=1)}\right)
+\mathrm{WoE}_{jk} = \log\left(\frac{\Pr(x_j \in \text{bin } k \mid y=0)}{\Pr(x_j \in \text{bin } k \mid y=1)}\right)
 $$ {#eq-woe-def}
+
 and information value $\mathrm{IV}_j = \sum_k (\Pr(\text{bin}_k \mid y=0) - \Pr(\text{bin}_k \mid y=1)) \cdot \mathrm{WoE}_{jk}$.
 
----
+------------------------------------------------------------------------
 
 ## Logistic regression as a PD model {#sec-ch07-scorecard}
 
 ### The Bernoulli GLM
 
 A PD model answers one question: what is $\Pr(y_i = 1 \mid x_i)$? The minimum assumption that keeps the answer inside $[0,1]$ while letting covariates enter linearly is the logit link of a Bernoulli GLM [@nelder1972generalized]:
+
 $$
 \log \frac{\pi_i}{1 - \pi_i} = x_i^\top \beta.
 $$ {#eq-logit-link}
+
 @berkson1944application introduced logits for bioassay, @cox1958regression formalized their use for binary regression, and @mcfadden1974conditional gave the discrete-choice interpretation that dominates credit applications: the score $x_i^\top \beta$ is the (shifted) log-odds of choosing "default" in a binary latent-utility model.
 
 Three properties make @eq-logit-link the natural PD specification:
 
-1. **Calibrated by construction on a representative sample.** The MLE score equation is $\sum_i (y_i - \pi_i) x_i = 0$, so residuals sum to zero within any contrast that is in the column space of $X$. The sample mean PD matches the sample default rate.
-2. **Additive on the log-odds scale.** Incremental effects combine via addition, which is what enables the scorecard.
-3. **Coherent with the Basel IRB philosophy.** Regulators expect PDs that are additive in explanatory factors, ranked, and back-testable [@basel2006international; @basel2005irb]. Logistic regression meets all three natively.
+1.  **Calibrated by construction on a representative sample.** The MLE score equation is $\sum_i (y_i - \pi_i) x_i = 0$, so residuals sum to zero within any contrast that is in the column space of $X$. The sample mean PD matches the sample default rate.
+2.  **Additive on the log-odds scale.** Incremental effects combine via addition, which is what enables the scorecard.
+3.  **Coherent with the Basel IRB philosophy.** Regulators expect PDs that are additive in explanatory factors, ranked, and back-testable [@basel2006international; @basel2005irb]. Logistic regression meets all three natively.
 
 ### Likelihood and log-likelihood
 
 The sample log-likelihood under independent Bernoulli observations is
+
 $$
 \ell(\beta) = \sum_{i=1}^{n} \big[ y_i \log \pi_i + (1-y_i) \log(1-\pi_i) \big]
 = \sum_{i=1}^{n} \big[ y_i \eta_i - \log(1 + e^{\eta_i}) \big].
@@ -60,47 +65,97 @@ $$ {#eq-loglik}
 
 ### Score function and Hessian
 
-Differentiating @eq-loglik term by term,
+Differentiating @eq-loglik term by term and using $\partial \pi_i / \partial \beta = \pi_i(1-\pi_i) x_i$ (chain rule on the logistic CDF), the gradient (score function) is
+
 $$
-\frac{\partial \ell}{\partial \beta} = \sum_{i=1}^{n} (y_i - \pi_i) x_i = X^\top (y - \pi),
+U(\beta) = \frac{\partial \ell}{\partial \beta}
+= \sum_{i=1}^{n} (y_i - \pi_i) x_i
+= X^\top (y - \pi),
 $$ {#eq-score}
+
+a $p\times 1$ vector of weighted residuals. Differentiating once more,
+
 $$
-\frac{\partial^2 \ell}{\partial \beta \partial \beta^\top}
-= -\sum_{i=1}^{n} \pi_i (1-\pi_i) x_i x_i^\top
-= -X^\top W X.
+H(\beta) = \frac{\partial^2 \ell}{\partial \beta \partial \beta^\top}
+= -\sum_{i=1}^{n} \pi_i(1-\pi_i) x_i x_i^\top
+= - X^\top W(\beta) X,
 $$ {#eq-hessian}
-The Hessian in @eq-hessian is negative semi-definite, which confirms concavity. Observed and expected Fisher information coincide, a consequence of the canonical link.
+
+the $p\times p$ matrix of second partials, where
+
+$$
+W(\beta) = \mathrm{diag}\big(\pi_1(1-\pi_1), \ldots, \pi_n(1-\pi_n)\big)
+$$
+
+is the diagonal matrix of Bernoulli variances at the current $\beta$. Each diagonal entry $w_i = \pi_i(1-\pi_i) \in (0, 1/4]$ is the variance of $y_i \mid x_i$, peaking at $\pi_i = 1/2$ (most uncertain) and shrinking to zero as $\pi_i$ approaches 0 or 1 (near-certain cases contribute little curvature).
+
+Three properties matter for estimation.
+
+1.  **Negative semi-definiteness.** For any $v \in \mathbb{R}^p$, $v^\top H v = -\sum_i w_i (x_i^\top v)^2 \le 0$ since $w_i \ge 0$. If $X$ has full column rank and at least one $\pi_i \in (0,1)$, $H$ is strictly negative-definite, so $\ell$ is strictly concave and the MLE (when it exists) is unique. Complete or quasi-complete separation drives some $\pi_i$ to $\{0,1\}$, sending $w_i \to 0$ and pushing $\beta$ to infinity.
+2.  **No dependence on** $y$. The Hessian depends on $\beta$ through $\pi$, not on the observed $y$. This is a hallmark of the canonical link (logit for the Bernoulli family): the observed information $-H(\beta)$ equals the expected (Fisher) information $\mathcal{I}(\beta) = -\mathbb{E}[H(\beta)] = X^\top W(\beta) X$. Newton-Raphson and Fisher scoring therefore coincide, which is why a single algorithm (IRLS, @eq-irls below) drops out cleanly.
+3.  **Asymptotic covariance.** The MLE satisfies $\hat\beta \approx \mathcal{N}\big(\beta, (X^\top \widehat W X)^{-1}\big)$, with $\widehat W$ evaluated at $\hat\beta$. The diagonal of this inverse gives the standard errors that drive Wald tests and the score-band confidence intervals reported by `statsmodels` and `glm` in R.
 
 ### Newton-Raphson
 
 The Newton step solves the local quadratic:
+
 $$
 \beta^{(t+1)} = \beta^{(t)} - \big[\nabla^2 \ell(\beta^{(t)})\big]^{-1} \nabla \ell(\beta^{(t)})
 = \beta^{(t)} + (X^\top W^{(t)} X)^{-1} X^\top (y - \pi^{(t)}).
 $$ {#eq-newton}
 
 Plugging the identity $X^\top(y - \pi) = X^\top W (W^{-1}(y-\pi))$ and defining the working response $z^{(t)} = X \beta^{(t)} + W^{(t)-1}(y - \pi^{(t)})$ rearranges @eq-newton into a weighted least-squares solve:
+
 $$
 \beta^{(t+1)} = (X^\top W^{(t)} X)^{-1} X^\top W^{(t)} z^{(t)}.
 $$ {#eq-ch07-irls}
+
 @eq-ch07-irls is the iteratively reweighted least squares (IRLS) form [@green1984iteratively; @nelder1972generalized]. Each iteration is a WLS regression of $z$ on $X$ with weights $W$. Convergence is quadratic once you are close, and damping (step halving) handles the rare divergent early steps.
 
 Three practical properties of IRLS matter for credit work. First, the update is scale-equivariant: rescaling columns of $X$ leaves predictions unchanged and simply rescales coefficients. That lets us standardize for numerical conditioning without interpretive cost. Second, the weight matrix $W$ only depends on the current prediction $\pi^{(t)}$, which means a single IRLS iteration on a fresh dataset is a closed-form Platt-style refit of the linear predictor: useful when we want to recalibrate a deployed model against a new vintage without re-learning the binning. Third, the working response $z$ can be interpreted as the current linear predictor plus the Pearson-residual correction scaled by $W^{-1}$, which is the same object that drives Cox-Snell and deviance residuals in a GLM. Understanding that construction pays dividends when we turn to calibration (the Platt fit in @sec-ch07-calibration is exactly a single IRLS step on the $(\eta, y)$ pair).
 
-Under the asymptotic sandwich, $\sqrt{n}(\hat\beta - \beta) \Rightarrow \mathcal{N}(0, I(\beta)^{-1})$ where $I(\beta) = X^\top W X / n$. Practitioners use $\widehat{\mathrm{Var}}(\hat\beta) = (X^\top \hat W X)^{-1}$ for Wald tests and confidence intervals on the points. The corresponding likelihood-ratio test for nested models compares $2[\ell(\hat\beta_{\text{full}}) - \ell(\hat\beta_{\text{restricted}})]$ against $\chi^2_{\text{df}}$. Credit teams use it to justify dropping or adding a characteristic: if the LR statistic clears the $\chi^2$ critical value and the resulting out-of-time Gini is within a basis point, the restricted model wins on parsimony.
+Under the asymptotic sandwich, $\sqrt{n}(\hat\beta - \beta) \Rightarrow \mathcal{N}(0, I(\beta)^{-1})$, where $I(\beta) = X^\top W X / n$. Practitioners use $\widehat{\mathrm{Var}}(\hat\beta) = (X^\top \hat W X)^{-1}$ for Wald tests and confidence intervals on the points. The corresponding likelihood-ratio test for nested models compares $2[\ell(\hat\beta_{\text{full}}) - \ell(\hat\beta_{\text{restricted}})]$ against $\chi^2_{\text{df}}$. Credit teams use it to justify dropping or adding a characteristic: if the LR statistic clears the $\chi^2$ critical value and the resulting out-of-time Gini is within a basis point, the restricted model wins on parsimony.
 
 #### What can go wrong with IRLS
 
 Four failure modes appear repeatedly in credit modeling.
 
-1. *Separation.* If one feature perfectly predicts the target on the training sample, $\hat\beta_j \to \infty$. IRLS oscillates or diverges; the likelihood is unbounded. This is not rare with high-cardinality categorical variables or with rare PAY status bins after aggressive binning. Solutions: Jeffreys prior [@firth1993bias], L2 regularization, or forcing a minimum obligor count per bin during binning.
-2. *Ill-conditioning.* Near-collinear columns make $X^\top W X$ nearly singular. The Newton step explodes. Regularization fixes this; so does dropping columns by VIF or by feature-engineering the binning.
-3. *Numerical overflow in the sigmoid.* Large $|\eta|$ causes `exp(eta)` to overflow. Any production IRLS should use the branchless stable form `np.where(eta >= 0, 1/(1+exp(-eta)), exp(eta)/(1+exp(eta)))` shown in the implementation below.
-4. *Non-monotone log-likelihood between steps.* If a Newton step worsens the loss, halve the step and retry. The function is concave, so one or two halvings always work.
+1.  *Separation.* If one feature perfectly predicts the target on the training sample, $\hat\beta_j \to \infty$. IRLS oscillates or diverges; the likelihood is unbounded. This is not rare with high-cardinality categorical variables or with rare PAY status bins after aggressive binning. Solutions: Jeffreys prior [@firth1993bias], L2 regularization, or forcing a minimum obligor count per bin during binning.
+2.  *Ill-conditioning.* Near-collinear columns make $X^\top W X$ nearly singular. The Newton step explodes. Regularization fixes this; so does dropping columns by VIF or by feature-engineering the binning.
+3.  *Numerical overflow in the sigmoid.* Large $|\eta|$ causes `exp(eta)` to overflow. The naive form $1/(1+e^{-\eta})$ blows up for $\eta \ll 0$, and the alternative $e^{\eta}/(1+e^{\eta})$ blows up for $\eta \gg 0$. The branchless stable form picks whichever side keeps the exponent non-positive, so the result stays in $(0,1)$ at every $\eta$ representable in float64. This is the exact `pi = np.where(...)` step used by `irls_logit` in @sec-ch07-impl. The chunk below demonstrates the difference on $\eta \in \{-2000, -50, 0, 50, 2000\}$ and verifies the stable form matches `scipy.special.expit` to machine precision.
+
+```{python}
+#| label: sigmoid-overflow-demo
+import numpy as np
+from scipy.special import expit
+
+eta = np.array([-2000.0, -50.0, 0.0, 50.0, 2000.0])
+
+with np.errstate(over="warn", invalid="warn"):
+    naive_pos = 1.0 / (1.0 + np.exp(-eta))           # overflows at eta << 0
+    naive_neg = np.exp(eta) / (1.0 + np.exp(eta))    # overflows at eta >> 0
+
+stable = np.where(
+    eta >= 0,
+    1.0 / (1.0 + np.exp(-eta)),
+    np.exp(eta) / (1.0 + np.exp(eta)),
+)
+
+print(f"{'eta':>8} {'naive 1/(1+e^-eta)':>22} {'naive e^eta/(1+e^eta)':>24} {'stable np.where':>18} {'scipy.expit':>14}")
+for e, a, b, s, r in zip(eta, naive_pos, naive_neg, stable, expit(eta)):
+    print(f"{e:8.1f} {a:22.6e} {b:24.6e} {s:18.6e} {r:14.6e}")
+
+print("max |stable - expit| =", float(np.max(np.abs(stable - expit(eta)))))
+```
+
+At $\eta = 2000$ the form $e^{\eta}/(1+e^{\eta})$ evaluates `inf/inf` and returns `nan`. At $\eta = -2000$ the form $1/(1+e^{-\eta})$ raises an overflow warning that downstream code is free to ignore but a fitter pinned to `np.errstate(over="raise")` will still abort on. The branchless `np.where` form picks whichever branch keeps the exponent non-positive, matches `scipy.special.expit` to within $3 \times 10^{-38}$, and emits no warnings. In an IRLS loop, a single corrupted $\pi_i$ contaminates the working response $z_i = \eta_i + (y_i - \pi_i)/(\pi_i(1-\pi_i))$ and the Newton step diverges silently, so this guard is non-optional in any production fitter.
+
+4.  *Non-monotone log-likelihood between steps.* If a Newton step worsens the loss, halve the step and retry. The function is concave, so one or two halvings always work.
 
 ### WoE encoding and the additive scorecard
 
 Credit-scoring practice fits logistic regression not on raw features but on WoE-encoded features [@thomas2017credit; @anderson2007credit; @siddiqi2017intelligent]. Each continuous or categorical feature $j$ is bucketed into bins $B_{j1}, \dots, B_{j K_j}$ by a supervised binning algorithm that maximizes information value subject to monotonicity. Each bin is replaced by its WoE (@eq-woe-def). Formally, the design matrix becomes a block of one-hot indicators multiplied by the bin's WoE value:
+
 $$
 x_{ij}^{\text{WoE}} = \sum_{k=1}^{K_j} \mathrm{WoE}_{jk} \cdot \mathbf{1}\{x_{ij} \in B_{jk}\}.
 $$ {#eq-woe-encode}
@@ -110,49 +165,59 @@ $$ {#eq-woe-encode}
 **Claim.** A logistic regression on WoE-encoded features is algebraically equivalent to a logistic regression with a separate coefficient per bin, up to a constant shift, and yields an additive point score per bin.
 
 **Proof sketch.** Consider a logistic regression with bin-level one-hot encoding, so $x_{ij}$ is replaced by indicators $d_{ij1}, \dots, d_{ij K_j}$ and coefficients $\alpha_{j1}, \dots, \alpha_{j K_j}$. The linear predictor is
+
 $$
 \eta_i = \beta_0 + \sum_j \sum_k \alpha_{jk} d_{ijk}.
 $$
+
 Substituting $\alpha_{jk} = \beta_j \cdot \mathrm{WoE}_{jk}$ (one coefficient $\beta_j$ per feature, scaled by each bin's WoE) gives
+
 $$
 \eta_i = \beta_0 + \sum_j \beta_j \sum_k \mathrm{WoE}_{jk} d_{ijk}
      = \beta_0 + \sum_j \beta_j x_{ij}^{\text{WoE}}.
 $$
+
 This is exactly the logistic regression on WoE-encoded features. The restriction $\alpha_{jk} = \beta_j \mathrm{WoE}_{jk}$ is a single-factor constraint per feature: instead of $K_j$ degrees of freedom, the WoE model uses one. When the empirical WoEs approximate the population log-odds-ratio well (which is the reason binning is done), this constraint loses little accuracy while dramatically reducing over-fit.
 
 The point formula in the next section will reveal why this representation yields an additive scorecard: because $\eta_i$ is a sum of per-bin contributions, scaling it to points preserves additivity, so every applicant's score decomposes exactly into feature-level point contributions.
 
 #### Why WoE and not raw indicators?
 
-In principle one could fit logistic regression on raw one-hot indicators. Three reasons it is not done.
+In principle, one could fit logistic regression on raw one-hot indicators. Three reasons it is not done.
 
-- **Generalization.** With $K_j$ free coefficients per feature, a 20-feature scorecard with 8 bins each has 160 free coefficients, which over-fits on the $\sim$10k-obligor training samples that are common for a new product.
-- **Monotonicity.** Raw indicators have no enforced relationship between adjacent bins, so one can get non-monotone coefficient estimates that contradict policy beliefs. WoE, combined with monotone binning, enforces the relationship by construction.
-- **Stability under population drift.** If one indicator bin fills up unevenly across vintages, its coefficient moves independently. WoE pools the sample through binning, making coefficients substantially more stable vintage-to-vintage, as @siddiqi2017intelligent documents.
+-   **Generalization.** With $K_j$ free coefficients per feature, a 20-feature scorecard with 8 bins each has 160 free coefficients, which over-fits on the $\sim$ 10k-obligor training samples that are common for a new product.
+-   **Monotonicity.** Raw indicators have no enforced relationship between adjacent bins, so one can get non-monotone coefficient estimates that contradict policy beliefs. WoE, combined with monotone binning, enforces the relationship by construction.
+-   **Stability under population drift.** If one indicator bin fills up unevenly across vintages, its coefficient moves independently. WoE pools the sample through binning, making coefficients substantially more stable vintage-to-vintage, as @siddiqi2017intelligent documents.
 
 #### Binning choices in practice
 
 The bin boundaries matter. Three supervised binning recipes dominate production scorecards:
 
-1. *Decision-tree binning.* A shallow CART on $(x_j, y)$ gives boundaries optimized for target split quality. Simple, but can over-fit if the tree depth is not bounded.
-2. *Chi-merge.* Iteratively merge adjacent bins with low chi-square statistic on the event-rate contingency table [@thomas2017credit].
-3. *Optimal binning via mixed-integer programming.* @navas2016optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what `optbinning` implements, and what we use below.
+1.  *Decision-tree binning.* A shallow CART on $(x_j, y)$ gives boundaries optimized for target split quality. Simple, but can over-fit if the tree depth is not bounded.
+2.  *Chi-merge.* Iteratively merge adjacent bins with low chi-square statistic on the event-rate contingency table [@thomas2017credit].
+3.  *Optimal binning via mixed-integer programming.* @navas2016optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what `optbinning` implements, and what we use below.
 
 In each case the output is a list of bin boundaries plus the empirical WoE per bin. The sklearn `ColumnTransformer` plus custom transformer idiom is enough to industrialize any of the three.
 
 #### Information value as a feature-selection filter
 
 Before model fitting, practitioners rank features by information value:
+
 $$
 \mathrm{IV}_j = \sum_{k=1}^{K_j} \big( f_{jk}^{(0)} - f_{jk}^{(1)} \big) \cdot \mathrm{WoE}_{jk}
 $$ {#eq-iv-def}
+
 where $f_{jk}^{(y)}$ is the share of observations with outcome $y$ falling in bin $k$. Rough conventions [@siddiqi2017intelligent]:
 
-- IV < 0.02: not predictive.
-- 0.02 - 0.1: weak.
-- 0.1 - 0.3: medium.
-- 0.3 - 0.5: strong.
-- > 0.5: suspiciously strong, check for leakage.
+-   IV \< 0.02: not predictive.
+
+-   0.02 - 0.1: weak.
+
+-   0.1 - 0.3: medium.
+
+-   0.3 - 0.5: strong.
+
+    > 0.5: suspiciously strong, check for leakage.
 
 IV is sensitive to sample size and binning choices, so treat it as a screen rather than a selection criterion. The final feature set should be chosen by out-of-time Gini contribution under penalized LR, not by IV rank alone.
 
@@ -168,7 +233,254 @@ Three items worth flagging before we code.
 
 *Choice-based sampling.* When the sampling scheme itself is endogenous (e.g., the training set is only of accepted applicants), the logistic likelihood is mis-specified in a more fundamental way. Reject inference (@sec-ch10) addresses this directly. For the bulk of retail products where the sampling scheme is exogenous or rebuilt via weighted likelihood, the base-rate shift is the only correction needed.
 
-*Interpreting $\beta_j$.* In a logit on WoE-encoded features, $\hat\beta_j$ close to 1.0 indicates the empirical WoE is a faithful summary of the feature's log-odds-ratio. Values substantially above 1 imply the binning under-resolves the feature (the WoE signal is being amplified by the linear coefficient to compensate). Values substantially below 1 suggest the binning over-resolves or is contaminated by noise. Senior scorecard modelers use this as a diagnostic: after fitting, inspect the distribution of $\hat\beta_j$ values. Most should live between 0.5 and 1.2. Outliers deserve a look.
+*Interpreting* $\beta_j$. In a logit on WoE-encoded features, $\hat\beta_j$ close to 1.0 indicates the empirical WoE is a faithful summary of the feature's log-odds-ratio. Values substantially above 1 imply the binning under-resolves the feature (the WoE signal is being amplified by the linear coefficient to compensate). Values substantially below 1 suggest the binning over-resolves or is contaminated by noise. Senior scorecard modelers use this as a diagnostic: after fitting, inspect the distribution of $\hat\beta_j$ values. Most should live between 0.5 and 1.2. Outliers deserve a look.
+
+### Worked example: from raw inputs to a score {#sec-ch07-walkthrough}
+
+The math above is easier to internalize on a small concrete dataset. This subsection takes one continuous feature (debt-to-income ratio, `DTI`) and one categorical feature (`employment_type`, with four levels), bins each, computes WoE and IV by hand, fits the logistic regression, maps the coefficients to points, and scores a single applicant end to end. The arithmetic in each chunk is small enough to reproduce on paper, so any mismatch with intuition is locatable to a single line.
+
+#### Step 1. Generate a 4,000-obligor portfolio
+
+`DTI` is drawn so that higher leverage carries higher default probability; `employment_type` is drawn so that `salaried` is safest, `self_employed` is the median, `gig` is risky, and `unemployed` is riskiest. The relationship is not perfect, which is what makes the binning informative.
+
+```{python}
+#| label: walkthrough-data
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(7)
+n = 4000
+
+# DTI: continuous, right-skewed, in [0, 1.2]. Higher = more leverage = riskier.
+dti = np.clip(rng.gamma(shape=2.0, scale=0.18, size=n), 0.01, 1.2)
+
+# employment_type: 4 levels with different base rates.
+emp_levels = np.array(["salaried", "self_employed", "gig", "unemployed"])
+emp_probs  = np.array([0.55, 0.25, 0.15, 0.05])
+emp = rng.choice(emp_levels, size=n, p=emp_probs)
+
+# Default generated from a true linear logit on (DTI, emp_effect).
+emp_effect = pd.Series(emp).map({"salaried": -0.4, "self_employed": 0.0,
+                                  "gig": 0.6, "unemployed": 1.4}).to_numpy()
+true_logit = -2.6 + 3.2 * dti + emp_effect
+prob_true  = 1.0 / (1.0 + np.exp(-true_logit))
+y = (rng.uniform(size=n) < prob_true).astype(int)
+
+df = pd.DataFrame({"DTI": dti, "employment_type": emp, "default": y})
+print("Sample size:", len(df), " | overall default rate:",
+      round(df["default"].mean(), 4))
+print(df.head().to_string(index=False))
+```
+
+#### Step 2. Bin the continuous feature
+
+Five fixed-cut bins on `DTI`. In production these would come from optimal binning with monotonicity constraints; here we pick boundaries by hand so the math stays readable.
+
+```{python}
+#| label: walkthrough-bin-dti
+dti_edges = [-np.inf, 0.10, 0.25, 0.40, 0.60, np.inf]
+dti_labels = ["[0, 0.10)", "[0.10, 0.25)", "[0.25, 0.40)",
+              "[0.40, 0.60)", "[0.60, inf)"]
+df["DTI_bin"] = pd.cut(df["DTI"], bins=dti_edges, labels=dti_labels,
+                       right=False, include_lowest=True)
+
+dti_tab = (df.groupby("DTI_bin", observed=True)["default"]
+             .agg(n="count", bads="sum")
+             .assign(goods=lambda t: t["n"] - t["bads"],
+                     bad_rate=lambda t: t["bads"] / t["n"])
+             .reset_index())
+print(dti_tab.to_string(index=False))
+```
+
+The `bad_rate` column is monotone increasing across the five `DTI` bins, which is the property the binning was supposed to deliver. If a middle bin's bad rate dipped below its lower neighbor, we would merge.
+
+#### Step 3. Compute WoE and IV by hand
+
+WoE compares the share of goods in a bin to the share of bads in that bin (@eq-woe-def). Let $G$ and $B$ be portfolio totals of goods and bads. For bin $k$, $\mathrm{WoE}_k = \log( (g_k/G) / (b_k/B) )$ where $g_k$, $b_k$ are bin counts. Information value (@eq-iv-def) sums the bin-level signal weighted by the gap between good-share and bad-share.
+
+```{python}
+#| label: walkthrough-woe-dti
+def woe_iv_table(tab, total_goods, total_bads):
+    g = tab["goods"].to_numpy().astype(float)
+    b = tab["bads"].to_numpy().astype(float)
+    g_share = np.clip(g / total_goods, 1e-6, None)
+    b_share = np.clip(b / total_bads,  1e-6, None)
+    woe = np.log(g_share / b_share)
+    iv_contrib = (g_share - b_share) * woe
+    out = tab.copy()
+    out["g_share"] = np.round(g_share, 4)
+    out["b_share"] = np.round(b_share, 4)
+    out["WoE"] = np.round(woe, 4)
+    out["IV_contrib"] = np.round(iv_contrib, 4)
+    return out, float(iv_contrib.sum())
+
+G = int((df["default"] == 0).sum())
+B = int((df["default"] == 1).sum())
+print("Total goods:", G, " total bads:", B)
+
+dti_woe, iv_dti = woe_iv_table(dti_tab, G, B)
+print(dti_woe.to_string(index=False))
+print("IV(DTI) =", round(iv_dti, 4))
+```
+
+Reading this table left to right: the safest `DTI` bin has positive WoE (more goods per bad than the portfolio average), the riskiest bin has negative WoE, and the IV contributions are uniformly positive because each bin's gap reinforces the same direction. The summed IV lands above the 0.5 "suspiciously strong" threshold; in real data that would prompt a leakage check, but here it is expected because the synthetic generator made `DTI` a dominant driver of the true PD.
+
+#### Step 4. Bin the categorical feature
+
+For `employment_type` the bins are the four observed levels; no boundaries to choose. We compute the same WoE table.
+
+```{python}
+#| label: walkthrough-woe-emp
+emp_tab = (df.groupby("employment_type", observed=True)["default"]
+             .agg(n="count", bads="sum")
+             .assign(goods=lambda t: t["n"] - t["bads"],
+                     bad_rate=lambda t: t["bads"] / t["n"])
+             .reset_index()
+             .rename(columns={"employment_type": "emp_bin"}))
+emp_woe, iv_emp = woe_iv_table(emp_tab, G, B)
+print(emp_woe.to_string(index=False))
+print("IV(employment_type) =", round(iv_emp, 4))
+```
+
+`unemployed` carries the most negative WoE (it is the highest-bad-rate level), `salaried` the most positive. If two adjacent levels had nearly identical WoE we could collapse them to reduce degrees of freedom; here the four levels separate cleanly.
+
+#### Step 5. Replace each raw value with its bin's WoE
+
+This is @eq-woe-encode applied row by row. After this step every column the logistic regression sees is already on a log-odds-ratio scale, so the regression coefficient on each WoE column is dimensionless and comparable across features.
+
+```{python}
+#| label: walkthrough-encode
+dti_woe_map = dict(zip(dti_woe["DTI_bin"].astype(str),
+                       dti_woe["WoE"].astype(float)))
+emp_woe_map = dict(zip(emp_woe["emp_bin"].astype(str),
+                       emp_woe["WoE"].astype(float)))
+
+df["DTI_woe"] = df["DTI_bin"].astype(str).map(dti_woe_map)
+df["emp_woe"] = df["employment_type"].astype(str).map(emp_woe_map)
+
+print(df[["DTI", "DTI_bin", "DTI_woe",
+          "employment_type", "emp_woe", "default"]].head(8).to_string(index=False))
+```
+
+#### Step 6. Fit the logistic regression on the two WoE columns
+
+The design matrix has three columns: an intercept and two WoE features. Fitting via the from-scratch IRLS in @sec-ch07-impl returns the same coefficients as `statsmodels`.
+
+```{python}
+#| label: walkthrough-fit
+import sys
+sys.path.insert(0, "../code")
+from creditutils import stable_sigmoid
+
+X_demo = np.column_stack([
+    np.ones(len(df)),
+    df["DTI_woe"].to_numpy(),
+    df["emp_woe"].to_numpy(),
+])
+y_demo = df["default"].to_numpy()
+
+# IRLS, written out so each piece is visible.
+def fit_irls(X, y, max_iter=50, tol=1e-10):
+    beta = np.zeros(X.shape[1])
+    for _ in range(max_iter):
+        eta = X @ beta
+        pi = stable_sigmoid(eta)
+        W = np.maximum(pi * (1 - pi), 1e-8)
+        z = eta + (y - pi) / W
+        beta_new = np.linalg.solve(X.T @ (X * W[:, None]),
+                                    X.T @ (W * z))
+        if np.linalg.norm(beta_new - beta) < tol:
+            beta = beta_new
+            break
+        beta = beta_new
+    return beta
+
+beta_hat = fit_irls(X_demo, y_demo)
+print("intercept beta_0 :", round(float(beta_hat[0]), 4))
+print("beta_DTI         :", round(float(beta_hat[1]), 4))
+print("beta_emp         :", round(float(beta_hat[2]), 4))
+```
+
+Both slope coefficients land near $-1$. The sign is negative because under @eq-woe-def a positive WoE marks a safer bin, and the logit of *default* should fall as the bin gets safer; the unit magnitude is the sanity check from @sec-ch07-scorecard, namely that the binning is faithful to the underlying log-odds-ratio so the regression has very little extra work beyond aggregating the two WoE channels.
+
+#### Step 7. Map coefficients to points per bin
+
+Apply the FICO-style scaling `(base_score=600, base_odds=50, pdo=20)` from @eq-points-per-bin. The factor and offset are computed once; the bin-level points then drop out as $-B \beta_j \mathrm{WoE}_{jk} + (A - B \beta_0)/p$ with $p = 2$ characteristics here.
+
+```{python}
+#| label: walkthrough-points
+pdo = 20.0
+base_score = 600.0
+base_odds = 50.0
+factor = pdo / np.log(2.0)
+offset = base_score - factor * np.log(base_odds)
+
+beta0, beta_dti, beta_emp = beta_hat
+intercept_share = (offset - factor * beta0) / 2  # split across 2 features
+
+dti_points_tbl = dti_woe.assign(
+    Points=lambda t: np.round(-factor * beta_dti * t["WoE"]
+                              + intercept_share, 1)
+)[["DTI_bin", "WoE", "Points"]]
+emp_points_tbl = emp_woe.assign(
+    Points=lambda t: np.round(-factor * beta_emp * t["WoE"]
+                              + intercept_share, 1)
+)[["emp_bin", "WoE", "Points"]]
+
+print("DTI points table:")
+print(dti_points_tbl.to_string(index=False))
+print("\nEmployment points table:")
+print(emp_points_tbl.to_string(index=False))
+print("\nfactor B =", round(factor, 4),
+      " offset A =", round(offset, 4),
+      " intercept_share =", round(intercept_share, 4))
+```
+
+The two tables together are the entire scorecard a credit officer would see. Column `Points` is the number a row earns when its applicant falls in that bin. Higher points = safer, by the convention chosen here.
+
+#### Step 8. Score one applicant end to end
+
+Pick a single applicant and trace the arithmetic from raw inputs to total score and PD.
+
+```{python}
+#| label: walkthrough-one-applicant
+applicant = {"DTI": 0.32, "employment_type": "self_employed"}
+
+# 1. assign bins
+dti_bin = pd.cut([applicant["DTI"]], bins=dti_edges,
+                  labels=dti_labels, right=False,
+                  include_lowest=True).astype(str)[0]
+emp_bin = applicant["employment_type"]
+
+# 2. lookup WoE
+woe_dti_i = dti_woe_map[dti_bin]
+woe_emp_i = emp_woe_map[emp_bin]
+
+# 3. linear predictor and PD
+eta_i = beta0 + beta_dti * woe_dti_i + beta_emp * woe_emp_i
+pd_i  = float(stable_sigmoid(np.array([eta_i]))[0])
+
+# 4. points
+pts_dti_i = -factor * beta_dti * woe_dti_i + intercept_share
+pts_emp_i = -factor * beta_emp * woe_emp_i + intercept_share
+score_i   = pts_dti_i + pts_emp_i
+
+# 5. cross-check via the points-to-PD identity
+score_check = offset - factor * eta_i      # since log_odds_good = -eta
+print(f"applicant: DTI={applicant['DTI']}, emp={applicant['employment_type']}")
+print(f"  bins: DTI -> {dti_bin}, emp -> {emp_bin}")
+print(f"  WoE:  DTI={woe_dti_i:.4f}, emp={woe_emp_i:.4f}")
+print(f"  eta = {eta_i:.4f}    PD(default) = {pd_i:.4f}")
+print(f"  points: DTI={pts_dti_i:.1f}, emp={pts_emp_i:.1f},"
+      f"  total={score_i:.1f}")
+print(f"  cross-check via offset - B*eta: {score_check:.1f}")
+```
+
+Two things to notice. First, the total score equals `offset - factor * eta` to the last decimal, which is the algebraic identity the bin tables were built to satisfy: summing the per-bin points reproduces the affine transform of the linear predictor. Second, this applicant's PD is close to the portfolio average because their DTI sits in the middle bin and their employment level is the median-risk level, so neither feature pushes the score far from the intercept. A second applicant with `DTI=0.05` and `employment_type="salaried"` would gain roughly `factor * beta_dti * (WoE_safest_DTI - WoE_middle_DTI)` plus the equivalent employment delta; that is the exact mechanism by which an underwriter explains why one file approves and another does not.
+
+#### What this example is not
+
+The walkthrough uses hand-picked bin edges so the arithmetic stays legible. A production scorecard would use `optbinning` or chi-merge to find boundaries, enforce minimum bin counts, enforce monotonicity in the bad rate, and split out a holdout for IV stability. It would also run a separation check before fitting to flag bins with zero bads. The shape of the pipeline (raw -\> bin -\> WoE -\> logit -\> points) is identical; only the boundary-selection step gets replaced. The full pipeline run on Taiwan default appears in @sec-ch07-impl.
 
 ## Scaling: points to double the odds {#sec-ch07-scaling}
 
@@ -176,21 +488,25 @@ Three items worth flagging before we code.
 
 A scorecard converts the model's log-odds into integer points such that the score is easy to read and stays stable across portfolios. The conventions are fixed by two parameters:
 
-- `base_score`: the points assigned to a reference applicant whose odds of being **good** (non-default) equal `base_odds`.
-- `pdo`: "points to double the odds" is the number of points a score must gain for the good-bad odds to double.
+-   `base_score`: the points assigned to a reference applicant whose odds of being **good** (non-default) equal `base_odds`.
+-   `pdo`: "points to double the odds" is the number of points a score must gain for the good-bad odds to double.
 
 Let $o(s) = (1 - p(s))/p(s)$ be the odds that an applicant with score $s$ is good, where $p(s)$ is the applicant's PD. Linearity requires
+
 $$
 s = A + B \log o
 $$ {#eq-score-linear}
+
 for some constants $A$ (offset) and $B$ (factor).
 
 Doubling the odds means $\log o$ increases by $\log 2$. The definition of PDO says the associated increase in $s$ is `pdo`:
+
 $$
 \mathrm{pdo} = B \log 2 \ \Longrightarrow\ B = \mathrm{pdo} / \log 2.
 $$ {#eq-factor}
 
 Anchoring the score at $s = \mathrm{base\_score}$ when $\log o = \log(\mathrm{base\_odds})$ gives
+
 $$
 \mathrm{base\_score} = A + B \log(\mathrm{base\_odds}) \ \Longrightarrow\ A = \mathrm{base\_score} - B \log(\mathrm{base\_odds}).
 $$ {#eq-offset}
@@ -200,18 +516,24 @@ For the FICO-style `(base_score=600, base_odds=50, pdo=20)` convention: $B = 20 
 ### Points per bin
 
 Under logistic regression on WoE-encoded features, $\log(p_i/(1-p_i)) = \beta_0 + \sum_j \beta_j \mathrm{WoE}_{ji}$, hence
+
 $$
 \log o_i = -\beta_0 - \sum_j \beta_j \mathrm{WoE}_{ji}.
 $$ {#eq-log-odds-good}
+
 Substituting into @eq-score-linear:
+
 $$
 s_i = A - B \beta_0 - B \sum_j \beta_j \mathrm{WoE}_{ji}
     = \Big(\frac{A - B\beta_0}{p}\Big) p + \sum_j \big(-B \beta_j \mathrm{WoE}_{ji}\big),
 $$
+
 where $p$ is the number of characteristics. The bin-level point contribution is
+
 $$
 \mathrm{points}_{jk} = -B \cdot \beta_j \cdot \mathrm{WoE}_{jk} + \frac{A - B \beta_0}{p}
 $$ {#eq-points-per-bin}
+
 with total score $s_i = \sum_{j=1}^p \mathrm{points}_{j, k(i,j)}$ where $k(i,j)$ is the bin applicant $i$ falls into for feature $j$. The $(A - B\beta_0)/p$ term spreads the intercept evenly across characteristics so that each feature contributes a clean per-bin number. Sign conventions vary: most credit shops use "higher points = safer" by choosing $y=1$ = default so that $\beta_j > 0$ for risky bins (large negative WoE_good convention) gives negative points. The `scorecard_points` helper in `creditutils.py` implements this mapping.
 
 ### Cutoff reasoning
@@ -241,25 +563,31 @@ First, credit features are correlated. Payment status, utilization, and recent d
 ### L1 (lasso)
 
 @tibshirani1996regression introduced the lasso penalty:
+
 $$
 \hat\beta^{L1} = \arg\min_\beta \Big\{- \ell(\beta) + \lambda \sum_{j=1}^p |\beta_j| \Big\}.
 $$ {#eq-lasso}
+
 L1 induces sparsity because the sub-differential of $|\cdot|$ at zero is the interval $[-1, 1]$: any coefficient whose partial derivative of the unpenalized loss is below $\lambda$ in magnitude is set to zero. Coordinate descent is the standard solver [@friedman2010regularization]; large-scale L1 logistic uses interior-point methods [@koh2007interior] or the LARS-IC path [@park2007l1]. In credit scoring, L1 is useful when your candidate feature pool is much larger than your stable signal set. It drops characteristics that do not survive cross-validation.
 
 ### L2 (ridge)
 
 @lecessie1992ridge formalized ridge logistic:
+
 $$
 \hat\beta^{L2} = \arg\min_\beta \Big\{- \ell(\beta) + \tfrac{\lambda}{2} \sum_{j=1}^p \beta_j^2 \Big\}.
 $$ {#eq-ridge}
+
 L2 shrinks coefficients smoothly, never to exactly zero. The penalized Hessian $X^\top W X + \lambda I$ is always invertible, which solves the separation problem and stabilizes IRLS. For WoE-encoded features whose effective degrees of freedom are low, modest L2 is usually enough. sklearn's default `penalty='l2'` with `C=1` is a reasonable starting point on WoE models.
 
 ### Elastic net
 
 @zou2005regularization combined the two:
+
 $$
 \hat\beta^{EN} = \arg\min_\beta \Big\{- \ell(\beta) + \lambda_1 \sum |\beta_j| + \tfrac{\lambda_2}{2} \sum \beta_j^2 \Big\}.
 $$ {#eq-enet}
+
 Elastic net keeps groups of correlated features together (unlike lasso, which picks one and drops the rest) while still doing selection. Credit models with highly correlated behavioral variables (e.g. payment history lags) benefit.
 
 ### Stability selection
@@ -274,8 +602,8 @@ Ridge logistic is the MAP estimate under a Gaussian prior: $\beta_j \sim \mathca
 
 The cross-validated AUC curve is usually flat across a factor of ten in $\lambda$. Two rules of thumb narrow the choice.
 
-1. The 1-standard-error rule [@hastie2009elements]: pick the smallest $\lambda$ whose CV-AUC is within one standard error of the best. This delivers a sparser, more stable model with negligible accuracy cost.
-2. The out-of-time AUC rule: hold out the most recent vintage, fit on earlier data, pick $\lambda$ that maximizes AUC on the recent vintage. This is closer to the deployment distribution than random-fold CV and usually selects slightly stronger regularization.
+1.  The 1-standard-error rule [@hastie2009elements]: pick the smallest $\lambda$ whose CV-AUC is within one standard error of the best. This delivers a sparser, more stable model with negligible accuracy cost.
+2.  The out-of-time AUC rule: hold out the most recent vintage, fit on earlier data, pick $\lambda$ that maximizes AUC on the recent vintage. This is closer to the deployment distribution than random-fold CV and usually selects slightly stronger regularization.
 
 In practice we do both and pick the larger $\lambda$ of the two.
 
@@ -283,17 +611,17 @@ In practice we do both and pick the larger $\lambda$ of the two.
 
 Business and regulatory rules often require certain coefficients to have a known sign. For example, "longer credit history should not *lower* the score" is both a common-sense constraint and a defensible anti-discrimination argument. Two implementations:
 
-1. **Binning-level enforcement** via monotone WoE constraints. This is the preferred approach when the variable is numeric. If WoE is monotone in the feature, then the scorecard points are also monotone in the feature, regardless of the LR coefficient sign.
-2. **Optimization-level enforcement.** Fit penalized logistic regression with a linear equality or inequality constraint on $\beta_j$. CVXPY or projected gradient descent handles this in a few lines. The downside is that a constraint binding at $\beta_j = 0$ signals that the model wants a different sign than policy allows; the right response is to drop the feature, not to fight the data.
+1.  **Binning-level enforcement** via monotone WoE constraints. This is the preferred approach when the variable is numeric. If WoE is monotone in the feature, then the scorecard points are also monotone in the feature, regardless of the LR coefficient sign.
+2.  **Optimization-level enforcement.** Fit penalized logistic regression with a linear equality or inequality constraint on $\beta_j$. CVXPY or projected gradient descent handles this in a few lines. The downside is that a constraint binding at $\beta_j = 0$ signals that the model wants a different sign than policy allows; the right response is to drop the feature, not to fight the data.
 
 #### Newton-Cholesky vs SAGA
 
-sklearn offers several solvers. For credit-sized L2 problems (p < 1000, n < 10M), `lbfgs` or `newton-cholesky` is the fastest. For L1 or elastic-net penalties, `saga` is the only general choice, and `liblinear` works for the L1 + binary case. When benchmarking on a laptop, `newton-cholesky` (added in scikit-learn 1.2) typically matches statsmodels' IRLS in speed and produces coefficients that agree to 1e-6.
+sklearn offers several solvers. For credit-sized L2 problems (p \< 1000, n \< 10M), `lbfgs` or `newton-cholesky` is the fastest. For L1 or elastic-net penalties, `saga` is the only general choice, and `liblinear` works for the L1 + binary case. When benchmarking on a laptop, `newton-cholesky` (added in scikit-learn 1.2) typically matches statsmodels' IRLS in speed and produces coefficients that agree to 1e-6.
 
 ### When does each help?
 
 | Regime | Recommended penalty |
-|---|---|
+|------------------------------------|------------------------------------|
 | Small WoE scorecard (20 features, 50k obs) | L2, `C = 1.0 - 4.0` |
 | Large raw-feature logistic (500+ candidates) | L1 then refit L2 on survivors |
 | Correlated behavioral signals | Elastic net |
@@ -332,19 +660,19 @@ Partition the score into equal-quantile bins. Plot $\bar p_k$ (mean predicted PD
 
 A short decision tree:
 
-1. Logistic regression on a representative training sample, modest regularization, sample above 20,000 obligors: no calibration. The MLE is already calibrated in-sample by construction.
-2. Logistic regression on stratified sample: apply the @king2001logistic intercept correction, no Platt needed.
-3. Tree ensemble or calibrated sigmoid needed: Platt first, isotonic if the reliability diagram still shows S-shape.
-4. Small calibration set (below 1,000): Platt or beta calibration. Isotonic over-fits on small samples.
-5. Miscalibration is asymmetric in the tails: beta calibration [@kull2017beta] or an isotonic fit with care taken at the endpoints.
+1.  Logistic regression on a representative training sample, modest regularization, sample above 20,000 obligors: no calibration. The MLE is already calibrated in-sample by construction.
+2.  Logistic regression on stratified sample: apply the @king2001logistic intercept correction, no Platt needed.
+3.  Tree ensemble or calibrated sigmoid needed: Platt first, isotonic if the reliability diagram still shows S-shape.
+4.  Small calibration set (below 1,000): Platt or beta calibration. Isotonic over-fits on small samples.
+5.  Miscalibration is asymmetric in the tails: beta calibration [@kull2017beta] or an isotonic fit with care taken at the endpoints.
 
 ### Calibration metrics beyond Brier
 
 Three alternatives appear in regulatory validation docs.
 
-- **Expected Calibration Error (ECE).** Weighted mean absolute gap between bin-average PD and bin-average default rate, with weights proportional to bin count.
-- **Maximum Calibration Error (MCE).** Worst-case bin gap. Used as a conservative upper bound.
-- **Hosmer-Lemeshow goodness-of-fit test.** Chi-square on deciles of predicted PD [@hosmer2013applied]. A low p-value flags miscalibration; under SR 11-7 a bank is expected to act on that signal.
+-   **Expected Calibration Error (ECE).** Weighted mean absolute gap between bin-average PD and bin-average default rate, with weights proportional to bin count.
+-   **Maximum Calibration Error (MCE).** Worst-case bin gap. Used as a conservative upper bound.
+-   **Hosmer-Lemeshow goodness-of-fit test.** Chi-square on deciles of predicted PD [@hosmer2013applied]. A low p-value flags miscalibration; under SR 11-7 a bank is expected to act on that signal.
 
 In practice, ECE with ten deciles plus a reliability plot is the combination you will see in most validation packages.
 
@@ -352,17 +680,19 @@ In practice, ECE with ten deciles plus a reliability plot is the combination you
 
 A recurring production issue is base-rate drift. Your scorecard predicts 4% default but the current vintage is running at 6%. Options:
 
-1. *Affine recalibration (cheap).* Shift intercept by $\log(6/94) - \log(4/96)$. Keeps the ranking, adjusts the level. Defensible when the ranking KS/AUC on the new vintage is still acceptable.
-2. *Platt recalibration (cheaper than refit).* Re-learn intercept and slope on a held-out recent vintage. Defensible when the ranking is slightly compressed but still correct on ordering.
-3. *Full refit.* When CSI on a dominant feature exceeds 0.25 or when KS drops by more than 10%. Requires full revalidation.
+1.  *Affine recalibration (cheap).* Shift intercept by $\log(6/94) - \log(4/96)$. Keeps the ranking, adjusts the level. Defensible when the ranking KS/AUC on the new vintage is still acceptable.
+2.  *Platt recalibration (cheaper than refit).* Re-learn intercept and slope on a held-out recent vintage. Defensible when the ranking is slightly compressed but still correct on ordering.
+3.  *Full refit.* When CSI on a dominant feature exceeds 0.25 or when KS drops by more than 10%. Requires full revalidation.
 
 ## Ohlson's O-score
 
 @ohlson1980financial introduced the logit bankruptcy model that shifted corporate distress prediction off the discriminant-analysis path that @altman1968zscore (see @sec-ch06) had defined. Ohlson fitted a logistic regression on 105 bankrupt and 2058 non-bankrupt US firms over 1970-1976. The nine covariates, with Ohlson's estimated coefficients, are
+
 $$
 \mathrm{O} = -1.32 - 0.407 \cdot \mathrm{SIZE} + 6.03 \cdot \mathrm{TLTA} - 1.43 \cdot \mathrm{WCTA}
 + 0.0757 \cdot \mathrm{CLCA}
 $$
+
 $$
 \quad - 1.72 \cdot \mathrm{OENEG} - 2.37 \cdot \mathrm{NITA} - 1.83 \cdot \mathrm{FUTL} + 0.285 \cdot \mathrm{INTWO}
 - 0.521 \cdot \mathrm{CHIN}.
@@ -370,15 +700,15 @@ $$ {#eq-oscore}
 
 where
 
-- $\mathrm{SIZE} = \log(\text{total assets}/\text{GNP deflator})$
-- $\mathrm{TLTA} = \text{total liabilities}/\text{total assets}$
-- $\mathrm{WCTA} = \text{working capital}/\text{total assets}$
-- $\mathrm{CLCA} = \text{current liabilities}/\text{current assets}$
-- $\mathrm{OENEG} = \mathbf{1}\{\text{total liabilities} > \text{total assets}\}$
-- $\mathrm{NITA} = \text{net income}/\text{total assets}$
-- $\mathrm{FUTL} = \text{funds from operations}/\text{total liabilities}$
-- $\mathrm{INTWO} = \mathbf{1}\{\text{net income was negative in last two years}\}$
-- $\mathrm{CHIN} = (NI_t - NI_{t-1})/(|NI_t| + |NI_{t-1}|)$.
+-   $\mathrm{SIZE} = \log(\text{total assets}/\text{GNP deflator})$
+-   $\mathrm{TLTA} = \text{total liabilities}/\text{total assets}$
+-   $\mathrm{WCTA} = \text{working capital}/\text{total assets}$
+-   $\mathrm{CLCA} = \text{current liabilities}/\text{current assets}$
+-   $\mathrm{OENEG} = \mathbf{1}\{\text{total liabilities} > \text{total assets}\}$
+-   $\mathrm{NITA} = \text{net income}/\text{total assets}$
+-   $\mathrm{FUTL} = \text{funds from operations}/\text{total liabilities}$
+-   $\mathrm{INTWO} = \mathbf{1}\{\text{net income was negative in last two years}\}$
+-   $\mathrm{CHIN} = (NI_t - NI_{t-1})/(|NI_t| + |NI_{t-1}|)$.
 
 The one-year-ahead PD is $\Pr(\text{bankrupt}) = \sigma(\mathrm{O})$. Ohlson reported a Type I error of 12.4% at a 3.8% cutoff on his holdout. Later work reconfirmed on larger samples [@shumway2001forecasting; @campbell2008search] and extended the logit framework to multi-period hazard (@sec-ch09).
 
@@ -405,7 +735,7 @@ import warnings
 import sys
 warnings.filterwarnings("ignore")
 sys.path.insert(0, "../code")
-from creditutils import load_german_credit, load_taiwan_default, ks_statistic, gini, psi, scorecard_points
+from creditutils import load_german_credit, load_taiwan_default, ks_statistic, gini, psi, scorecard_points, stable_sigmoid
 
 rng = np.random.default_rng(42)
 
@@ -443,7 +773,7 @@ Xd = rng.normal(size=(n, p))
 Xd = np.hstack([np.ones((n, 1)), Xd])     # include intercept
 beta_true = np.array([-1.5, 0.7, -0.4, 0.9, 0.2, -0.6])
 eta_true = Xd @ beta_true
-prob_true = 1.0 / (1.0 + np.exp(-eta_true))
+prob_true = stable_sigmoid(eta_true)
 yd = (rng.uniform(size=n) < prob_true).astype(int)
 
 beta_hat, _, I_mat = irls_logit(Xd, yd)
@@ -516,7 +846,7 @@ firms["O"] = (c["intercept"]
               + c["OENEG"]*firms["OENEG"] + c["NITA"]*firms["NITA"]
               + c["FUTL"]*firms["FUTL"] + c["INTWO"]*firms["INTWO"]
               + c["CHIN"]*firms["CHIN"])
-firms["PD_1y"] = 1.0 / (1.0 + np.exp(-firms["O"]))
+firms["PD_1y"] = stable_sigmoid(firms["O"].to_numpy())
 print(firms[["firm", "O", "PD_1y"]].round(4).to_string(index=False))
 ```
 
@@ -553,7 +883,7 @@ scaler = StandardScaler().fit(X_train)
 Xtr = np.hstack([np.ones((len(X_train), 1)), scaler.transform(X_train)])
 Xte = np.hstack([np.ones((len(X_test), 1)),  scaler.transform(X_test)])
 sm_logit = sm.Logit(y_train, Xtr).fit(disp=0)
-pred_sm = 1 / (1 + np.exp(-Xte @ sm_logit.params))
+pred_sm = stable_sigmoid(Xte @ sm_logit.params)
 print("statsmodels AUC :", round(roc_auc_score(y_test, pred_sm), 4))
 print("statsmodels KS  :", round(ks_statistic(y_test, pred_sm), 4))
 print("statsmodels Brier:", round(brier_score_loss(y_test, pred_sm), 4))
@@ -633,9 +963,11 @@ The cutoff has two levers: approval rate and expected loss. Credit policy tunes 
 #### Cutoff optimization as a profit calculation
 
 The cutoff should not be set by rule of thumb; it should solve an explicit expected-profit problem. Let $r$ be the risk-adjusted return on a good account, $L$ be the expected loss on a bad account (LGD times EAD), and $p(s)$ be the calibrated PD at score $s$. Expected profit per approved applicant is
+
 $$
 \pi(s) = (1 - p(s)) \cdot r - p(s) \cdot L.
 $$
+
 Solving $\pi(s^*) = 0$ gives the breakeven PD $p^* = r / (r + L)$, and the corresponding score is the break-even cutoff. In practice, you want positive expected profit plus a margin for model error, so the operational cutoff sits slightly above breakeven. @verbraken2014novel embed this logic inside a profit-based classifier metric, the Expected Maximum Profit (EMP), which we will revisit in the benchmarking chapter (@sec-ch16).
 
 Cutoff choices interact with regulatory requirements in three places. (a) Fair-lending: the cutoff must not produce disparate impact on a protected class. (b) Regulatory capital: the cutoff ties into the portfolio's PD distribution, which feeds the IRB risk-weight function. (c) CECL / IFRS 9: the cutoff implicitly defines the provisioning split between Stage 1 (performing) and Stage 2 (significant increase in credit risk), so moving the cutoff moves the allowance for credit losses. For all three reasons, cutoff changes need change-management sign-off even though the underlying scorecard is unchanged.
@@ -811,7 +1143,7 @@ def synth_default(n, seed=0):
     x3 = rng.normal(size=n)                     # months_on_book
     x4 = rng.binomial(1, 0.30, size=n)          # new_credit_flag
     logit = -2.3 + 1.1 * x0 + 0.25 * np.log1p(x1) + 1.4 * x2 - 0.3 * x3 + 0.6 * x4
-    pi = 1 / (1 + np.exp(-logit))
+    pi = stable_sigmoid(logit)
     y = (rng.uniform(size=n) < pi).astype(int)
     return pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "x3": x3, "x4": x4, "y": y})
 
@@ -893,7 +1225,7 @@ On a real cluster, MLlib parallelizes the Hessian accumulation across workers an
 
 For cases where even reading the full training set into memory is tight, Dask plus mini-batch logistic via `SGDClassifier.partial_fit` gives a streaming fit. The API pattern is:
 
-```python
+``` python
 # Illustrative only, not executed here.
 import dask.dataframe as dd
 ddf = dd.read_parquet("s3://bucket/panel/year=*/*.parquet")
@@ -923,7 +1255,7 @@ print("size (bytes):", os.path.getsize("../deployment/artifacts/scorecard.pkl"))
 
 The companion file `book/deployment/scorecard_app.py` wraps the pickle behind a POST endpoint. Skeleton:
 
-```python
+``` python
 # book/deployment/scorecard_app.py (see file for full implementation)
 # ...
 @app.post("/score", response_model=Decision)
@@ -941,7 +1273,7 @@ The endpoint returns the integer points, the PD estimate, the approve/decline de
 
 To run locally:
 
-```bash
+``` bash
 uvicorn scorecard_app:app --host 0.0.0.0 --port 8000
 curl -X POST http://localhost:8000/score \
   -H 'Content-Type: application/json' \
@@ -1042,8 +1374,8 @@ for i in range(len(declined)):
 
 Regulatory and policy teams require that certain features be monotone: higher utilization should never *lower* PD, and older delinquencies should never *raise* it. Two mechanisms enforce this.
 
-1. **Monotonic binning.** Optimal binning solves its mixed-integer program with a monotone event-rate constraint per feature. Then the learned WoE values are automatically monotone in the feature. This is the preferred approach because it is visible in the scorecard table and auditable.
-2. **Sign-constrained logistic regression.** Fit a penalized LR with coefficient sign constraints imposed via convex optimization (CVXPY) or a projected gradient step. This is the fallback when a feature must enter raw.
+1.  **Monotonic binning.** Optimal binning solves its mixed-integer program with a monotone event-rate constraint per feature. Then the learned WoE values are automatically monotone in the feature. This is the preferred approach because it is visible in the scorecard table and auditable.
+2.  **Sign-constrained logistic regression.** Fit a penalized LR with coefficient sign constraints imposed via convex optimization (CVXPY) or a projected gradient step. This is the fallback when a feature must enter raw.
 
 ```{python}
 # Example: enforce monotone event-rate bins on PAY_0
@@ -1061,9 +1393,9 @@ Here `monotonic_trend="ascending"` forces event rate to rise with PAY_0 (later p
 
 Three quantities must be tracked at production cadence (daily for application scorecards, monthly for behavioral):
 
-1. **Population Stability Index (PSI) on score**, flagged above 0.1, escalated above 0.25.
-2. **Characteristic Stability Index (CSI)** per feature, for root-cause on any PSI alert.
-3. **Bad rate backtesting by score band**, with confidence intervals.
+1.  **Population Stability Index (PSI) on score**, flagged above 0.1, escalated above 0.25.
+2.  **Characteristic Stability Index (CSI)** per feature, for root-cause on any PSI alert.
+3.  **Bad rate backtesting by score band**, with confidence intervals.
 
 The `creditutils.psi` helper computes the score-level PSI; we will compute CSI below.
 
@@ -1072,9 +1404,11 @@ The `creditutils.psi` helper computes the score-level PSI; we will compute CSI b
 ### PSI, characteristic stability, and recalibration cadence
 
 The Population Stability Index measures how the score distribution has shifted between a baseline window (training) and a current window (production):
+
 $$
 \mathrm{PSI} = \sum_{b=1}^{B} (A_b - E_b) \log(A_b / E_b)
 $$ {#eq-psi}
+
 where $E_b$ and $A_b$ are the expected (baseline) and actual (current) fractions in quantile bucket $b$.
 
 ```{python}
@@ -1099,9 +1433,9 @@ print(csi_s.head(5).round(4).to_string())
 
 A typical rule set:
 
-- **PSI < 0.10:** no action.
-- **0.10 to 0.25:** investigate, check CSI, consider Platt/offset recalibration on the latest vintage.
-- **\> 0.25:** pause lending on the at-risk segment, refit the scorecard with the latest data, repeat back-test.
+-   **PSI \< 0.10:** no action.
+-   **0.10 to 0.25:** investigate, check CSI, consider Platt/offset recalibration on the latest vintage.
+-   **\> 0.25:** pause lending on the at-risk segment, refit the scorecard with the latest data, repeat back-test.
 
 ### Recalibration vs refit
 
@@ -1119,10 +1453,10 @@ A defensible cadence is: recalibrate quarterly on rolling 12-month data, refit a
 
 @sr117 and @occ2021model define three lines of defense. Scorecards sit inside the first line (development), are validated by the second (model risk), and audited by the third. The chapter's deliverables map onto SR 11-7 as follows.
 
-- **Conceptual soundness.** The derivation in 7.1 and 7.2 is the text you cite when asked "why logistic regression here." Monotonic WoE binning is the concrete control on feature behavior.
-- **Data and design.** MLflow logs capture the training data signature. PSI and CSI are the ongoing data-quality signals.
-- **Process verification.** The IRLS-vs-statsmodels check confirms the solver is correct. The ONNX round-trip confirms the deployed artifact is the trained artifact.
-- **Outcome analysis.** Holdout AUC/KS/Brier, reliability diagram, and back-testing at the score-band level.
+-   **Conceptual soundness.** The derivation in 7.1 and 7.2 is the text you cite when asked "why logistic regression here." Monotonic WoE binning is the concrete control on feature behavior.
+-   **Data and design.** MLflow logs capture the training data signature. PSI and CSI are the ongoing data-quality signals.
+-   **Process verification.** The IRLS-vs-statsmodels check confirms the solver is correct. The ONNX round-trip confirms the deployed artifact is the trained artifact.
+-   **Outcome analysis.** Holdout AUC/KS/Brier, reliability diagram, and back-testing at the score-band level.
 
 ### ECOA / FCRA
 
@@ -1138,7 +1472,7 @@ Article 22 of GDPR entitles the data subject to an explanation of an automated d
 
 ### Fair-lending guardrails
 
-@bartlett2022consumer and @hurlin2024fairness give the up-to-date empirical view on fintech-era lending discrimination. A logistic regression on legitimate features can still produce disparate outcomes; @sec-ch24's fairness audit is mandatory before go-live.
+@bartlett2022consumer and @hurlin2026fairness give the up-to-date empirical view on fintech-era lending discrimination. A logistic regression on legitimate features can still produce disparate outcomes; @sec-ch24's fairness audit is mandatory before go-live.
 
 ## Vietnam and emerging markets
 
@@ -1146,7 +1480,7 @@ Article 22 of GDPR entitles the data subject to an explanation of an automated d
 
 Vietnamese retail scorecards live on top of three data layers: the CIC supervisory pull, the bank's internal deposit and card behavior, and increasingly a consented bureau pull from FiinGroup or PCB. CIC reports carry loan-by-loan status for bank and finance-company exposures, aged arrears buckets, and a CIC group rating that mirrors the five-group classification of Circular 11/2021/TT-NHNN [@sbv2021circular11; @cicvn2023report]. Circular 16/2020/TT-NHNN allowed video-plus-liveness eKYC for payment account opening and, via subsequent guidance, for consumer credit onboarding, which shifted application flow from branch to mobile in three years [@sbv2020ekyc]. Decree 13/2023/ND-CP is the binding personal data regime. Under it, a bureau pull or an alternative-data pull (telco, e-wallet) requires an explicit consent record and a data protection impact assessment filed with the Ministry of Public Security's cybersecurity department [@govvn2023decree13]. For SBV supervision, the scorecard must map to the Circular 11 definition of default (overdue more than 90 days or group 3 and worse), not to an internal roll-rate definition [@sbv2021circular11]. Findex 2021 places Vietnam's account-holder rate at roughly 56 percent of adults with fast growth in mobile-money uptake, which is the feature universe a retail modeler now writes against [@worldbank2021findex].
 
-Macro volatility is not optional. @chu2024vietnam show that Vietnamese bank credit responds to uncertainty shocks more strongly than in advanced markets, which means scorecard PD tracks a moving ground truth. Vietnamese GDP swings and property-cycle episodes (2012, 2022) are documented in IMF Article IV filings [@imf2023vietnamart4]. Seasonality is the other first-order effect. Tet bonuses, rural-urban remittances, and closing wholesale markets produce repeatable Q1 liquidity compression that a fixed-threshold scorecard reads as a risk spike unless explicitly adjusted [@leboulanger2021tet].
+Macro volatility is not optional. Vietnamese bank credit responds to uncertainty shocks more strongly than in advanced markets, which means scorecard PD tracks a moving ground truth. Vietnamese GDP swings and property-cycle episodes (2012, 2022) are documented in IMF Article IV filings [@imf2023vietnamart4]. Seasonality is the other first-order effect. Tet bonuses, rural-urban remittances, and closing wholesale markets produce repeatable Q1 liquidity compression that a fixed-threshold scorecard reads as a risk spike unless explicitly adjusted.
 
 ### Application considerations
 
@@ -1168,22 +1502,22 @@ Operational cadence. A Vietnamese retail scorecard should be revalidated at leas
 
 ## Takeaways
 
-- A scorecard is a logistic regression on WoE-encoded features plus an affine scaling that turns log-odds into integer points. Both pieces have closed-form math and should be understood end to end.
-- IRLS is the right solver to know by hand. The four-line derivation in 7.1 is enough to implement logistic regression from scratch in NumPy and to verify any production library.
-- Points per bin are $-B \beta_j \mathrm{WoE}_{jk}$ plus an intercept share. That formula is the contract between modelers and policy analysts.
-- Regularization helps three times: stability under quasi-separation, lower variance under correlated features, and better out-of-time transfer. L2 is safe; L1 is for feature selection; elastic net handles correlated behaviorals.
-- Calibration matters as much as discrimination for pricing and capital. Platt and isotonic are mechanical corrections; the reliability diagram is the test.
-- Production adds reason codes, PSI/CSI monitoring, a recalibration-vs-refit playbook, and an artifact pipeline (pickle, ONNX, MLflow). A scorecard that is not logged and monitored is not in production.
+-   A scorecard is a logistic regression on WoE-encoded features plus an affine scaling that turns log-odds into integer points. Both pieces have closed-form math and should be understood end to end.
+-   IRLS is the right solver to know by hand. The four-line derivation in 7.1 is enough to implement logistic regression from scratch in NumPy and to verify any production library.
+-   Points per bin are $-B \beta_j \mathrm{WoE}_{jk}$ plus an intercept share. That formula is the contract between modelers and policy analysts.
+-   Regularization helps three times: stability under quasi-separation, lower variance under correlated features, and better out-of-time transfer. L2 is safe; L1 is for feature selection; elastic net handles correlated behaviorals.
+-   Calibration matters as much as discrimination for pricing and capital. Platt and isotonic are mechanical corrections; the reliability diagram is the test.
+-   Production adds reason codes, PSI/CSI monitoring, a recalibration-vs-refit playbook, and an artifact pipeline (pickle, ONNX, MLflow). A scorecard that is not logged and monitored is not in production.
 
 ## Further reading
 
-- @hastie2009elements for the definitive statistical treatment of logistic regression.
-- @hosmer2013applied for applied tests, diagnostics, and categorical-variable handling.
-- @mccullagh1989generalized for the canonical GLM theory [@nelder1972generalized].
-- @thomas2017credit and @anderson2007credit for scorecard-specific engineering.
-- @siddiqi2017intelligent for a vendor-inflected but practically invaluable scorecard walkthrough.
-- @friedman2010regularization for coordinate descent on penalized GLMs.
-- @platt1999probabilistic, @zadrozny2002transforming, @kull2017beta, and @niculescu2005predicting for the calibration literature.
-- @ohlson1980financial and @shumway2001forecasting for the logit bankruptcy lineage.
-- @dumitrescu2022machine for a modern benchmark that puts penalized LR on WoE features inside one percent of gradient-boosted trees for credit.
-- @sr117, @basel2006international, @eba2017gl, and @occ2021model for the regulatory frame.
+-   @hastie2009elements for the definitive statistical treatment of logistic regression.
+-   @hosmer2013applied for applied tests, diagnostics, and categorical-variable handling.
+-   @mccullagh1989generalized for the canonical GLM theory [@nelder1972generalized].
+-   @thomas2017credit and @anderson2007credit for scorecard-specific engineering.
+-   @siddiqi2017intelligent for a vendor-inflected but practically invaluable scorecard walkthrough.
+-   @friedman2010regularization for coordinate descent on penalized GLMs.
+-   @platt1999probabilistic, @zadrozny2002transforming, @kull2017beta, and @niculescu2005predicting for the calibration literature.
+-   @ohlson1980financial and @shumway2001forecasting for the logit bankruptcy lineage.
+-   @dumitrescu2022machine for a modern benchmark that puts penalized LR on WoE features inside one percent of gradient-boosted trees for credit.
+-   @sr117, @basel2006international, @eba2017gl, and @occ2021model for the regulatory frame.

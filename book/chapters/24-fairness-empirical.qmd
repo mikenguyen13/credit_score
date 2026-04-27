@@ -13,7 +13,7 @@ Fairness in credit scoring is an empirical question. Definitions come from stati
 
 Most of the estimators in this chapter were built for US and EU data under statutes that name protected classes and assign them a legal shield. Emerging markets lack that scaffolding. The estimators still work: group means, conditional distributions, and score-by-outcome tests do not require a federal rule to produce numbers. What changes is what a regulator or an auditor will do with the numbers. The Vietnam and emerging markets section at the end treats that gap.
 
-The agenda is practical. @sec-ch24 presents the Hurlin-Perignon-Saurin framework from @hurlin2024fairness, which recasts fairness as a joint hypothesis test about conditional moments. Sections [-@sec-ch24-bartlett] through [-@sec-ch24-bhutta] work through four top-tier empirical papers that shaped current US regulatory and academic thinking: @bartlett2022consumer on FinTech mortgage pricing, @fuster2022predictably on machine learning and racial gaps, @howell2024lender on loan automation during the Paycheck Protection Program, and @bhutta2021how on mortgage pricing differentials in HMDA-enhanced data. @sec-ch24-proxy covers proxy variable detection, a technique that has migrated from academic papers into fair lending examinations. @sec-ch24-adversarial implements adversarial debiasing as a gradient-reversal network. @sec-ch24-monitoring closes with production monitoring patterns: a per-group dashboard plus drift detection across monthly cohorts.
+The agenda is practical. @sec-ch24 presents the Hurlin-Perignon-Saurin framework from @hurlin2026fairness, which recasts fairness as a joint hypothesis test about conditional moments. Sections [-@sec-ch24-bartlett] through [-@sec-ch24-bhutta] work through four top-tier empirical papers that shaped current US regulatory and academic thinking: @bartlett2022consumer on FinTech mortgage pricing, @fuster2022predictably on machine learning and racial gaps, @howell2024lender on loan automation during the Paycheck Protection Program, and @bhutta2021how on mortgage pricing differentials in HMDA-enhanced data. @sec-ch24-proxy covers proxy variable detection, a technique that has migrated from academic papers into fair lending examinations. @sec-ch24-adversarial implements adversarial debiasing as a gradient-reversal network. @sec-ch24-monitoring closes with production monitoring patterns: a per-group dashboard plus drift detection across monthly cohorts.
 
 The results in this chapter come from seeded simulations, not from real applicants. Numerical findings serve as pedagogy, not policy. The law is also a moving target. Current US fair lending doctrine rests on the Equal Credit Opportunity Act (ECOA, 15 USC 1691), the Fair Housing Act (42 USC 3601), Regulation B (12 CFR 1002), and a growing CFPB circular record including @cfpb2022ucdap on adverse action notifications for algorithmic decisions. Similar but distinct regimes apply in the EU under the AI Act and under individual member-state statutes. We flag the law where it matters but leave compliance judgments to counsel.
 
@@ -23,13 +23,13 @@ Let $X \in \mathbb{R}^p$ be an observable feature vector, $A \in \{0,1\}$ a bina
 
 ## The Hurlin, Perignon, and Saurin framework {#sec-ch24-fairemp}
 
-Hurlin, Perignon, and Saurin in @hurlin2024fairness propose a statistical test for fairness that sidesteps the philosophical dispute between demographic parity, equalized odds, and calibration by asking a single, testable question. Conditional on the true default outcome $Y$, does the score $S$ have the same distribution across groups?
+Hurlin, Perignon, and Saurin in @hurlin2026fairness propose a statistical test for fairness that sidesteps the philosophical dispute between demographic parity, equalized odds, and calibration by asking a single, testable question. Conditional on the true default outcome $Y$, does the score $S$ have the same distribution across groups?
 
-The logic is unmistakably econometric. If the score is a sufficient statistic for default risk, then once we hold $Y$ fixed, the protected attribute $A$ should convey no additional information about $S$. When $A$ does convey extra information about $S$ given $Y$, the score is absorbing group membership beyond what risk requires. @hurlin2024fairness call this excess dependence the fairness violation, and they propose estimators for both its sign and its magnitude.
+The logic is unmistakably econometric. If the score is a sufficient statistic for default risk, then once we hold $Y$ fixed, the protected attribute $A$ should convey no additional information about $S$. When $A$ does convey extra information about $S$ given $Y$, the score is absorbing group membership beyond what risk requires. @hurlin2026fairness call this excess dependence the fairness violation, and they propose estimators for both its sign and its magnitude.
 
 ### Formal setup
 
-Let $F_{S|Y,A}(s \mid y, a) = \mathbb{P}[S \le s \mid Y=y, A=a]$ be the conditional CDF of scores given outcome and group. @hurlin2024fairness define two fairness properties. The first is equalized performance:
+Let $F_{S|Y,A}(s \mid y, a) = \mathbb{P}[S \le s \mid Y=y, A=a]$ be the conditional CDF of scores given outcome and group. @hurlin2026fairness define two fairness properties. The first is equalized performance:
 
 $$
 F_{S|Y,A=0}(s \mid y) = F_{S|Y,A=1}(s \mid y), \quad \forall s \in [0,1], y \in \{0,1\}.
@@ -45,7 +45,7 @@ $$ {#eq-hurlin-predictive}
 
 This is the distributional analog of calibration by group. When @eq-hurlin-predictive holds, the score is the same reliable signal for both groups: a score of 0.10 means the same probability of default regardless of $A$.
 
-@hurlin2024fairness show that under non-degenerate distributions of $Y$ and $A$, equations @eq-hurlin-equalized and @eq-hurlin-predictive cannot both hold exactly unless the groups have identical base rates. This is the Chouldechova impossibility result from @chouldechova2017fair, restated as a distributional test. The practical implication is that fairness auditing must pick its moment: equal performance or equal calibration, not both when base rates differ.
+@hurlin2026fairness show that under non-degenerate distributions of $Y$ and $A$, equations @eq-hurlin-equalized and @eq-hurlin-predictive cannot both hold exactly unless the groups have identical base rates. This is the Chouldechova impossibility result from @chouldechova2017fair, restated as a distributional test. The practical implication is that fairness auditing must pick its moment: equal performance or equal calibration, not both when base rates differ.
 
 ### Test statistics
 
@@ -55,11 +55,11 @@ $$
 \mathrm{KS}_y = \sup_{s} \left| \hat{F}_{S|Y=y,A=0}(s) - \hat{F}_{S|Y=y,A=1}(s) \right|.
 $$ {#eq-hurlin-ks}
 
-Under the null of @eq-hurlin-equalized, $\sqrt{n_{y,0} n_{y,1} / n_y} \cdot \mathrm{KS}_y$ converges to the supremum of a Brownian bridge, which is the standard two-sample Kolmogorov distribution. @hurlin2024fairness extend this with continuous-covariate corrections and with a bootstrap procedure that accounts for uncertainty in the learned score itself, not just the empirical distribution at a fixed score. The key insight is that the score is a function of parameters $\hat{\theta}$ estimated on the same sample, so the test needs a two-layer bootstrap: one for the score estimation and one for the CDF comparison.
+Under the null of @eq-hurlin-equalized, $\sqrt{n_{y,0} n_{y,1} / n_y} \cdot \mathrm{KS}_y$ converges to the supremum of a Brownian bridge, which is the standard two-sample Kolmogorov distribution. @hurlin2026fairness extend this with continuous-covariate corrections and with a bootstrap procedure that accounts for uncertainty in the learned score itself, not just the empirical distribution at a fixed score. The key insight is that the score is a function of parameters $\hat{\theta}$ estimated on the same sample, so the test needs a two-layer bootstrap: one for the score estimation and one for the CDF comparison.
 
 ### Replication on simulated data
 
-We reproduce the spirit of the test on simulated data. Real-world replication would require HMDA or a credit bureau extract with default outcomes matched to protected attributes, which neither we nor @hurlin2024fairness can publicly share.
+We reproduce the spirit of the test on simulated data. Real-world replication would require HMDA or a credit bureau extract with default outcomes matched to protected attributes, which neither we nor @hurlin2026fairness can publicly share.
 
 ```{python}
 #| label: hurlin-simulate
@@ -67,6 +67,7 @@ import numpy as np
 import pandas as pd
 import sys
 sys.path.insert(0, '../code')
+from creditutils import stable_sigmoid
 
 RNG = np.random.default_rng(42)
 
@@ -90,7 +91,7 @@ def simulate_credit_panel(n=12000, base_rate_gap=0.12, noise_gap=0.5, seed=42):
               + 0.03 * (ltv - 70)
               + 0.02 * (dti - 30)
               + 0.02 * (700 - bureau))
-    p = 1 / (1 + np.exp(-(latent + noise)))
+    p = stable_sigmoid(latent + noise)
     y = (rng.uniform(size=n) < p).astype(int)
     # Interest rate model: default-risk plus a structural race-spread.
     rate = (0.03 + 0.00005 * (700 - bureau)
@@ -1006,7 +1007,7 @@ The empirical patterns that a fairness pipeline must watch are specific to the c
 
 ### Application considerations
 
-The empirical tests from @hurlin2024fairness, @bartlett2022consumer, and @fuster2022predictably adapt to Vietnamese data once the protected-attribute field is defined. Gender is the easiest, because identity documents carry the field and because the Law on Gender Equality provides a clear ethical anchor. Urban-rural status, defined either by province code or by the CIC residency flag, is the second. Ethnicity is the hardest: few credit institutions store ethnicity as a modeled feature, and drawing it from household-registration data raises consent and storage risks under Decree 13/2023 [@vn_decree13_2023]. A proxy estimate using geography, language of application, and surname is defensible with documentation, but the lender must state the error bound explicitly.
+The empirical tests from @hurlin2026fairness, @bartlett2022consumer, and @fuster2022predictably adapt to Vietnamese data once the protected-attribute field is defined. Gender is the easiest, because identity documents carry the field and because the Law on Gender Equality provides a clear ethical anchor. Urban-rural status, defined either by province code or by the CIC residency flag, is the second. Ethnicity is the hardest: few credit institutions store ethnicity as a modeled feature, and drawing it from household-registration data raises consent and storage risks under Decree 13/2023 [@vn_decree13_2023]. A proxy estimate using geography, language of application, and surname is defensible with documentation, but the lender must state the error bound explicitly.
 
 ### Rationalization
 
@@ -1014,11 +1015,11 @@ In the absence of a US-style disparate-impact doctrine, the case for running the
 
 ### Practical notes
 
-Run the @hurlin2024fairness test on gender and urban-rural, quarterly. Report the Kolmogorov-Smirnov distance of the conditional score distributions and the $\chi^2$ statistic. Flag any disparity that exceeds the four-fifths US benchmark, even though the benchmark has no Vietnamese legal standing, because the ESG auditor and the parent group read it. Document the less-discriminatory-alternative analysis for each flagged disparity. Do not deploy the Hardt-Price-Srebro post-processor with group membership at inference, because in Vietnam as in the US this creates disparate treatment in fact even without disparate-treatment law. Use reweighing, adversarial debiasing, or fair representations when the audit requires mitigation. Store the audit logs in the model registry alongside the adjacency with Decree 13/2023 data-minimization rules, because the audit itself processes personal data and inherits the Decree's storage and consent requirements.
+Run the @hurlin2026fairness test on gender and urban-rural, quarterly. Report the Kolmogorov-Smirnov distance of the conditional score distributions and the $\chi^2$ statistic. Flag any disparity that exceeds the four-fifths US benchmark, even though the benchmark has no Vietnamese legal standing, because the ESG auditor and the parent group read it. Document the less-discriminatory-alternative analysis for each flagged disparity. Do not deploy the Hardt-Price-Srebro post-processor with group membership at inference, because in Vietnam as in the US this creates disparate treatment in fact even without disparate-treatment law. Use reweighing, adversarial debiasing, or fair representations when the audit requires mitigation. Store the audit logs in the model registry alongside the adjacency with Decree 13/2023 data-minimization rules, because the audit itself processes personal data and inherits the Decree's storage and consent requirements.
 
 ## Takeaways {.unnumbered}
 
-- Fairness in credit is testable. The @hurlin2024fairness framework gives an omnibus test for equalized performance with clean asymptotics, and it rejects whenever the score carries group information beyond what the outcome warrants.
+- Fairness in credit is testable. The @hurlin2026fairness framework gives an omnibus test for equalized performance with clean asymptotics, and it rejects whenever the score carries group information beyond what the outcome warrants.
 - Whether machine learning narrows or widens racial gaps in credit access depends on within-group dispersion, not on model complexity per se. @fuster2022predictably show the sign can go either way, and the practitioner must measure it on their specific data.
 - FinTech lenders reduce but do not eliminate racial pricing gaps in mortgages, per @bartlett2022consumer. The residual is smaller than at face-to-face lenders but nonzero. Automation reduces discretion, which in the @howell2024lender PPP evidence narrowed racial gaps in small business lending.
 - Proxy detection should combine single-feature $R^2$ with a multivariable race-classification AUC. ZIP code is typically the dominant proxy in US consumer data; geographic features plus occupation plus credit-history length carry most of the rest.
@@ -1026,7 +1027,7 @@ Run the @hurlin2024fairness test on gender and urban-rural, quarterly. Report th
 
 ## Further reading {.unnumbered}
 
-- @hurlin2024fairness for the formal fairness testing framework.
+- @hurlin2026fairness for the formal fairness testing framework.
 - @bartlett2022consumer for the canonical empirical FinTech pricing study.
 - @fuster2022predictably for the dispersion mechanism in ML and credit.
 - @howell2024lender for lender automation and small business credit access.

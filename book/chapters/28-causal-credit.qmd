@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, '../code')
-from creditutils import ks_statistic, gini
+from creditutils import ks_statistic, gini, stable_sigmoid
 
 rng = np.random.default_rng(7)
 n = 20000
@@ -47,7 +47,7 @@ X = rng.normal(0, 1, size=n)
 
 # True counterfactual default probability under extending credit.
 # Monotonically decreasing in X.
-p_default = 1 / (1 + np.exp(2.0 + 1.5 * X))
+p_default = stable_sigmoid(-(2.0 + 1.5 * X))
 
 # Potential outcome: default if extended credit.
 Y1 = (rng.uniform(size=n) < p_default).astype(int)
@@ -104,7 +104,7 @@ def simulate_applicants(n, rng):
 
 def true_pd(X):
     lin = true_intercept + X @ true_beta
-    return 1 / (1 + np.exp(-lin))
+    return stable_sigmoid(lin)
 
 # Vintage 0: seed by accepting a random 60 percent slice.
 X0 = simulate_applicants(N, rng)
@@ -682,7 +682,7 @@ eta = (
     - 0.3 * X[:, 1]
     + 0.2 * np.sin(X[:, 2])
 )
-p_default = 1 / (1 + np.exp(-eta))
+p_default = stable_sigmoid(eta)
 Y = (rng.uniform(size=n) < p_default).astype(int)
 
 # Linear DML on the logit scale is not directly available, so use continuous
@@ -733,7 +733,7 @@ n = 10000
 # Period t-1 data.
 X_tm1 = rng.normal(0, 1, size=(n, 3))
 eta_tm1 = -1.0 + 0.6 * X_tm1[:, 0] - 0.3 * X_tm1[:, 1] + 0.2 * X_tm1[:, 2]
-p_tm1 = 1 / (1 + np.exp(-eta_tm1))
+p_tm1 = stable_sigmoid(eta_tm1)
 Y_tm1 = (rng.uniform(size=n) < p_tm1).astype(int)
 
 # Period t: covariate shift (mean of X1 up by 0.5) AND conditional shift
@@ -741,7 +741,7 @@ Y_tm1 = (rng.uniform(size=n) < p_tm1).astype(int)
 X_t = rng.normal(0, 1, size=(n, 3))
 X_t[:, 0] += 0.5
 eta_t = -1.0 + 0.6 * X_t[:, 0] - 0.6 * X_t[:, 1] + 0.2 * X_t[:, 2]
-p_t = 1 / (1 + np.exp(-eta_t))
+p_t = stable_sigmoid(eta_t)
 Y_t = (rng.uniform(size=n) < p_t).astype(int)
 
 # Fit a scorecard on t-1 data.
@@ -774,7 +774,7 @@ An honest practitioner runs a random-holdout slice: with probability $\epsilon$,
 rng = np.random.default_rng(41)
 n = 20000
 X = rng.normal(0, 1, size=n)
-true_pd = 1 / (1 + np.exp(-(0.5 + 1.0 * X)))
+true_pd = stable_sigmoid(0.5 + 1.0 * X)
 Y_true = (rng.uniform(size=n) < true_pd).astype(int)
 
 # Deployed policy: approve if predicted PD below 0.5 (so low X values).
@@ -782,7 +782,7 @@ Y_true = (rng.uniform(size=n) < true_pd).astype(int)
 epsilon = 0.05
 deploy_threshold = 0.5
 
-pd_hat = 1 / (1 + np.exp(-(0.5 + 1.0 * X)))  # perfectly calibrated here
+pd_hat = stable_sigmoid(0.5 + 1.0 * X)  # perfectly calibrated here
 approve_policy = pd_hat < deploy_threshold
 random_slice = rng.uniform(size=n) < epsilon
 approve = approve_policy | random_slice
@@ -845,7 +845,7 @@ def sim_apps(n):
     return rng.normal(0, 1, size=(n, d))
 
 def true_pd(X):
-    return 1 / (1 + np.exp(-(true_intercept + X @ true_beta)))
+    return stable_sigmoid(true_intercept + X @ true_beta)
 
 def fit_scorer(X, Y):
     m = LogisticRegression(max_iter=2000).fit(X, Y)
@@ -920,7 +920,7 @@ def gen_region(region, policy_tight):
     accept = X_score >= min_score
     # True PD function.
     eta = -3.5 - 0.01 * (X_score - 650) + 2.5 * X_dti + 0.005 * (X_age - 40)
-    pd = 1 / (1 + np.exp(-eta))
+    pd = stable_sigmoid(eta)
     default = (rng.uniform(size=n_region) < pd).astype(int)
     # Observed outcome: only those approved.
     obs_default = np.where(accept, default, np.nan)
@@ -1007,7 +1007,7 @@ def synth_outcomes(df_):
            - 0.01 * (df_["score"] - 650)
            + 2.5 * df_["dti"]
            + 0.005 * (df_["age"] - 40))
-    p = 1 / (1 + np.exp(-eta))
+    p = stable_sigmoid(eta)
     return (rng2.uniform(size=len(df_)) < p).astype(int)
 
 preA_full["default_counterfactual"] = synth_outcomes(preA_full)

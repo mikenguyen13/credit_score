@@ -168,7 +168,7 @@ import xgboost as xgb
 import lightgbm as lgb
 import shap
 
-from creditutils import ks_statistic, gini
+from creditutils import ks_statistic, gini, stable_sigmoid
 
 RNG = np.random.default_rng(2026)
 
@@ -202,7 +202,7 @@ def simulate_merchants(n=50_000, rng=RNG):
         + 3.0 * shipping_late + 1.5 * supplier_conc + 1.2 * cashflow_vol
         - 0.05 * tx_tenure - 0.25 * tx_entropy
     )
-    p = 1.0 / (1.0 + np.exp(-idx))
+    p = stable_sigmoid(idx)
     y = rng.binomial(1, p)
     df = pd.DataFrame({
         "bur_util": bur_util, "bur_dpd": bur_dpd, "bur_acct": bur_acct,
@@ -962,7 +962,7 @@ Two considerations differ from the Chinese setting. Vietnamese BigTechs do not c
 
 ### Rationalization
 
-Three arguments justify importing the @gambacorta2024data framework to Vietnam. First, the data-generating process is structurally close to the Chinese one. A super-app plus a payment rail plus a marketplace is the Ant-and-Taobao architecture. MoMo-plus-NAPAS and ZaloPay-plus-Zalo reproduce the pattern at smaller scale. Second, cross-country BigTech-credit evidence supports the mechanism outside China. @cornelli2023fintech and @bis_cornelli_fintechemde2023 document cross-country growth patterns consistent with data-moat lending; @frost2019bigtech provides the aggregate framing. Third, the local empirical evidence on bank credit risk in Vietnam [@vo2020vnstress] suggests that risk-pricing in incumbent banks is coarse for small borrowers, which is exactly where platform data should dominate.
+Three arguments justify importing the @gambacorta2024data framework to Vietnam. First, the data-generating process is structurally close to the Chinese one. A super-app plus a payment rail plus a marketplace is the Ant-and-Taobao architecture. MoMo-plus-NAPAS and ZaloPay-plus-Zalo reproduce the pattern at smaller scale. Second, cross-country BigTech-credit evidence supports the mechanism outside China. @cornelli2023fintech and @bis_cornelli_fintechemde2023 document cross-country growth patterns consistent with data-moat lending; @frost2019bigtech provides the aggregate framing. Third, the local empirical evidence on bank credit risk in Vietnam [@vo2018bank] suggests that risk-pricing in incumbent banks is coarse for small borrowers, which is exactly where platform data should dominate.
 
 The Mercado Libre comparison is instructive. Mercado Credito extends working capital to sellers on Mercado Libre and consumer credit to Mercado Pago users in several Latin American markets, operating without a banking license and relying on marketplace plus wallet data. Shopee and MoMo are closer to this model than to Ant's. The MYbank 3-1-0 architecture (three minutes to apply, one second to disburse, zero human touch) is the modeling aspiration, not yet the regulatory reality; NAPAS settlement latency and SBV Decision 2345 authentication requirements will shape the achievable service-level envelope.
 

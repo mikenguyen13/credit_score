@@ -1040,10 +1040,11 @@ Two endpoints cover most of the production pattern. A batch scorer computes pred
 ```python
 # batch_shap_job.py (sketch)
 import xgboost as xgb, pandas as pd, numpy as np
+from scipy.special import expit
 model = xgb.Booster(model_file="model.json")
 df = pd.read_parquet("applicants_today.parquet")
 dmat = xgb.DMatrix(df[FEATURES].values, feature_names=FEATURES)
-prob = 1.0 / (1.0 + np.exp(-model.predict(dmat, output_margin=True)))
+prob = expit(model.predict(dmat, output_margin=True))
 sv   = model.predict(dmat, pred_contribs=True)
 shap_vals, base = sv[:, :-1], sv[0, -1]
 topk = np.argsort(-np.abs(shap_vals), axis=1)[:, :10]
@@ -1059,6 +1060,7 @@ The endpoint below returns the probability, the top-$k$ SHAP contributions, and 
 from fastapi import FastAPI
 from pydantic import BaseModel
 import numpy as np, xgboost as xgb, json
+from scipy.special import expit
 
 app = FastAPI()
 MODEL = xgb.Booster(model_file="model.json")
@@ -1073,7 +1075,7 @@ def score(a: Applicant):
     X = np.array([[a.features[f] for f in FEATURES]], dtype=float)
     d = xgb.DMatrix(X, feature_names=FEATURES)
     margin = float(MODEL.predict(d, output_margin=True)[0])
-    p = 1.0 / (1.0 + np.exp(-margin))
+    p = float(expit(margin))
     contribs = MODEL.predict(d, pred_contribs=True)[0, :-1]
     return {"probability": p, "top_contributions": topk_contribs(contribs, FEATURES)}
 
@@ -1081,7 +1083,7 @@ def score(a: Applicant):
 def score_with_reasons(a: Applicant):
     X = np.array([[a.features[f] for f in FEATURES]], dtype=float)
     d = xgb.DMatrix(X, feature_names=FEATURES)
-    p = 1.0 / (1.0 + np.exp(-MODEL.predict(d, output_margin=True)[0]))
+    p = float(expit(MODEL.predict(d, output_margin=True)[0]))
     contribs = MODEL.predict(d, pred_contribs=True)[0, :-1]
     codes = top_adverse_codes(contribs, FEATURES, TABLE, k=3)
     return {"probability": float(p), "reason_codes": codes}
@@ -1268,7 +1270,7 @@ A SHAP-based fairness signal works as follows. For each protected group (if perm
 
 @bracke2019machine at the Bank of England applied this diagnostic to default risk and showed that the SHAP-based within-group decomposition is a useful screen. It does not replace the formal disparate impact analysis under the four-fifths rule or the statistical parity test. It shortens the list of features that a fair lending team should inspect. When paired with the feature-importance PSI dashboard, it gives the team two complementary views: the temporal view (how importance shifts over time) and the cross-sectional view (how importance shifts across groups at a fixed time).
 
-@bowen2020gshap generalize the Shapley value to explanations beyond the single-prediction attribution. Their *generalized SHAP* defines the coalition game so that the payoff can target an arbitrary functional of the model output: the prediction for an individual, the difference in mean prediction between two subpopulations, the variance of the prediction across a cohort, or the model's loss on a given slice. The intergroup variant is the one that matters here. Rather than comparing per-group means of the ordinary SHAP value, the intergroup g-SHAP attributes the between-group *gap* in mean prediction to features directly, so the attribution sums exactly to the gap. This turns the ad hoc per-feature-mean comparison above into a well-defined decomposition with the usual Shapley axioms (efficiency, symmetry, dummy, additivity) intact at the group level. The same construction gives a model-failure decomposition when the payoff is the group-conditional loss, which is the diagnostic a fair lending team wants when error rates differ across protected groups but mean predictions do not.
+@bowen2020generalized generalize the Shapley value to explanations beyond the single-prediction attribution. Their *generalized SHAP* defines the coalition game so that the payoff can target an arbitrary functional of the model output: the prediction for an individual, the difference in mean prediction between two subpopulations, the variance of the prediction across a cohort, or the model's loss on a given slice. The intergroup variant is the one that matters here. Rather than comparing per-group means of the ordinary SHAP value, the intergroup g-SHAP attributes the between-group *gap* in mean prediction to features directly, so the attribution sums exactly to the gap. This turns the ad hoc per-feature-mean comparison above into a well-defined decomposition with the usual Shapley axioms (efficiency, symmetry, dummy, additivity) intact at the group level. The same construction gives a model-failure decomposition when the payoff is the group-conditional loss, which is the diagnostic a fair lending team wants when error rates differ across protected groups but mean predictions do not.
 
 The feature-engineering defense against proxy discrimination is an audited list of permitted features, with a review step at each model iteration. The SHAP-based defense is a monitoring layer that catches proxies that slipped through the engineering review. Both are needed; neither is sufficient alone.
 

@@ -64,6 +64,46 @@ def load_taiwan_default() -> pd.DataFrame:
     return df
 
 
+def load_taiwan_bankruptcy() -> pd.DataFrame:
+    """UCI 572 Taiwanese Bankruptcy Prediction (Liang et al. 2016). Public.
+
+    6,819 firm-years from the Taiwan Stock Exchange (1999-2009) with 95
+    financial ratios and a binary `default` label (renamed from
+    `Bankrupt?`). Default rate is ~3.2 percent. Column names are stripped
+    of leading whitespace and spaces are replaced with underscores so they
+    can be referenced as identifiers.
+
+    Convenience attributes added by this loader:
+
+    - `WC_TA`     = "Working Capital to Total Assets"      (Altman X1)
+    - `RE_TA`     = "Retained Earnings to Total Assets"     (Altman X2)
+    - `EBIT_TA`   = "ROA(B) before interest and depreciation
+                     after tax" (proxy for EBIT/TA, Altman X3)
+    - `BVE_TL`    = "Equity to Liability"                   (Altman X4', the
+                                                            book-equity
+                                                            substitute used in
+                                                            Z' for private
+                                                            firms)
+    - `Sales_TA`  = "Total Asset Turnover"                  (Altman X5)
+
+    The original Z used market value of equity for X4. UCI 572 ships only
+    book-value items, so the natural Altman variant on this panel is Z'
+    (private-firm refit, @altman2000predicting).
+    """
+    url = "https://archive.ics.uci.edu/static/public/572/taiwanese+bankruptcy+prediction.zip"
+    path = _cache_get(url, "taiwan_bankruptcy.zip")
+    with zipfile.ZipFile(path) as z:
+        df = pd.read_csv(z.open("data.csv"))
+    df.columns = [c.strip().replace(" ", "_").replace("/", "_") for c in df.columns]
+    df = df.rename(columns={"Bankrupt?": "default"})
+    df["WC_TA"] = df["Working_Capital_to_Total_Assets"]
+    df["RE_TA"] = df["Retained_Earnings_to_Total_Assets"]
+    df["EBIT_TA"] = df["ROA(B)_before_interest_and_depreciation_after_tax"]
+    df["BVE_TL"] = df["Equity_to_Liability"]
+    df["Sales_TA"] = df["Total_Asset_Turnover"]
+    return df
+
+
 def load_home_credit_sample(n_rows: int | None = 50_000, seed: int = 0) -> pd.DataFrame:
     """Small application_train sample mirrored on GitHub (CC0 via Kaggle).
 
@@ -133,6 +173,37 @@ def psi(expected, actual, buckets: int = 10) -> float:
     return float(np.sum((e - a) * np.log((e + eps) / (a + eps))))
 
 
+def stable_sigmoid(eta) -> np.ndarray:
+    """Branchless overflow-safe logistic sigmoid.
+
+    Uses ``1/(1+exp(-eta))`` for ``eta >= 0`` and ``exp(eta)/(1+exp(eta))``
+    otherwise so the exponent argument is always non-positive. Matches
+    ``scipy.special.expit`` to machine precision and emits no overflow
+    warnings on float64 inputs of any magnitude.
+    """
+    eta = np.asarray(eta, dtype=float)
+    pos = 1.0 / (1.0 + np.exp(-np.where(eta >= 0, eta, 0.0)))
+    neg_exp = np.exp(np.where(eta < 0, eta, 0.0))
+    neg = neg_exp / (1.0 + neg_exp)
+    return np.where(eta >= 0, pos, neg)
+
+
+def stable_log1p_exp(eta) -> np.ndarray:
+    """Numerically stable ``log(1 + exp(eta))`` (softplus).
+
+    For ``eta`` very negative, returns ``exp(eta)``; for ``eta`` very
+    positive, returns ``eta + log1p(exp(-eta))``. Useful as the
+    log-partition of the Bernoulli logit and inside Cox partial
+    likelihoods written via log-sum-exp.
+    """
+    eta = np.asarray(eta, dtype=float)
+    # Mask each branch's input so the unused branch never overflows.
+    pos_in = np.where(eta >= 0, -np.abs(eta), 0.0)
+    neg_in = np.where(eta < 0, eta, 0.0)
+    return np.where(eta >= 0, eta + np.log1p(np.exp(pos_in)),
+                    np.log1p(np.exp(neg_in)))
+
+
 def scorecard_points(prob, base_score: int = 600, base_odds: float = 50.0,
                      pdo: int = 20) -> np.ndarray:
     """Convert probability-of-default to points (higher = safer)."""
@@ -145,7 +216,9 @@ def scorecard_points(prob, base_score: int = 600, base_odds: float = 50.0,
 
 __all__ = [
     "BOOK_ROOT", "DATA_DIR",
-    "load_german_credit", "load_taiwan_default", "load_home_credit_sample",
+    "load_german_credit", "load_taiwan_default", "load_taiwan_bankruptcy",
+    "load_home_credit_sample",
     "train_valid_test_split",
     "ks_statistic", "gini", "psi", "scorecard_points",
+    "stable_sigmoid", "stable_log1p_exp",
 ]

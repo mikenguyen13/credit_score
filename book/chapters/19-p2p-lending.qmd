@@ -93,7 +93,7 @@ import pandas as pd
 import sys
 
 sys.path.insert(0, '../code')
-from creditutils import DATA_DIR, _cache_get  # noqa: F401
+from creditutils import DATA_DIR, _cache_get, stable_sigmoid  # noqa: F401
 
 import matplotlib
 matplotlib.use("Agg")
@@ -232,14 +232,14 @@ for step, node in enumerate(order[1:], start=1):
         G.add_edge(int(node), int(j))
 
 # Default: depends on latent u and on neighbor-default share (contagion)
-default = rng.binomial(1, 1 / (1 + np.exp(-(-1.0 + 1.2 * u))))
+default = rng.binomial(1, stable_sigmoid(-1.0 + 1.2 * u))
 neigh0 = np.array([
     np.mean([default[j] for j in G.neighbors(i)]) if G.degree(i) > 0 else default.mean()
     for i in range(n_nodes)
 ])
 default = rng.binomial(
     1,
-    1 / (1 + np.exp(-(-1.0 + 1.2 * u + 1.5 * (neigh0 - neigh0.mean()))))
+    stable_sigmoid(-1.0 + 1.2 * u + 1.5 * (neigh0 - neigh0.mean()))
 )
 
 print(f"nodes: {n_nodes}  edges: {G.number_of_edges()}")
@@ -345,7 +345,7 @@ grade_idx = rng.integers(0, 6, n_text)
 dti_t = rng.gamma(3.0, 6.0, n_text).clip(0, 45)
 fico_t = (720 - 20 * grade_idx + rng.normal(0, 18, n_text)).clip(610, 820)
 logit_t = -3.2 + 0.4 * grade_idx + 0.03 * dti_t - 0.012 * (fico_t - 700)
-p_t = 1 / (1 + np.exp(-logit_t))
+p_t = stable_sigmoid(logit_t)
 default_t = rng.binomial(1, p_t)
 
 SOFT = "promise god help please family soon tough struggle urgent beg".split()
@@ -485,7 +485,7 @@ def synth_lendingclub(n=40000, seed=19):
              + 0.006 * revol_util)
     vintage_shift = np.array([{2012: -0.1, 2013: 0.0, 2014: 0.1,
                                2015: 0.25, 2016: 0.35}[y] for y in issue_year])
-    p_default = 1 / (1 + np.exp(-(logit + vintage_shift + rng.normal(0, 0.4, n))))
+    p_default = stable_sigmoid(logit + vintage_shift + rng.normal(0, 0.4, n))
     default = rng.binomial(1, p_default)
     return pd.DataFrame({
         "loan_amnt": amount, "term": term, "int_rate": int_rate, "grade": grade,
@@ -768,7 +768,7 @@ def synth_covid_panel(n_per_platform=6000, seed=42):
                      - 0.010 * (fico - 700)
                      + 0.45 * weak
                      + p["cov_shift"] * covid)
-            p_d = 1 / (1 + np.exp(-(logit + rng.normal(0, 0.3, n))))
+            p_d = stable_sigmoid(logit + rng.normal(0, 0.3, n))
             default = rng.binomial(1, p_d)
             for j in range(n):
                 rows.append((plat, year, dti[j], fico[j], weak[j], default[j]))
@@ -878,7 +878,7 @@ The practical upshot for a credit-scoring practitioner at a bank partner: the mo
 
 Vietnam's P2P lending story is structurally different from the US and UK templates of @sec-p2p-structure. Domestic P2P platforms, including Tima, Vaymuon, and Doctor Dong, grew rapidly between 2017 and 2019 on the back of thin formal-credit coverage and a young digital-native cohort. The growth was accompanied by consumer-harm incidents: abusive debt collection, opaque effective rates, and collapses where retail lenders could not recover funds. The State Bank of Vietnam responded by pausing issuance of new P2P licenses and signaling that P2P required a purpose-built regime rather than a banking license [@imf2024vietnamart4, @adb2022vnfin]. In 2025, Decree 94/2025 established a controlled testing mechanism (regulatory sandbox) covering three fintech activities: credit scoring, open APIs, and P2P lending [@vn_decree94_2025]. The Decree sets out entry criteria, participant caps, and exit conditions, and positions the sandbox as the only lawful entry path for new P2P participants.
 
-The empirical research base is thin. Academic evidence on Vietnamese P2P is limited to broader banking and consumer-finance studies [@vo2020vnstress, @chu2024vietnam] and cross-country BigTech-and-fintech aggregates [@cornelli2023fintech, @bis_cornelli_fintechemde2023, @bis_emde2023]. A peer-reviewed Vietnam analog of @lin2013judging or @iyer2016screening does not yet exist.
+The empirical research base is thin. Academic evidence on Vietnamese P2P is limited to broader banking and consumer-finance studies [@vo2018bank] and cross-country BigTech-and-fintech aggregates [@cornelli2023fintech, @bis_cornelli_fintechemde2023, @bis_emde2023]. A peer-reviewed Vietnam analog of @lin2013judging or @iyer2016screening does not yet exist.
 
 ### Application considerations
 

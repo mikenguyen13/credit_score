@@ -436,7 +436,11 @@ def cox_partial_ll(beta, X, events, times):
     X_s = X[order]
     events_s = events[order]
     eta = X_s @ beta
-    log_cum = np.log(np.cumsum(np.exp(eta)))
+    # Cumulative log-sum-exp over the risk set. The naive form
+    # log(cumsum(exp(eta))) overflows for any |eta| >> 700; the
+    # accumulate form uses the log1p+abs identity at each step and
+    # never instantiates a value larger than max(eta).
+    log_cum = np.logaddexp.accumulate(eta)
     ll = np.sum(eta[events_s == 1]) - np.sum(log_cum[events_s == 1])
     return -ll
 
@@ -1261,7 +1265,7 @@ Fourth, competing-risks estimation must accommodate administrative rescheduling.
 
 The case for building a Vietnam-specific mortgage stack rests on the non-portability of US and European models. A Freddie Mac prepayment model trained on 30-year fixed-rate loans will systematically misprice the reset-driven prepayment pattern and understate prepayment volatility. A European PD model trained on Bund-linked ARMs will miss the VND deposit-rate reference and the SBV credit-room lever. The capital implications of Circular 41/2016 are unique to Vietnam and material for portfolio return on capital. The 250 percent risk-weight treatment on real-estate-business exposures above the threshold, in particular, makes risk-weighted-asset optimization a first-order modeling concern rather than a finance-department afterthought. A model that correctly flags borderline loans for reclassification avoids a 200 percentage-point RWA penalty per loan, which dominates any AUC-driven origination gain.
 
-The macro rationale is equally clear. The 2022 to 2023 episode is the Vietnamese analog of the 2008 US housing correction, compressed into 18 months. A mortgage risk team that internalized the dual-trigger framework with developer-delivery risk and reset-driven prepayment produced materially better loss projections than a team that ported a US stress template unchanged. The evidence in @vo2020vnstress on earlier stress exercises, and in @imf2024vietnamart4 on the 2024 Article IV Consultation, supports this conclusion.
+The macro rationale is equally clear. The 2022 to 2023 episode is the Vietnamese analog of the 2008 US housing correction, compressed into 18 months. A mortgage risk team that internalized the dual-trigger framework with developer-delivery risk and reset-driven prepayment produced materially better loss projections than a team that ported a US stress template unchanged. The evidence in @vo2018bank on earlier stress exercises, and in @imf2024vietnamart4 on the 2024 Article IV Consultation, supports this conclusion.
 
 ### Practical notes
 

@@ -121,7 +121,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
-from creditutils import ks_statistic
+from creditutils import ks_statistic, stable_sigmoid
 
 rng = np.random.default_rng(0)
 
@@ -322,14 +322,14 @@ class SkipGramNS:
         u_pos = self.U_out[ctx]                    # (B, d)
         # positive term
         score_pos = np.sum(v * u_pos, axis=1)
-        sig_pos = 1.0 / (1.0 + np.exp(-score_pos))
+        sig_pos = stable_sigmoid(score_pos)
         gv_pos = (sig_pos - 1.0)[:, None] * u_pos
         gu_pos = (sig_pos - 1.0)[:, None] * v
         # negatives
         neg_ids = rng.choice(self.V, size=(len(pos_pairs), k_neg), p=neg_dist)
         u_neg = self.U_out[neg_ids]                # (B, k, d)
         score_neg = np.einsum('bd,bkd->bk', v, u_neg)
-        sig_neg = 1.0 / (1.0 + np.exp(-score_neg))
+        sig_neg = stable_sigmoid(score_neg)
         gv_neg = np.einsum('bk,bkd->bd', sig_neg, u_neg)
         gu_neg = sig_neg[:, :, None] * v[:, None, :]
         # SGD
@@ -770,7 +770,7 @@ def gen_paragraph(latent_risk, length=60, seed=0):
 firms = []
 for i in range(N_FIRM):
     lr = np.clip(rng.beta(2, 5), 0, 1)      # latent risk, mean ~0.28
-    pd_i = 1 / (1 + np.exp(-(-3.0 + 4.0 * lr + 0.4 * rng.standard_normal())))
+    pd_i = float(stable_sigmoid(-3.0 + 4.0 * lr + 0.4 * rng.standard_normal()))
     default_i = int(rng.random() < pd_i)
     para = gen_paragraph(lr, length=80, seed=int(1000*lr + i))
     firms.append({"firm": i, "latent": lr, "pd": pd_i, "default": default_i, "text": para})
@@ -781,7 +781,7 @@ panel = pd.concat([panel, tone_vals], axis=1)
 
 print("Pearson correlations with PD:")
 for col in ["neg", "pos", "unc", "net"]:
-    rho = np.corrcoef(panel[col], panel["pd"])[0, 1]
+    rho = np.corrcoef(panel[col].to_numpy(), panel["pd"].to_numpy())[0, 1]
     print(f"  tone_{col:<3s}  rho = {rho:+.3f}")
 
 from sklearn.linear_model import LogisticRegression

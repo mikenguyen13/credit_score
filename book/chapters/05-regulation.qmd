@@ -625,7 +625,7 @@ $$ {#eq-lr-logit}
 
 where $z_{ij}$ is the standardized feature value. The contribution of feature $j$ to the logit is $\beta_j z_{ij}$. The features that drive an adverse decision are those with the largest positive contribution.
 
-A subtle point: the "reference" for reason codes is not the population mean. Hurlin, Périgon, and Saurin [@hurlin2024fairness] discuss this in the context of fairness, and the same logic applies here. If the baseline is an average applicant, the contribution $\beta_j z_{ij}$ measures distance from the mean. For ECOA purposes, that is typically what the regulator expects: "your amount was higher than typical," "your credit history was shorter than typical." If the baseline is instead a "reference approved applicant," then the contributions measure distance from approval. We use the first convention below.
+A subtle point: the "reference" for reason codes is not the population mean. Hurlin, Périgon, and Saurin [@hurlin2026fairness] discuss this in the context of fairness, and the same logic applies here. If the baseline is an average applicant, the contribution $\beta_j z_{ij}$ measures distance from the mean. For ECOA purposes, that is typically what the regulator expects: "your amount was higher than typical," "your credit history was shorter than typical." If the baseline is instead a "reference approved applicant," then the contributions measure distance from approval. We use the first convention below.
 
 ```{python}
 #| label: lr-reason-codes
@@ -1038,10 +1038,18 @@ P = X[purpose_cols].values.astype(float)
 proj = rng.normal(size=(P.shape[1], 16)) / np.sqrt(P.shape[1])
 embedding = P @ proj                                    # (N, 16) opaque feature block
 
-# Concept labels: the parent purpose category, derived from the one-hot.
-concept_labels = (X[purpose_cols].idxmax(axis=1)
-                                  .str.replace("purpose_", "", regex=False)
-                                  .fillna("other")).values
+# UCI Statlog codes -> human-readable concept names. The `drop_first=True`
+# call in pd.get_dummies removed purpose_A40 (alphabetically first), so rows
+# with no active purpose dummy are actually A40 ("car_new").
+PURPOSE_NAME = {
+    "A40": "car_new",  "A41":  "car_used",    "A42": "furniture",
+    "A43": "radio_tv", "A44":  "appliances",  "A45": "repairs",
+    "A46": "education","A48":  "retraining",  "A49": "business",
+    "A410":"other",
+}
+raw_codes = X[purpose_cols].idxmax(axis=1).str.replace("purpose_", "", regex=False)
+raw_codes = raw_codes.where(P.sum(axis=1) > 0, other="A40")  # restore dropped baseline
+concept_labels = raw_codes.map(PURPOSE_NAME).fillna("other").values
 
 # Linear probe: row j of probe.coef_ is a direction in embedding space for concept j.
 probe = LogisticRegression(max_iter=1000, random_state=0).fit(embedding, concept_labels)
@@ -1049,13 +1057,16 @@ CAV = {c: probe.coef_[i] / (np.linalg.norm(probe.coef_[i]) + 1e-12)
        for i, c in enumerate(probe.classes_)}
 
 CONCEPT_TEXT = {
-    "car":       "Loan purpose matched patterns associated with vehicle financing.",
-    "radio/tv":  "Loan purpose matched patterns associated with discretionary electronics.",
-    "furniture": "Loan purpose matched patterns associated with household furnishing.",
-    "business":  "Loan purpose matched patterns associated with small-business use.",
-    "education": "Loan purpose matched patterns associated with education financing.",
-    "repairs":   "Loan purpose matched patterns associated with home repair.",
-    "other":     "Loan purpose matched patterns that place the application in a higher-risk group.",
+    "car_new":    "Loan purpose matched patterns associated with financing a new vehicle.",
+    "car_used":   "Loan purpose matched patterns associated with financing a used vehicle.",
+    "furniture":  "Loan purpose matched patterns associated with household furnishing.",
+    "radio_tv":   "Loan purpose matched patterns associated with discretionary electronics.",
+    "appliances": "Loan purpose matched patterns associated with domestic appliances.",
+    "repairs":    "Loan purpose matched patterns associated with home repair.",
+    "education":  "Loan purpose matched patterns associated with education financing.",
+    "retraining": "Loan purpose matched patterns associated with occupational retraining.",
+    "business":   "Loan purpose matched patterns associated with small-business use.",
+    "other":      "Loan purpose matched patterns that place the application in a higher-risk group.",
 }
 
 def concept_reasons(phi_embedding, cav, text_table, k=3):
@@ -1407,7 +1418,7 @@ Reporting lines for a Vietnamese credit-risk team run to the SBV Banking Supervi
 -   @gordy2003risk for the risk-factor model foundation.
 -   @vasicek2002loan for the original loan portfolio value model.
 -   @calabrese2014downturn on downturn LGD modeling and @bastos2010forecasting on recovery rates.
--   @hurlin2024fairness for fairness in credit scoring.
+-   @hurlin2026fairness for fairness in credit scoring.
 -   @wachter2017right, @selbst2017meaningful, @malgieri2017right for the GDPR Article 22 debate.
 -   @aiact2024 (the AI Act text) and @gdpr2016 (the GDPR text).
 -   @sr117 and @occ201112 for U.S. model risk management.

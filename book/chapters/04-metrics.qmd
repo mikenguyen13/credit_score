@@ -64,7 +64,7 @@ from sklearn.isotonic import IsotonicRegression
 
 from creditutils import (
     load_german_credit, load_taiwan_default,
-    psi, train_valid_test_split,
+    psi, train_valid_test_split, stable_sigmoid,
 )
 
 np.random.seed(42)
@@ -109,7 +109,7 @@ A further pedagogical reason for this dataset: the base rate of 22 percent is cl
 The ROC curve plots $\mathrm{TPR}(t)$ against $\mathrm{FPR}(t)$ as $t$ sweeps from $+\infty$ to $-\infty$. The area under the ROC curve is
 
 $$
-\mathrm{AUC} = \int_0^1 \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr)\, du.
+\mathrm{AUC} = \int_0^1 \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr) du.
 $$ {#eq-auc-def}
 
 A cleaner definition, due to @bamber1975area, rewrites AUC as a probability over pairs. Let $S_+$ be the score of a random positive (defaulter) and $S_-$ the score of a random negative (non-defaulter). Then
@@ -189,7 +189,7 @@ Before getting to the partial variant, it helps to restate what the ROC curve ac
 The partial AUC is the same integral, restricted to a slice of that curve:
 
 $$
-\mathrm{pAUC}(a, b) = \int_a^b \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr)\, du,
+\mathrm{pAUC}(a, b) = \int_a^b \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr) du,
 $$ {#eq-pauc}
 
 where $\mathrm{FPR}^{-1}(u)$ is the threshold that produces false-positive rate $u$, so the integrand is just "the TPR you get when the FPR is $u$". Integrating from $a$ to $b$ means averaging TPR over the FPR band $[a, b]$, ignoring the rest of the curve.
@@ -284,7 +284,7 @@ The KS value on the Taiwan logistic baseline is roughly 0.37. Intuitively, at th
 Both KS and AUC integrate over the ROC curve, but differently. Gini can be written as
 
 $$
-\mathrm{Gini} = 2\int_0^1 \bigl(\mathrm{TPR}(u) - u\bigr)\, du,
+\mathrm{Gini} = 2\int_0^1 \bigl(\mathrm{TPR}(u) - u\bigr) du,
 $$ {#eq-gini-area}
 
 so Gini is (twice) the *mean* vertical distance of the ROC curve above the diagonal, whereas KS is its *maximum*. Because one summary is an average and the other is a peak, two classifiers can have the same Gini and very different KS, or the same KS and very different Gini.
@@ -421,7 +421,7 @@ The two lines cross at $c^\dagger = \pi_1/(\pi_0+\pi_1) = \pi_1$: left of $c^\da
 **Step 5: averaging over cost ratios.** A single value of $c$ is rarely known, so integrate $L(c)$ against a user-specified prior $w(c)$ on $(0,1)$. The *loss gap* is $L_{\max}(c) - L(c)$, the savings over the trivial rule at cost $c$. Normalizing this average gap by the average trivial loss gives the H-measure:
 
 $$
-H = 1 - \frac{\int_0^1 L(c) w(c)\, dc}{\int_0^1 L_{\max}(c) w(c)\, dc}.
+H = 1 - \frac{\int_0^1 L(c) w(c) dc}{\int_0^1 L_{\max}(c) w(c) dc}.
 $$ {#eq-h-measure}
 
 **Step 6: bounds and corner cases.** Because $0 \le L(c) \le L_{\max}(c)$ pointwise, the ratio lies in $[0,1]$, so $H \in [0,1]$:
@@ -473,7 +473,7 @@ The random scorer gets $H \approx 0$, the perfect scorer $H = 1$, and the Taiwan
 
 That agreement is not automatic, and the reason comes straight from the two metrics' definitions:
 
--   AUC $= \int_0^1 \text{TPR}(u)\, du$ treats every FPR equally. The implicit weight on the cost ratio $c$ is the classifier's own score density [@hand2009measuring], so two classifiers are effectively weighed on different scales.
+-   AUC $= \int_0^1 \text{TPR}(u) du$ treats every FPR equally. The implicit weight on the cost ratio $c$ is the classifier's own score density [@hand2009measuring], so two classifiers are effectively weighed on different scales.
 -   H integrates the Bayes loss $L(c)$ against a *fixed* user prior $w(c)$. Each $c$ pins down one operating point on the ROC convex hull, specifically the tangent with slope $\pi_0 c / (\pi_1 (1-c))$.
 
 When one ROC sits weakly above the other at every FPR the classifier is Pareto-dominant: $\text{TPR}_A(u) \ge \text{TPR}_B(u)$ for all $u$ forces both $\text{AUC}_A \ge \text{AUC}_B$ and $L_A(c) \le L_B(c)$ at every $c$, so AUC and H must agree. The interesting case is when the ROCs cross: one classifier is better in a low-FPR region (tight-credit regime, high $c$) and worse in a high-FPR region (loose-credit regime, low $c$), or vice versa. AUC's uniform average over FPR and H's $w$-weighted average over $c$ then emphasize different slices of the curve, and the winner flips. The "When H-measure changes the ranking" example below builds two classifiers with identical AUC but opposite regime strengths, and shows the H rank flip as $w(c)$ shifts from low $c$ to high $c$.
@@ -608,7 +608,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3.8), sharey=True)
 axes[0].plot(cs, L_A * w_hi, color="#1f77b4", lw=2, label="A")
 axes[0].plot(cs, L_B * w_hi, color="#d62728", lw=2, label="B")
 axes[0].set_title("Weighted by Beta(10, 2)")
-axes[0].set_xlabel("$c$"); axes[0].set_ylabel("$L(c)\\,w(c)$")
+axes[0].set_xlabel("$c$"); axes[0].set_ylabel(r"$L(c)\,w(c)$")
 axes[0].legend()
 
 axes[1].plot(cs, L_A * w_lo, color="#1f77b4", lw=2, label="A")
@@ -755,7 +755,7 @@ First, the H-measure is not a strict improvement over AUC in every regime. When 
 Second, H is a ratio, and ratios misbehave when the denominator shrinks. Recall the construction:
 
 $$
-H = 1 - \frac{\int L(c)\, w(c)\, dc}{\int L_{\max}(c)\, w(c)\, dc},
+H = 1 - \frac{\int L(c) w(c) dc}{\int L_{\max}(c) w(c) dc},
 $$
 
 where the numerator is the model's expected loss under the prior $w(c)$ and the denominator is the expected loss of the *trivial* benchmark (classify everyone the same way). A standard form of the benchmark loss is $L_{\max}(c) = \min\{\pi_0 c, \pi_1 (1-c)\}$: at small $c$, rejecting no one is optimal and the loss is $\pi_1(1-c)$; at large $c$, rejecting everyone is optimal and the loss is $\pi_0 c$. Either way, $L_{\max}(c) \to 0$ as $c \to 0$ or $c \to 1$. The function is pinned to zero at both corners.
@@ -962,7 +962,7 @@ print(f"hard    labels: A={A_hard:8.3f}  B={B_hard:8.3f}  iters={it_hard}")
 print(f"smooth  labels: A={A_smooth:8.3f}  B={B_smooth:8.3f}  iters={it_sm}")
 
 def sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-z))
+    return stable_sigmoid(z)
 
 s_grid = np.linspace(-4, 4, 9)
 p_hard   = sigmoid(A_hard   * s_grid + B_hard)
@@ -1067,7 +1067,7 @@ The combination means that a tail bin can look wildly miscalibrated when the mod
 
 -   **Minimum-count thresholding.** Require $n_k \ge n_{\min}$ (typical choices: $n_{\min} = 50$-$100$). Bins below the threshold are either dropped from the ECE sum (and the $n_k/N$ weights renormalized over the survivors) or merged into the adjacent bin until the threshold is met. Merging is preferable because dropping biases the estimator toward the body of the distribution.
 -   **Equal-frequency (quantile) bins** over equal-width bins, so every bin has the same $n_k = N/K$ by construction and no bin is automatically sparse.
--   **Confidence intervals on** $\bar o_k$, drawn as vertical error bars on the reliability diagram, so the reader can see which deviations are real signal and which are $\pm 2\,\mathrm{SE}$ sampling noise.
+-   **Confidence intervals on** $\bar o_k$, drawn as vertical error bars on the reliability diagram, so the reader can see which deviations are real signal and which are $\pm 2\mathrm{SE}$ sampling noise.
 -   **Adaptive / debiased estimators** such as the debiased ECE of @kumar2019verified, which subtract the expected-under-null bias, or kernel-smoothed calibration curves that borrow strength across neighboring score values instead of treating each bin independently.
 
 The upshot: a reliability spike in a sparse tail bin is not automatically a calibration problem; it may be a sample-size problem. Always report $n_k$ alongside $\bar p_k$ and $\bar o_k$ before acting on tail miscalibration.
@@ -1095,7 +1095,7 @@ for name, p in [("uncal", p_lr), ("Platt", p_platt), ("iso", p_iso)]:
 
 Reading the three numbers. A scalar ECE is a probability-weighted average of $|\bar p_k - \bar o_k|$ across bins, so an ECE of $0.05$ means the model's predicted PD in a typical bin is off by about 5 percentage points against the realized default rate. For a Taiwan card book with a base rate near 22 percent, that is a material miss: a decile priced at a predicted PD of 10 percent but defaulting at 15 percent mis-prices every loan in the bucket by \~50 basis points of spread. The uncalibrated logistic comes in near 0.05. The Platt-scaled version is essentially the same, which is a useful negative result: Platt imposes a single sigmoid curve on the calibration map, and if the miscalibration is not itself sigmoid-shaped (for example, a bowed S instead of a monotone squeeze) the parametric fit has nowhere to go and can even worsen ECE slightly on a finite test fold while still lowering Brier. Isotonic regression cuts ECE by roughly a factor of four because it is a non-parametric monotone step function and can absorb arbitrary calibration curve shapes, at the cost of more variance in small bins. Operationally this is the ordering one usually sees on tabular credit data: uncalibrated $\approx$ Platt $\gg$ isotonic in large-sample regimes, with the ranking reversing in small-sample regimes where isotonic starts to overfit.
 
-That ranking is still subject to the tail-noise caveats above. Before treating a 50 bp gap between two calibrators as a real difference, confirm it is not inside the $\pm 2\,\text{SE}$ bands implied by the bin sizes $n_k$, which is exactly what the remedies in the next four chunks compute.
+That ranking is still subject to the tail-noise caveats above. Before treating a 50 bp gap between two calibrators as a real difference, confirm it is not inside the $\pm 2\text{SE}$ bands implied by the bin sizes $n_k$, which is exactly what the remedies in the next four chunks compute.
 
 The `ece_score` above is the naive textbook estimator: equal-frequency bins, every non-empty bin included, no standard errors. Each of the four remedies from the previous list turns into a small modification of that loop.
 
@@ -1592,7 +1592,7 @@ The sensitivity plot closes the loop with the earlier Elkan worked example: at $
 @verbraken2014novel argue that the profit curve depends on the arbitrary choice of $(r, L)$ and propose averaging the maximum profit over a prior on the uncertain parameter. In credit scoring, the uncertain parameter is usually the fractional loss $\lambda$, the share of outstanding principal lost in default, drawn from a Beta distribution calibrated to historical loss-given-default data. Formally,
 
 $$
-\mathrm{EMP} = \int_0^1 \max_t \Pi(t; r, \lambda) h(\lambda)\, d\lambda, \qquad h(\lambda) \sim \mathrm{Beta}(\alpha, \beta).
+\mathrm{EMP} = \int_0^1 \max_t \Pi(t; r, \lambda) h(\lambda) d\lambda, \qquad h(\lambda) \sim \mathrm{Beta}(\alpha, \beta).
 $$ {#eq-emp}
 
 Using EMP moves the metric from an arbitrary point on the profit curve to a business-oriented integrated criterion. Verbraken and co-authors recommend $\alpha = 6$ and $\beta = 14$ as a default, which gives a loss-given-default density concentrated around 0.3.
@@ -1667,9 +1667,9 @@ ax1b.tick_params(axis="y", labelcolor="C3")
 
 axes[2].fill_between(lam, best * w, alpha=0.3, color="C1")
 axes[2].plot(lam, best * w, color="C1")
-axes[2].set_ylabel(r"$\Pi^{*}(\lambda)\, h(\lambda)$")
+axes[2].set_ylabel(r"$\Pi^{*}(\lambda) h(\lambda)$")
 axes[2].set_xlabel(r"fractional loss-given-default $\lambda$")
-axes[2].set_title(fr"EMP = $\int \Pi^{{*}}(\lambda) h(\lambda)\,d\lambda / \int h(\lambda)\,d\lambda$ = {emp_val:.4f}")
+axes[2].set_title(fr"EMP = $\int \Pi^{{*}}(\lambda) h(\lambda)d\lambda / \int h(\lambda)d\lambda$ = {emp_val:.4f}")
 
 plt.tight_layout()
 plt.show()
@@ -1805,7 +1805,7 @@ plt.show()
 Beyond the min-accept floor above, the policy discussion almost always includes some subset of:
 
 -   **Growth and volume floors**: minimum acceptance rate or minimum booked volume per period, to hit origination targets and absorb fixed costs.
--   **Loss-rate ceilings**: maximum *expected* loss rate in the booked portfolio, e.g., $\sum_i p_i \,\mathbf{1}_{\text{accept}_i} \big/ N_{\text{accept}} \le \bar p_{\max}$. This is a risk-appetite statement distinct from a profit objective: a book can be profitable and still breach the loss ceiling.
+-   **Loss-rate ceilings**: maximum *expected* loss rate in the booked portfolio, e.g., $\sum_i p_i \mathbf{1}_{\text{accept}_i} \big/ N_{\text{accept}} \le \bar p_{\max}$. This is a risk-appetite statement distinct from a profit objective: a book can be profitable and still breach the loss ceiling.
 -   **Concentration and segment caps**: maximum share of accepted book in any single risk decile, geography, product, or industry. Regulatory capital rules (Basel Standardized Approach, SBV Circular 41/2016) and internal risk-appetite limits live here.
 -   **Fair-lending floors**: minimum acceptance rate per protected group, or approximate parity of true-positive rates across groups. @sec-ch23 develops this family in detail and threads it through a post-processing step.
 -   **Capital and RWA ceilings:** maximum risk-weighted asset increment per decision window, driven by regulatory capital ratios rather than profit.
@@ -1894,7 +1894,7 @@ For most credit policy problems the right first step is the sweep. Move to `cvxp
 
 #### A worked comparison across the ladder {#sec-ch04-policy-lp-ladder .unnumbered}
 
-The four code chunks below solve the *same* multi-segment credit-policy problem with four different libraries, on the Taiwan test fold. The problem has per-applicant accept variables $x_i \in [0, 1]$, per-applicant expected-contribution coefficients $c_i = r(1 - p_i) - L \, p_i$, and three families of constraints that a real policy committee would argue about:
+The four code chunks below solve the *same* multi-segment credit-policy problem with four different libraries, on the Taiwan test fold. The problem has per-applicant accept variables $x_i \in [0, 1]$, per-applicant expected-contribution coefficients $c_i = r(1 - p_i) - L  p_i$, and three families of constraints that a real policy committee would argue about:
 
 1.  an overall minimum acceptance rate (growth target),
 2.  a cap on the booked-book expected PD (risk appetite),
@@ -2514,7 +2514,7 @@ def gen_month(t, rng):
     beta_shift = np.array([1.0 - 0.8*d, 0.5 + 0.5*d, -0.3, 0.7, -0.4])
     X = rng.normal(size=(obs_per_month, 5))
     logits = X @ beta_shift - 1.0
-    p = 1 / (1 + np.exp(-logits))
+    p = stable_sigmoid(logits)
     y = (rng.random(obs_per_month) < p).astype(int)
     return X, y
 

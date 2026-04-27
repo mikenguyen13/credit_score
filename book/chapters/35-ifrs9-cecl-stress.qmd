@@ -252,7 +252,7 @@ import pandas as pd
 import sys, warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, '../code')
-from creditutils import load_taiwan_default
+from creditutils import load_taiwan_default, stable_sigmoid
 
 RNG = np.random.default_rng(42)
 np.set_printoptions(precision=4, suppress=True)
@@ -603,7 +603,7 @@ T_hist = 40
 gdp = RNG.normal(0.02, 0.015, T_hist)
 unemp = 6.0 + 3 * np.sin(np.linspace(0, 6, T_hist)) + RNG.normal(0, 0.5, T_hist)
 logit_dr = -5.0 - 20.0 * gdp + 0.15 * unemp + RNG.normal(0, 0.1, T_hist)
-dr = 1.0 / (1.0 + np.exp(-logit_dr))
+dr = stable_sigmoid(logit_dr)
 X = sm.add_constant(np.column_stack([gdp, unemp]))
 model = sm.GLM(dr, X, family=sm.families.Binomial()).fit()
 print(model.summary().tables[1])
@@ -1062,9 +1062,9 @@ On the stress-test side, SBV has run an annual macro scenario exercise since 201
 
 How does the machinery of this chapter map onto the Vietnamese regime. The rating-transition, macro-conditional PD models that back IFRS 9 stage allocation work almost unchanged; the target object is different. Under VAS the model predicts migration into Group 2 and Group 3, not stage transitions, and the provision rate is a step function of the group rather than a continuous expected loss. A bank building IFRS 9 infrastructure in parallel with VAS reporting therefore maintains two label sets from the same underlying rating model.
 
-Stress testing under the SBV framework uses the same macro factor structure as IFRS 9 with a single severe scenario rather than a probability-weighted set. The Vasicek-Wilson PiT conversion works directly. LGD downturn adjustment uses a smaller empirical base because Vietnam's last systemic downturn was 2011 to 2013 in the banking-sector restructuring period, which is a different morphology than a 2008-style shock [@vo2020vnstress].
+Stress testing under the SBV framework uses the same macro factor structure as IFRS 9 with a single severe scenario rather than a probability-weighted set. The Vasicek-Wilson PiT conversion works directly. LGD downturn adjustment uses a smaller empirical base because Vietnam's last systemic downturn was 2011 to 2013 in the banking-sector restructuring period, which is a different morphology than a 2008-style shock [@vo2018bank].
 
-Machine-learning scorecards are appearing in Vietnamese PD estimation but the explainability constraint under Circular 13/2018 internal control, plus the VAS rule-based classification, mean that ML models live as challengers alongside logistic scorecards rather than as champions [@tran2022xgboost; @sbv_circular13_2018]. An IFRS 9 transition will change this trade-off because stage allocation is a continuous decision where small AUC gains translate more cleanly into allowance differences.
+Machine-learning scorecards are appearing in Vietnamese PD estimation but the explainability constraint under Circular 13/2018 internal control, plus the VAS rule-based classification, mean that ML models live as challengers alongside logistic scorecards rather than as champions [@tran2021machine; @sbv_circular13_2018]. An IFRS 9 transition will change this trade-off because stage allocation is a continuous decision where small AUC gains translate more cleanly into allowance differences.
 
 ### Rationalization
 

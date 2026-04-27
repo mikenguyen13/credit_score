@@ -181,7 +181,7 @@ We now derive the formula from scratch.
 Let obligor $i$ have an unobserved latent asset return $Z_i$ modeled as
 
 $$
-Z_i = \sqrt{\rho}\, M + \sqrt{1 - \rho}\, \varepsilon_i,
+Z_i = \sqrt{\rho} M + \sqrt{1 - \rho} \varepsilon_i,
 $$ {#eq-vasicek-decomp}
 
 where $M \sim \mathcal{N}(0, 1)$ is a systemic factor shared across all obligors and $\varepsilon_i \sim \mathcal{N}(0, 1)$ are idiosyncratic innovations, independent of $M$ and across obligors. The correlation between any two obligors' asset returns is $\rho$ by construction, and each $Z_i$ is marginally standard normal.
@@ -217,7 +217,7 @@ Capital is calibrated at the 99.9% confidence level under Basel II IRB, meaning 
 Substituting $m = -\Phi^{-1}(0.999)$ into @eq-cond-pd:
 
 $$
-\mathrm{PD}_i^{(0.999)} = \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho}\, \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right).
+\mathrm{PD}_i^{(0.999)} = \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho} \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right).
 $$ {#eq-stressed-pd}
 
 This is the default probability under a one-in-a-thousand stress scenario for the systemic factor.
@@ -241,7 +241,7 @@ $$
 The 99.9% VaR includes the expected loss $\sum_i \mathrm{EAD}_i \mathrm{LGD}_i \mathrm{PD}_i$. Because EL is already covered by provisions, regulatory capital needs to cover only the gap:
 
 $$
-K_i = \mathrm{LGD}_i \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho}\, \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right) - \mathrm{PD}_i \times \mathrm{LGD}_i.
+K_i = \mathrm{LGD}_i \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho} \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right) - \mathrm{PD}_i \times \mathrm{LGD}_i.
 $$ {#eq-basel-k}
 
 This is the per-unit-of-EAD capital charge. The full regulatory capital for an exposure is
@@ -538,6 +538,7 @@ We now demonstrate points 2 and 3 with a controlled simulation.
 #| fig-cap: "AUC is invariant to class prior; Brier is not. Same underlying score distribution, different prevalence."
 
 import numpy as np
+from creditutils import stable_sigmoid
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, brier_score_loss
@@ -554,7 +555,7 @@ def simulate(prior, rng):
     s_neg = rng.normal(0.0, 1.0, n_neg)
     y = np.r_[np.ones(n_pos), np.zeros(n_neg)]
     s = np.r_[s_pos, s_neg]
-    p = 1.0 / (1.0 + np.exp(-s))
+    p = stable_sigmoid(s)
     auc = roc_auc_score(y, s)
     brier = brier_score_loss(y, p)
     brier_baseline = prior * (1 - prior)
@@ -870,7 +871,7 @@ The formal setup of this chapter (PD, LGD, EAD, the ASRF capital formula, and th
 
 ### Application considerations
 
-The formal estimands of this chapter survive the move to Vietnam. The inputs that feed them do not. Four adjustments recur. First, the training sample for an application scorecard is small by US standards. Mid-size consumer-finance portfolios carry one to three million active accounts, and the 12-month performance window times the 18-month gap-to-today discipline leaves a usable cohort of a few hundred thousand loans. The 0.03 percent Basel PD floor rarely binds in this regime because the fitted rating scale is coarser, with a floor defined at one of the top rating grades rather than at the individual obligor level. Second, macro volatility pushes a lender toward the through-the-cycle PD definition of @eq-pd-def even for IFRS 9 reporting. The 2011 Non-Performing Loans spike, the 2022 corporate-bond episode, and recurrent FX pressure on the dong mean that a point-in-time PD that is accurate for any single quarter is structurally unstable across two-year windows [@chu2024vietnam; @imf2024vietnamart4]. Third, informal income breaks the self-reported income feature in the application form. A bank that treats declared income as exogenous is modeling a proxy. Bank-statement parsing, e-wallet flow features, and cross-checks against telco and utility billing are the practical substitutes. Fourth, the Tet seasonality creates a January-February originating cohort that is systematically riskier than the annual average and a short-term delinquency spike in the following quarter that a naive monthly vintage curve reads as a break.
+The formal estimands of this chapter survive the move to Vietnam. The inputs that feed them do not. Four adjustments recur. First, the training sample for an application scorecard is small by US standards. Mid-size consumer-finance portfolios carry one to three million active accounts, and the 12-month performance window times the 18-month gap-to-today discipline leaves a usable cohort of a few hundred thousand loans. The 0.03 percent Basel PD floor rarely binds in this regime because the fitted rating scale is coarser, with a floor defined at one of the top rating grades rather than at the individual obligor level. Second, macro volatility pushes a lender toward the through-the-cycle PD definition of @eq-pd-def even for IFRS 9 reporting. The 2011 Non-Performing Loans spike, the 2022 corporate-bond episode, and recurrent FX pressure on the dong mean that a point-in-time PD that is accurate for any single quarter is structurally unstable across two-year windows [@imf2024vietnamart4]. Third, informal income breaks the self-reported income feature in the application form. A bank that treats declared income as exogenous is modeling a proxy. Bank-statement parsing, e-wallet flow features, and cross-checks against telco and utility billing are the practical substitutes. Fourth, the Tet seasonality creates a January-February originating cohort that is systematically riskier than the annual average and a short-term delinquency spike in the following quarter that a naive monthly vintage curve reads as a break.
 
 The LGD-downturn concept in the chapter needs a local anchor. The Basel instruction to use a stressed LGD average assumes a recession history that a lender can sample. Vietnamese consumer-finance portfolios at the relevant scale rarely have a full stress cycle in the observable sample, and LGDs on unsecured personal loans interact with collection-sector regulation (Circular 43/2016/TT-NHNN on consumer lending by finance companies) in ways that change mid-cycle, while capital treatment is set by Circular 41/2016 as amended by Circular 22/2023/TT-NHNN (29 Dec 2023) on capital adequacy ratios [@sbv_circular22_2023]. A conservative practitioner applies a floor to LGD rather than relying on an empirical downturn estimate on a short panel.
 

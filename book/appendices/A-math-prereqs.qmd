@@ -464,6 +464,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from creditutils import stable_sigmoid
 
 SEED = 42
 rng = np.random.default_rng(SEED)
@@ -565,7 +566,7 @@ Both KKT residuals are at machine precision, so $\mathbf{x}^*$ is the primal opt
 
 ### IRLS logistic regression from scratch
 
-We simulate a logistic model with known coefficients, fit by IRLS using @eq-irls, and compare to `sklearn.linear_model.LogisticRegression` with no penalty.
+We simulate a logistic model with known coefficients, fit by IRLS using @eq-irls, and compare to `sklearn.linear_model.LogisticRegression` with no penalty. The sigmoid is evaluated through `creditutils.stable_sigmoid`, which uses the branchless overflow-safe form $\pi(\eta) = \mathbb{1}\{\eta \ge 0\}\,/(1+e^{-\eta}) + \mathbb{1}\{\eta < 0\}\,e^{\eta}/(1+e^{\eta})$ so the exponent argument is always non-positive. The naive form $1/(1+e^{-\eta})$ overflows once $|\eta|$ exceeds roughly 700 in float64, which is small relative to the scores produced by IRLS on poorly conditioned designs; using the stable form is a free correctness guard. See @sec-ch07-impl for the same routine inside the production scorecard fitter.
 
 ```{python}
 #| label: irls-scratch
@@ -573,14 +574,14 @@ n, p = 500, 4
 X = np.hstack([np.ones((n, 1)), rng.standard_normal((n, p))])
 beta_true = np.array([0.2, 1.0, -0.5, 0.3, 0.0])
 eta = X @ beta_true
-prob = 1.0 / (1.0 + np.exp(-eta))
+prob = stable_sigmoid(eta)
 y = (rng.uniform(size=n) < prob).astype(float)
 
 def irls_logistic(X, y, max_iter=50, tol=1e-10):
     beta = np.zeros(X.shape[1])
     for it in range(max_iter):
         eta = X @ beta
-        mu = 1.0 / (1.0 + np.exp(-eta))
+        mu = stable_sigmoid(eta)
         W = np.clip(mu * (1.0 - mu), 1e-8, None)
         z = eta + (y - mu) / W
         XtW = X.T * W
@@ -604,7 +605,7 @@ IRLS and scikit-learn agree to several decimals and recover the true coefficient
 
 ```{python}
 #| label: fisher-info
-mu = 1.0 / (1.0 + np.exp(-(X @ beta_hat)))
+mu = stable_sigmoid(X @ beta_hat)
 W = mu * (1.0 - mu)
 I_hat = (X.T * W) @ X
 se = np.sqrt(np.diag(np.linalg.inv(I_hat)))

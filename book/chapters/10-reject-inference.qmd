@@ -14,7 +14,7 @@ This chapter treats the gap between those two questions as the subject in its ow
 
 The chapter is deliberately not a tour of reject inference recipes. The recipes without the identifiability argument behind them are dangerous in production, because a plausible looking PD curve on rejected applicants can coexist with arbitrarily wrong truth. That is the Hand and Henley point, and the rest of the chapter is an attempt to meet it with either extra structure (exclusion restrictions, parametric families) or extra data (bureau outcomes, through-the-door bureau vintages).
 
-The problem is most severe in emerging markets. A Vietnamese consumer lender rolling out eKYC under Circular 16/2020/TT-NHNN sees through-the-door volumes ten times its booked volume, decline rates above 70 percent are routine at the consumer-finance subsidiaries of joint-stock banks, and CIC lookups skew toward the thinnest of thin files [@sbv2020ekyc; @cicvn2023report]. Informal income, Tet-induced cash-flow compression, and macro volatility [@chu2024vietnam; @leboulanger2021tet] mean the selection rule correlates with unobservables that also drive default. The closing emerging-market section returns to this with CIC-based bureau extrapolation, Heckman exclusion candidates specific to Vietnam, and Decree 13/2023 constraints on how rejected-applicant data can be retained and reused.
+The problem is most severe in emerging markets. A Vietnamese consumer lender rolling out eKYC under Circular 16/2020/TT-NHNN sees through-the-door volumes ten times its booked volume, decline rates above 70 percent are routine at the consumer-finance subsidiaries of joint-stock banks, and CIC lookups skew toward the thinnest of thin files [@sbv2020ekyc; @cicvn2023report]. Informal income, Tet-induced cash-flow compression, and macro volatility [@leboulanger2021tet] mean the selection rule correlates with unobservables that also drive default. The closing emerging-market section returns to this with CIC-based bureau extrapolation, Heckman exclusion candidates specific to Vietnam, and Decree 13/2023 constraints on how rejected-applicant data can be retained and reused.
 
 ### Notation {.unnumbered}
 
@@ -312,7 +312,7 @@ This matters for regulatory documentation (@sec-ch10-scalability). A bank that m
 
 ### A unified training-and-evaluation framework
 
-@kozodoi2024sampling argue that sampling bias in credit scoring is not only a training problem but also an evaluation problem. The standard practice of benchmarking reject inference methods on the accepted sample (using a held-out slice of booked loans) is circular: the benchmark inherits the same selection that the method is trying to repair, so a method that memorizes the acceptance rule can outperform a method that generalizes to the through-the-door population. Their framework separates the two concerns. Training uses the biased sample with an explicit correction (reweighting, Heckman, or semi-supervised pseudo-labels). Evaluation uses a bias-aware protocol that reweights the accepted-sample metrics toward a proxy for the through-the-door distribution, using either bureau data on a matched population or a policy window in which the acceptance threshold was relaxed.
+@kozodoi2024fighting argue that sampling bias in credit scoring is not only a training problem but also an evaluation problem. The standard practice of benchmarking reject inference methods on the accepted sample (using a held-out slice of booked loans) is circular: the benchmark inherits the same selection that the method is trying to repair, so a method that memorizes the acceptance rule can outperform a method that generalizes to the through-the-door population. Their framework separates the two concerns. Training uses the biased sample with an explicit correction (reweighting, Heckman, or semi-supervised pseudo-labels). Evaluation uses a bias-aware protocol that reweights the accepted-sample metrics toward a proxy for the through-the-door distribution, using either bureau data on a matched population or a policy window in which the acceptance threshold was relaxed.
 
 The operational implication is that a reject inference experiment should report two AUCs: the accepted-sample AUC (what the scorecard will see in production conditional on approval) and the reweighted-evaluation AUC (what the scorecard would see if the acceptance rule were neutralized). A method that improves the first but not the second is optimizing for the biased sample. A method that improves the second at the cost of the first is generalizing at the expense of the booked pool. Which tradeoff a lender accepts depends on its growth ambition: a portfolio intending to expand into a new borrower segment needs the second; a mature portfolio optimizing the existing acceptance rule can lean on the first.
 
@@ -325,6 +325,7 @@ import numpy as np
 import pandas as pd
 import sys
 sys.path.insert(0, '../code')
+from creditutils import stable_sigmoid
 
 from scipy import stats
 from scipy.optimize import minimize
@@ -570,7 +571,7 @@ def pd_probit(params, X):
     return stats.norm.cdf(X @ params)
 
 def pd_logit(intercept, coef, Xfeat):
-    return 1 / (1 + np.exp(-(intercept[0] + Xfeat @ coef[0])))
+    return stable_sigmoid(intercept[0] + Xfeat @ coef[0])
 
 oracle_curve   = pd_probit(oracle.params, X_grid)
 naive_curve    = pd_probit(naive.params, X_grid)
@@ -612,14 +613,14 @@ x_imp = rng2.standard_normal(m)
 accept_imp = x_imp > -0.3
 
 # Accepted conditional P(Y=1 | X, S=1) is the same in both scenarios
-p_acc = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0)))
+p_acc = stable_sigmoid(1.0 * x_imp - 1.0)
 y_acc = (rng2.uniform(size=m) < p_acc).astype(int)
 
 # Two different P(Y=1 | X, S=0):
 # A: same logistic (benign extrapolation)
 # B: systematically higher (the classic adverse-selection story)
-pA = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0)))
-pB = 1 / (1 + np.exp(-(1.0 * x_imp - 1.0) + 2.0))
+pA = stable_sigmoid(1.0 * x_imp - 1.0)
+pB = stable_sigmoid((1.0 * x_imp - 1.0) + 2.0)
 y_rejA = (rng2.uniform(size=m) < pA).astype(int)
 y_rejB = (rng2.uniform(size=m) < pB).astype(int)
 
@@ -646,8 +647,8 @@ grid = np.linspace(-3, 3, 200)
 pred_A = modelA.predict_proba(grid.reshape(-1,1))[:, 1]
 pred_B = modelB.predict_proba(grid.reshape(-1,1))[:, 1]
 # These are identical. Plot the TRUE rejected PD for each scenario
-true_A = 1 / (1 + np.exp(-(1.0 * grid - 1.0)))
-true_B = 1 / (1 + np.exp(-(1.0 * grid - 1.0) + 2.0))
+true_A = stable_sigmoid(1.0 * grid - 1.0)
+true_B = stable_sigmoid((1.0 * grid - 1.0) + 2.0)
 
 fig, ax = plt.subplots(figsize=(7.5, 4.5))
 ax.plot(grid, pred_A, "k-", lw=2.5, label="naive extrapolation (identical in A, B)")
@@ -955,7 +956,7 @@ GDPR Article 22 governs automated individual decision-making. A reject-inference
 
 Vietnam's retail credit environment generates selection bias in unusually severe form. The State Bank of Vietnam supervises origination at banks and consumer-finance companies (FE Credit, HD Saison, Home Credit Vietnam, Mcredit, and others), where through-the-door volumes dwarf booked volumes. Published and trade-press figures place decline rates at consumer-finance subsidiaries between 60 and 80 percent, reflecting tight policy overlays and thin CIC files [@cicvn2023report; @adb2022vnfin]. Circular 16/2020/TT-NHNN enabled eKYC, which increased application volumes from mobile channels and skewed the applicant mix toward thin-file first-time borrowers [@sbv2020ekyc]. Circular 11/2021/TT-NHNN anchors the default definition used to label booked loans [@sbv2021circular11]. Decree 13/2023/ND-CP on personal data protection constrains how declined-applicant data can be stored and reprocessed; the lawful basis for retention must be re-justified when the data is used to train a reject-inference model, and a Personal Data Impact Assessment filing is expected [@govvn2023decree13].
 
-Macro volatility and Tet seasonality amplify the bias. @chu2024vietnam document large swings in bank lending with uncertainty, and @leboulanger2021tet document the Lunar New Year seasonality in arrears. A decline cohort booked on a pre-Tet liquidity squeeze looks different from one booked mid-year. IMF and World Bank reports on Vietnam flag the thin-bureau data environment as a structural constraint on underwriting [@imf2023vietnamart4; @worldbank2022vietnamfinance; @worldbank2021findex].
+Macro volatility and Tet seasonality amplify the bias. Large swings in bank lending with uncertainty, and @leboulanger2021tet document the Lunar New Year seasonality in arrears. A decline cohort booked on a pre-Tet liquidity squeeze looks different from one booked mid-year. IMF and World Bank reports on Vietnam flag the thin-bureau data environment as a structural constraint on underwriting [@imf2023vietnamart4; @worldbank2022vietnamfinance; @worldbank2021findex].
 
 ### Application considerations
 

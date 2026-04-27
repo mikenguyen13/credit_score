@@ -48,7 +48,7 @@ from sklearn.metrics import roc_auc_score, brier_score_loss
 
 from creditutils import (
     load_german_credit, load_taiwan_default,
-    train_valid_test_split, ks_statistic,
+    train_valid_test_split, ks_statistic, stable_sigmoid,
 )
 
 SEED = 0
@@ -141,7 +141,7 @@ W2 = rng.standard_normal((h, 1)).astype("float32") * 0.3
 b2 = np.zeros(1, dtype="float32")
 
 def sigmoid(u):
-    return 1.0 / (1.0 + np.exp(-u))
+    return stable_sigmoid(u)
 
 # Forward
 z1 = x @ W1 + b1
@@ -1144,7 +1144,7 @@ Vietnam's consumer and SME lending market runs on thinner labeled samples than t
 
 ### Application considerations
 
-Thin-sample overfit is the defining problem for a neural credit model in Vietnam. An MLP with two hidden layers of 128 units has about 20,000 parameters; a vintage of 50,000 applications with 2,500 positives pushes the ratio of positives per parameter under 0.2, which is well into the regime where the network memorizes noise on the training fold and collapses on an out-of-time hold-out. The empirical recipe that has held up in Vietnamese work is unglamorous: start from a logistic baseline, add one hidden layer of 32 or 64 units, apply dropout of 0.3 or more, weight-decay in the 1e-3 to 1e-2 range, and early stopping with a patience of five to ten epochs [@tran2022xgboost]. Two hidden layers are defensible at 100,000-plus rows. Deeper networks rarely pay for themselves below a million rows on Vietnamese retail data.
+Thin-sample overfit is the defining problem for a neural credit model in Vietnam. An MLP with two hidden layers of 128 units has about 20,000 parameters; a vintage of 50,000 applications with 2,500 positives pushes the ratio of positives per parameter under 0.2, which is well into the regime where the network memorizes noise on the training fold and collapses on an out-of-time hold-out. The empirical recipe that has held up in Vietnamese work is unglamorous: start from a logistic baseline, add one hidden layer of 32 or 64 units, apply dropout of 0.3 or more, weight-decay in the 1e-3 to 1e-2 range, and early stopping with a patience of five to ten epochs [@tran2021machine]. Two hidden layers are defensible at 100,000-plus rows. Deeper networks rarely pay for themselves below a million rows on Vietnamese retail data.
 
 Three architecture-specific points. First, transformer-style tabular models (FT-Transformer, TabNet) need more data than MLPs to show their lift; on Vietnamese consumer vintages the MLP is usually the right deep baseline, and an FT-Transformer becomes credible only when application, behavioral, and transaction features are stacked into a single training set of several million rows. Second, sequence architectures (LSTM, Transformer) are the right choice for transaction-stream features once a mobile-money or card issuer crosses two to five million monthly active users, because the underlying modality is inherently sequential and tree-based featurization throws away ordering [@bjorkegren2020behavior]. Third, autoencoder-based anomaly detection is an attractive fraud layer for Vietnamese eKYC flows: it does not require fraud labels and can be trained on the confirmed-good population, which is what most finance companies have early in a product launch.
 
@@ -1156,7 +1156,7 @@ Why run a neural model at all on a Vietnamese portfolio. Four reasons. First, as
 
 ### Practical notes
 
-Operational defaults for a neural credit model on Vietnamese data. Standardize numerical features on the training fold only. Encode province and employment class with target-rate ordinal encoding; Vietnam's July 2025 administrative reorganization consolidated 63 provinces into 34 provincial-level units, so any province-fixed-effect scheme must map pre-merger and post-merger codes. Apply dropout of at least 0.3 and weight decay of 1e-3. Use early stopping on the validation AUC with patience five. Calibrate with isotonic regression on an out-of-time fold. Export the trained model to ONNX with a pinned opset and store the preprocessing pipeline and random seeds alongside, because the SR 11-7-style validation expected under the SBV sandbox is reproducibility-first [@vn_decree94_2025]. Generate SHAP values for the top three drivers per applicant and fold them into a bilingual adverse-action letter under Circular 43/2016/TT-NHNN on consumer lending by finance companies. Monitor PSI by province and channel monthly, because eKYC-originated vintages drift faster than branch vintages [@adb2023digital]. Retrain quarterly in a normal macroeconomic cycle and faster when uncertainty indicators rise [@chu2024vietnam]. Keep a logistic or constrained-booster fallback wired into the inference service so that an ONNX failure degrades gracefully to a compliant production path.
+Operational defaults for a neural credit model on Vietnamese data. Standardize numerical features on the training fold only. Encode province and employment class with target-rate ordinal encoding; Vietnam's July 2025 administrative reorganization consolidated 63 provinces into 34 provincial-level units, so any province-fixed-effect scheme must map pre-merger and post-merger codes. Apply dropout of at least 0.3 and weight decay of 1e-3. Use early stopping on the validation AUC with patience five. Calibrate with isotonic regression on an out-of-time fold. Export the trained model to ONNX with a pinned opset and store the preprocessing pipeline and random seeds alongside, because the SR 11-7-style validation expected under the SBV sandbox is reproducibility-first [@vn_decree94_2025]. Generate SHAP values for the top three drivers per applicant and fold them into a bilingual adverse-action letter under Circular 43/2016/TT-NHNN on consumer lending by finance companies. Monitor PSI by province and channel monthly, because eKYC-originated vintages drift faster than branch vintages [@adb2023digital]. Retrain quarterly in a normal macroeconomic cycle and faster when uncertainty indicators rise. Keep a logistic or constrained-booster fallback wired into the inference service so that an ONNX failure degrades gracefully to a compliant production path.
 
 ---
 
