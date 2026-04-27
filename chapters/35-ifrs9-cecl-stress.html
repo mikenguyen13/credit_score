@@ -1142,7 +1142,7 @@ window.Quarto = {
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys, warnings</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>warnings.filterwarnings(<span class="st">"ignore"</span>)</span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>sys.path.insert(<span class="dv">0</span>, <span class="st">'../code'</span>)</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default, stable_sigmoid</span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>RNG <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -1592,7 +1592,7 @@ Concordance: 0.6306</code></pre>
 <span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>gdp <span class="op">=</span> RNG.normal(<span class="fl">0.02</span>, <span class="fl">0.015</span>, T_hist)</span>
 <span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>unemp <span class="op">=</span> <span class="fl">6.0</span> <span class="op">+</span> <span class="dv">3</span> <span class="op">*</span> np.sin(np.linspace(<span class="dv">0</span>, <span class="dv">6</span>, T_hist)) <span class="op">+</span> RNG.normal(<span class="dv">0</span>, <span class="fl">0.5</span>, T_hist)</span>
 <span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>logit_dr <span class="op">=</span> <span class="op">-</span><span class="fl">5.0</span> <span class="op">-</span> <span class="fl">20.0</span> <span class="op">*</span> gdp <span class="op">+</span> <span class="fl">0.15</span> <span class="op">*</span> unemp <span class="op">+</span> RNG.normal(<span class="dv">0</span>, <span class="fl">0.1</span>, T_hist)</span>
-<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>dr <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logit_dr))</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>dr <span class="op">=</span> stable_sigmoid(logit_dr)</span>
 <span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> sm.add_constant(np.column_stack([gdp, unemp]))</span>
 <span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> sm.GLM(dr, X, family<span class="op">=</span>sm.families.Binomial()).fit()</span>
 <span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(model.summary().tables[<span class="dv">1</span>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -1734,7 +1734,7 @@ Allowance coverage vs EAD: 1.555%</code></pre>
 <span id="cb28-33"><a href="#cb28-33" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Dask ECL on </span><span class="sc">{</span>n<span class="sc">}</span><span class="ss"> loans: </span><span class="sc">{</span>total<span class="sc">:,.0f}</span><span class="ss">  (elapsed </span><span class="sc">{</span>t1 <span class="op">-</span> t0<span class="sc">:.2f}</span><span class="ss">s)"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>Dask ECL on 10000 loans: 14,725,007  (elapsed 2.09s)</code></pre>
+<pre><code>Dask ECL on 10000 loans: 14,725,007  (elapsed 1.28s)</code></pre>
 </div>
 </div>
 <p>For a portfolio of one billion account-months, a 64-core Dask cluster with numpy-vectorized per-partition ECL runs in roughly twenty minutes at a cloud cost below ten dollars per run on spot instances. The cost per billion account-months on PySpark with the same logic is broadly similar because the bottleneck is the per-account loop rather than the shuffle.</p>
@@ -3108,7 +3108,7 @@ World Bank. (2022). <em>Vietnam: Financial sector assessment</em>. World Bank Gr
 <span id="cb35-254"><a href="#cb35-254" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys, warnings</span>
 <span id="cb35-255"><a href="#cb35-255" aria-hidden="true" tabindex="-1"></a>warnings.filterwarnings(<span class="st">"ignore"</span>)</span>
 <span id="cb35-256"><a href="#cb35-256" aria-hidden="true" tabindex="-1"></a>sys.path.insert(<span class="dv">0</span>, <span class="st">'../code'</span>)</span>
-<span id="cb35-257"><a href="#cb35-257" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default</span>
+<span id="cb35-257"><a href="#cb35-257" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default, stable_sigmoid</span>
 <span id="cb35-258"><a href="#cb35-258" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb35-259"><a href="#cb35-259" aria-hidden="true" tabindex="-1"></a>RNG <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
 <span id="cb35-260"><a href="#cb35-260" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span>
@@ -3459,7 +3459,7 @@ World Bank. (2022). <em>Vietnam: Financial sector assessment</em>. World Bank Gr
 <span id="cb35-629"><a href="#cb35-629" aria-hidden="true" tabindex="-1"></a>gdp <span class="op">=</span> RNG.normal(<span class="fl">0.02</span>, <span class="fl">0.015</span>, T_hist)</span>
 <span id="cb35-630"><a href="#cb35-630" aria-hidden="true" tabindex="-1"></a>unemp <span class="op">=</span> <span class="fl">6.0</span> <span class="op">+</span> <span class="dv">3</span> <span class="op">*</span> np.sin(np.linspace(<span class="dv">0</span>, <span class="dv">6</span>, T_hist)) <span class="op">+</span> RNG.normal(<span class="dv">0</span>, <span class="fl">0.5</span>, T_hist)</span>
 <span id="cb35-631"><a href="#cb35-631" aria-hidden="true" tabindex="-1"></a>logit_dr <span class="op">=</span> <span class="op">-</span><span class="fl">5.0</span> <span class="op">-</span> <span class="fl">20.0</span> <span class="op">*</span> gdp <span class="op">+</span> <span class="fl">0.15</span> <span class="op">*</span> unemp <span class="op">+</span> RNG.normal(<span class="dv">0</span>, <span class="fl">0.1</span>, T_hist)</span>
-<span id="cb35-632"><a href="#cb35-632" aria-hidden="true" tabindex="-1"></a>dr <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logit_dr))</span>
+<span id="cb35-632"><a href="#cb35-632" aria-hidden="true" tabindex="-1"></a>dr <span class="op">=</span> stable_sigmoid(logit_dr)</span>
 <span id="cb35-633"><a href="#cb35-633" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> sm.add_constant(np.column_stack([gdp, unemp]))</span>
 <span id="cb35-634"><a href="#cb35-634" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> sm.GLM(dr, X, family<span class="op">=</span>sm.families.Binomial()).fit()</span>
 <span id="cb35-635"><a href="#cb35-635" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(model.summary().tables[<span class="dv">1</span>])</span>

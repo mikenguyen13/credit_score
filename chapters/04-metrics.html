@@ -952,7 +952,7 @@ window.Quarto = {
 <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> (</span>
 <span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    load_german_credit, load_taiwan_default,</span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    psi, train_valid_test_split,</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    psi, train_valid_test_split, stable_sigmoid,</span>
 <span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span>
@@ -1955,7 +1955,7 @@ y^+ = \frac{N_+ + 1}{N_+ + 2}, \qquad y^- = \frac{1}{N_- + 2},
 <span id="cb26-30"><a href="#cb26-30" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"smooth  labels: A=</span><span class="sc">{</span>A_smooth<span class="sc">:8.3f}</span><span class="ss">  B=</span><span class="sc">{</span>B_smooth<span class="sc">:8.3f}</span><span class="ss">  iters=</span><span class="sc">{</span>it_sm<span class="sc">}</span><span class="ss">"</span>)</span>
 <span id="cb26-31"><a href="#cb26-31" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb26-32"><a href="#cb26-32" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sigmoid(z):</span>
-<span id="cb26-33"><a href="#cb26-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>z))</span>
+<span id="cb26-33"><a href="#cb26-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> stable_sigmoid(z)</span>
 <span id="cb26-34"><a href="#cb26-34" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb26-35"><a href="#cb26-35" aria-hidden="true" tabindex="-1"></a>s_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">4</span>, <span class="dv">4</span>, <span class="dv">9</span>)</span>
 <span id="cb26-36"><a href="#cb26-36" aria-hidden="true" tabindex="-1"></a>p_hard   <span class="op">=</span> sigmoid(A_hard   <span class="op">*</span> s_grid <span class="op">+</span> B_hard)</span>
@@ -3805,7 +3805,7 @@ BILL_AMT2 0.000824</code></pre>
 <span id="cb88-6"><a href="#cb88-6" aria-hidden="true" tabindex="-1"></a>    beta_shift <span class="op">=</span> np.array([<span class="fl">1.0</span> <span class="op">-</span> <span class="fl">0.8</span><span class="op">*</span>d, <span class="fl">0.5</span> <span class="op">+</span> <span class="fl">0.5</span><span class="op">*</span>d, <span class="op">-</span><span class="fl">0.3</span>, <span class="fl">0.7</span>, <span class="op">-</span><span class="fl">0.4</span>])</span>
 <span id="cb88-7"><a href="#cb88-7" aria-hidden="true" tabindex="-1"></a>    X <span class="op">=</span> rng.normal(size<span class="op">=</span>(obs_per_month, <span class="dv">5</span>))</span>
 <span id="cb88-8"><a href="#cb88-8" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> X <span class="op">@</span> beta_shift <span class="op">-</span> <span class="fl">1.0</span></span>
-<span id="cb88-9"><a href="#cb88-9" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="dv">1</span> <span class="op">/</span> (<span class="dv">1</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb88-9"><a href="#cb88-9" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb88-10"><a href="#cb88-10" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng.random(obs_per_month) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb88-11"><a href="#cb88-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> X, y</span>
 <span id="cb88-12"><a href="#cb88-12" aria-hidden="true" tabindex="-1"></a></span>
@@ -4232,7 +4232,7 @@ Nemenyi critical difference (alpha=0.05, K=4, N=10) = 1.483
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Dask histogram AUC  = 0.527953   (0.25 s)
-sklearn AUC         = 0.527953   (3.25 s)
+sklearn AUC         = 0.527953   (3.33 s)
 absolute error      = 1.54e-07</code></pre>
 </div>
 </div>
@@ -5020,7 +5020,7 @@ Zadrozny, B., &amp; Elkan, C. (2002). <em>Transforming classifier scores into ac
 <span id="cb103-66"><a href="#cb103-66" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb103-67"><a href="#cb103-67" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> (</span>
 <span id="cb103-68"><a href="#cb103-68" aria-hidden="true" tabindex="-1"></a>    load_german_credit, load_taiwan_default,</span>
-<span id="cb103-69"><a href="#cb103-69" aria-hidden="true" tabindex="-1"></a>    psi, train_valid_test_split,</span>
+<span id="cb103-69"><a href="#cb103-69" aria-hidden="true" tabindex="-1"></a>    psi, train_valid_test_split, stable_sigmoid,</span>
 <span id="cb103-70"><a href="#cb103-70" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb103-71"><a href="#cb103-71" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb103-72"><a href="#cb103-72" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span>
@@ -5918,7 +5918,7 @@ Zadrozny, B., &amp; Elkan, C. (2002). <em>Transforming classifier scores into ac
 <span id="cb103-996"><a href="#cb103-996" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"smooth  labels: A=</span><span class="sc">{</span>A_smooth<span class="sc">:8.3f}</span><span class="ss">  B=</span><span class="sc">{</span>B_smooth<span class="sc">:8.3f}</span><span class="ss">  iters=</span><span class="sc">{</span>it_sm<span class="sc">}</span><span class="ss">"</span>)</span>
 <span id="cb103-997"><a href="#cb103-997" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb103-998"><a href="#cb103-998" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sigmoid(z):</span>
-<span id="cb103-999"><a href="#cb103-999" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>z))</span>
+<span id="cb103-999"><a href="#cb103-999" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> stable_sigmoid(z)</span>
 <span id="cb103-1000"><a href="#cb103-1000" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb103-1001"><a href="#cb103-1001" aria-hidden="true" tabindex="-1"></a>s_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">4</span>, <span class="dv">4</span>, <span class="dv">9</span>)</span>
 <span id="cb103-1002"><a href="#cb103-1002" aria-hidden="true" tabindex="-1"></a>p_hard   <span class="op">=</span> sigmoid(A_hard   <span class="op">*</span> s_grid <span class="op">+</span> B_hard)</span>
@@ -7470,7 +7470,7 @@ Zadrozny, B., &amp; Elkan, C. (2002). <em>Transforming classifier scores into ac
 <span id="cb103-2620"><a href="#cb103-2620" aria-hidden="true" tabindex="-1"></a>    beta_shift <span class="op">=</span> np.array([<span class="fl">1.0</span> <span class="op">-</span> <span class="fl">0.8</span><span class="op">*</span>d, <span class="fl">0.5</span> <span class="op">+</span> <span class="fl">0.5</span><span class="op">*</span>d, <span class="op">-</span><span class="fl">0.3</span>, <span class="fl">0.7</span>, <span class="op">-</span><span class="fl">0.4</span>])</span>
 <span id="cb103-2621"><a href="#cb103-2621" aria-hidden="true" tabindex="-1"></a>    X <span class="op">=</span> rng.normal(size<span class="op">=</span>(obs_per_month, <span class="dv">5</span>))</span>
 <span id="cb103-2622"><a href="#cb103-2622" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> X <span class="op">@</span> beta_shift <span class="op">-</span> <span class="fl">1.0</span></span>
-<span id="cb103-2623"><a href="#cb103-2623" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="dv">1</span> <span class="op">/</span> (<span class="dv">1</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb103-2623"><a href="#cb103-2623" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb103-2624"><a href="#cb103-2624" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng.random(obs_per_month) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb103-2625"><a href="#cb103-2625" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> X, y</span>
 <span id="cb103-2626"><a href="#cb103-2626" aria-hidden="true" tabindex="-1"></a></span>

@@ -924,7 +924,7 @@ window.Quarto = {
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, stable_sigmoid</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -2806,7 +2806,7 @@ Figure&nbsp;3.1: Observation date and performance window. A 12-month PD model sc
 <span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>    x <span class="op">=</span> rng_t.normal(<span class="dv">0</span>, <span class="dv">1</span>, N_per)</span>
 <span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>    state <span class="op">=</span> <span class="fl">1.0</span> <span class="cf">if</span> m <span class="op">&gt;=</span> <span class="dv">18</span> <span class="cf">else</span> <span class="fl">0.0</span></span>
 <span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> <span class="op">-</span><span class="fl">1.2</span> <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> x <span class="op">+</span> <span class="fl">2.0</span> <span class="op">*</span> state</span>
-<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng_t.random(N_per) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>    rows.append(pd.DataFrame({<span class="st">"month"</span>: m, <span class="st">"x"</span>: x, <span class="st">"y"</span>: y}))</span>
 <span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>df_t <span class="op">=</span> pd.concat(rows, ignore_index<span class="op">=</span><span class="va">True</span>)</span>
@@ -3176,7 +3176,7 @@ Figure&nbsp;3.1: Observation date and performance window. A 12-month PD model sc
 <span id="cb29-24"><a href="#cb29-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> pol <span class="op">==</span> <span class="st">"P-2025-02"</span>:</span>
 <span id="cb29-25"><a href="#cb29-25" aria-hidden="true" tabindex="-1"></a>        booked <span class="op">&amp;=</span> <span class="op">~</span>thin_file <span class="op">|</span> has_cosigner</span>
 <span id="cb29-26"><a href="#cb29-26" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> <span class="op">-</span><span class="fl">1.0</span> <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> x <span class="op">-</span> <span class="fl">0.4</span> <span class="op">*</span> thin_file.astype(<span class="bu">float</span>)</span>
-<span id="cb29-27"><a href="#cb29-27" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb29-27"><a href="#cb29-27" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb29-28"><a href="#cb29-28" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng_p.random(N_per) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb29-29"><a href="#cb29-29" aria-hidden="true" tabindex="-1"></a>    apps.append(pd.DataFrame({</span>
 <span id="cb29-30"><a href="#cb29-30" aria-hidden="true" tabindex="-1"></a>        <span class="st">"month"</span>: m, <span class="st">"x"</span>: x, <span class="st">"thin_file"</span>: thin_file.astype(<span class="bu">int</span>),</span>
@@ -3696,13 +3696,13 @@ CUSUM-of-residuals: stat=1.179  p=0.1243</code></pre>
 <tr class="odd">
 <th data-quarto-table-cell-role="th">0</th>
 <td>pandas</td>
-<td>0.115</td>
+<td>0.091</td>
 <td>1000000</td>
 </tr>
 <tr class="even">
 <th data-quarto-table-cell-role="th">1</th>
 <td>polars</td>
-<td>0.060</td>
+<td>0.056</td>
 <td>1000000</td>
 </tr>
 </tbody>
@@ -4793,7 +4793,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb43-35"><a href="#cb43-35" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb43-36"><a href="#cb43-36" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
 <span id="cb43-37"><a href="#cb43-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb43-38"><a href="#cb43-38" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default</span>
+<span id="cb43-38"><a href="#cb43-38" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, stable_sigmoid</span>
 <span id="cb43-39"><a href="#cb43-39" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb43-40"><a href="#cb43-40" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
 <span id="cb43-41"><a href="#cb43-41" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span>
@@ -5837,7 +5837,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb43-1117"><a href="#cb43-1117" aria-hidden="true" tabindex="-1"></a>    x <span class="op">=</span> rng_t.normal(<span class="dv">0</span>, <span class="dv">1</span>, N_per)</span>
 <span id="cb43-1118"><a href="#cb43-1118" aria-hidden="true" tabindex="-1"></a>    state <span class="op">=</span> <span class="fl">1.0</span> <span class="cf">if</span> m <span class="op">&gt;=</span> <span class="dv">18</span> <span class="cf">else</span> <span class="fl">0.0</span></span>
 <span id="cb43-1119"><a href="#cb43-1119" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> <span class="op">-</span><span class="fl">1.2</span> <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> x <span class="op">+</span> <span class="fl">2.0</span> <span class="op">*</span> state</span>
-<span id="cb43-1120"><a href="#cb43-1120" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb43-1120"><a href="#cb43-1120" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb43-1121"><a href="#cb43-1121" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng_t.random(N_per) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb43-1122"><a href="#cb43-1122" aria-hidden="true" tabindex="-1"></a>    rows.append(pd.DataFrame({<span class="st">"month"</span>: m, <span class="st">"x"</span>: x, <span class="st">"y"</span>: y}))</span>
 <span id="cb43-1123"><a href="#cb43-1123" aria-hidden="true" tabindex="-1"></a>df_t <span class="op">=</span> pd.concat(rows, ignore_index<span class="op">=</span><span class="va">True</span>)</span>
@@ -6032,7 +6032,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb43-1320"><a href="#cb43-1320" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> pol <span class="op">==</span> <span class="st">"P-2025-02"</span>:</span>
 <span id="cb43-1321"><a href="#cb43-1321" aria-hidden="true" tabindex="-1"></a>        booked <span class="op">&amp;=</span> <span class="op">~</span>thin_file <span class="op">|</span> has_cosigner</span>
 <span id="cb43-1322"><a href="#cb43-1322" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> <span class="op">-</span><span class="fl">1.0</span> <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> x <span class="op">-</span> <span class="fl">0.4</span> <span class="op">*</span> thin_file.astype(<span class="bu">float</span>)</span>
-<span id="cb43-1323"><a href="#cb43-1323" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logits))</span>
+<span id="cb43-1323"><a href="#cb43-1323" aria-hidden="true" tabindex="-1"></a>    p <span class="op">=</span> stable_sigmoid(logits)</span>
 <span id="cb43-1324"><a href="#cb43-1324" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> (rng_p.random(N_per) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb43-1325"><a href="#cb43-1325" aria-hidden="true" tabindex="-1"></a>    apps.append(pd.DataFrame({</span>
 <span id="cb43-1326"><a href="#cb43-1326" aria-hidden="true" tabindex="-1"></a>        <span class="st">"month"</span>: m, <span class="st">"x"</span>: x, <span class="st">"thin_file"</span>: thin_file.astype(<span class="bu">int</span>),</span>

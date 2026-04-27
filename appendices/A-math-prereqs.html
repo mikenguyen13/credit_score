@@ -1246,11 +1246,12 @@ L(\mathbf{\beta}) = \prod_{i: \delta_i = 1} \frac{\exp(\mathbf{\beta}^\top \math
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy.stats <span class="im">import</span> norm</span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">42</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(SEED)</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>t0 <span class="op">=</span> time.time()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> stable_sigmoid</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">42</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(SEED)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>t0 <span class="op">=</span> time.time()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <section id="clt-simulation" class="level3" data-number="A.8.1">
@@ -1373,7 +1374,7 @@ stationarity ||Qx*+c+A^T lambda|| = 5.66e-16</code></pre>
 </section>
 <section id="irls-logistic-regression-from-scratch" class="level3" data-number="A.8.5">
 <h3 data-number="A.8.5" class="anchored" data-anchor-id="irls-logistic-regression-from-scratch"><span class="header-section-number">A.8.5</span> IRLS logistic regression from scratch</h3>
-<p>We simulate a logistic model with known coefficients, fit by IRLS using <a href="#eq-irls" class="quarto-xref">Eq.&nbsp;<span>A.20</span></a>, and compare to <code>sklearn.linear_model.LogisticRegression</code> with no penalty.</p>
+<p>We simulate a logistic model with known coefficients, fit by IRLS using <a href="#eq-irls" class="quarto-xref">Eq.&nbsp;<span>A.20</span></a>, and compare to <code>sklearn.linear_model.LogisticRegression</code> with no penalty. The sigmoid is evaluated through <code>creditutils.stable_sigmoid</code>, which uses the branchless overflow-safe form <span class="math inline">\(\pi(\eta) = \mathbb{1}\{\eta \ge 0\}\,/(1+e^{-\eta}) + \mathbb{1}\{\eta &lt; 0\}\,e^{\eta}/(1+e^{\eta})\)</span> so the exponent argument is always non-positive. The naive form <span class="math inline">\(1/(1+e^{-\eta})\)</span> overflows once <span class="math inline">\(|\eta|\)</span> exceeds roughly 700 in float64, which is small relative to the scores produced by IRLS on poorly conditioned designs; using the stable form is a free correctness guard. See <a href="../chapters/07-logistic-scorecard.html#sec-ch07-impl" class="quarto-xref"><span>Section 7.6</span></a> for the same routine inside the production scorecard fitter.</p>
 <div id="irls-scratch" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1381,14 +1382,14 @@ stationarity ||Qx*+c+A^T lambda|| = 5.66e-16</code></pre>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> np.hstack([np.ones((n, <span class="dv">1</span>)), rng.standard_normal((n, p))])</span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>beta_true <span class="op">=</span> np.array([<span class="fl">0.2</span>, <span class="fl">1.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.3</span>, <span class="fl">0.0</span>])</span>
 <span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>eta <span class="op">=</span> X <span class="op">@</span> beta_true</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>eta))</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> stable_sigmoid(eta)</span>
 <span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (rng.uniform(size<span class="op">=</span>n) <span class="op">&lt;</span> prob).astype(<span class="bu">float</span>)</span>
 <span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> irls_logistic(X, y, max_iter<span class="op">=</span><span class="dv">50</span>, tol<span class="op">=</span><span class="fl">1e-10</span>):</span>
 <span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    beta <span class="op">=</span> np.zeros(X.shape[<span class="dv">1</span>])</span>
 <span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> it <span class="kw">in</span> <span class="bu">range</span>(max_iter):</span>
 <span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>        eta <span class="op">=</span> X <span class="op">@</span> beta</span>
-<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>eta))</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> stable_sigmoid(eta)</span>
 <span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>        W <span class="op">=</span> np.clip(mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu), <span class="fl">1e-8</span>, <span class="va">None</span>)</span>
 <span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> eta <span class="op">+</span> (y <span class="op">-</span> mu) <span class="op">/</span> W</span>
 <span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>        XtW <span class="op">=</span> X.T <span class="op">*</span> W</span>
@@ -1417,7 +1418,7 @@ max abs diff  = 4.15e-05</code></pre>
 <div id="fisher-info" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>(X <span class="op">@</span> beta_hat)))</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> stable_sigmoid(X <span class="op">@</span> beta_hat)</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>W <span class="op">=</span> mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu)</span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>I_hat <span class="op">=</span> (X.T <span class="op">*</span> W) <span class="op">@</span> X</span>
 <span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>se <span class="op">=</span> np.sqrt(np.diag(np.linalg.inv(I_hat)))</span>
@@ -1461,7 +1462,7 @@ SE     : [0.1016 0.1196 0.1076 0.1059 0.0997]</code></pre>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"total runtime: </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.2f}</span><span class="ss"> s"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>total runtime: 0.81 s</code></pre>
+<pre><code>total runtime: 0.83 s</code></pre>
 </div>
 </div>
 </section>
@@ -2511,194 +2512,195 @@ Vaart, A. W. van der. (1998). <em>Asymptotic statistics</em>. Cambridge Universi
 <span id="cb18-466"><a href="#cb18-466" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy.stats <span class="im">import</span> norm</span>
 <span id="cb18-467"><a href="#cb18-467" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
 <span id="cb18-468"><a href="#cb18-468" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score</span>
-<span id="cb18-469"><a href="#cb18-469" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-470"><a href="#cb18-470" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">42</span></span>
-<span id="cb18-471"><a href="#cb18-471" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(SEED)</span>
-<span id="cb18-472"><a href="#cb18-472" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb18-473"><a href="#cb18-473" aria-hidden="true" tabindex="-1"></a>t0 <span class="op">=</span> time.time()</span>
-<span id="cb18-474"><a href="#cb18-474" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-475"><a href="#cb18-475" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-476"><a href="#cb18-476" aria-hidden="true" tabindex="-1"></a><span class="fu">### CLT simulation</span></span>
-<span id="cb18-477"><a href="#cb18-477" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-478"><a href="#cb18-478" aria-hidden="true" tabindex="-1"></a>We sample $B$ independent batches, each of $n$ i.i.d. Exponential$(1)$ draws (mean $\mu = 1$, variance $\sigma^2 = 1$), form the standardized mean $\sqrt{n}(\bar{X}_n - 1)$, and compare its histogram to $\mathcal{N}(0, 1)$.</span>
-<span id="cb18-479"><a href="#cb18-479" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-482"><a href="#cb18-482" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-483"><a href="#cb18-483" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fig-clt</span></span>
-<span id="cb18-484"><a href="#cb18-484" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "CLT for Exponential(1): standardized sample mean vs. standard normal density."</span></span>
-<span id="cb18-485"><a href="#cb18-485" aria-hidden="true" tabindex="-1"></a>n, B <span class="op">=</span> <span class="dv">200</span>, <span class="dv">5000</span></span>
-<span id="cb18-486"><a href="#cb18-486" aria-hidden="true" tabindex="-1"></a>samples <span class="op">=</span> rng.exponential(scale<span class="op">=</span><span class="fl">1.0</span>, size<span class="op">=</span>(B, n))</span>
-<span id="cb18-487"><a href="#cb18-487" aria-hidden="true" tabindex="-1"></a>means <span class="op">=</span> samples.mean(axis<span class="op">=</span><span class="dv">1</span>)</span>
-<span id="cb18-488"><a href="#cb18-488" aria-hidden="true" tabindex="-1"></a>z <span class="op">=</span> (means <span class="op">-</span> <span class="fl">1.0</span>) <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">/</span> np.sqrt(n))</span>
-<span id="cb18-489"><a href="#cb18-489" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-490"><a href="#cb18-490" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="fl">3.5</span>))</span>
-<span id="cb18-491"><a href="#cb18-491" aria-hidden="true" tabindex="-1"></a>ax.hist(z, bins<span class="op">=</span><span class="dv">60</span>, density<span class="op">=</span><span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.6</span>, color<span class="op">=</span><span class="st">"steelblue"</span>, edgecolor<span class="op">=</span><span class="st">"white"</span>)</span>
-<span id="cb18-492"><a href="#cb18-492" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">4</span>, <span class="dv">4</span>, <span class="dv">300</span>)</span>
-<span id="cb18-493"><a href="#cb18-493" aria-hidden="true" tabindex="-1"></a>ax.plot(grid, norm.pdf(grid), color<span class="op">=</span><span class="st">"black"</span>, lw<span class="op">=</span><span class="dv">2</span>, label<span class="op">=</span><span class="st">"N(0,1) density"</span>)</span>
-<span id="cb18-494"><a href="#cb18-494" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"</span><span class="dv">$\s</span><span class="vs">qrt{n}</span><span class="kw">(</span><span class="dv">\b</span><span class="vs">ar X_n - 1</span><span class="kw">)</span><span class="dv">$</span><span class="vs">"</span>)</span>
-<span id="cb18-495"><a href="#cb18-495" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"density"</span>)</span>
-<span id="cb18-496"><a href="#cb18-496" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="ss">f"CLT check, n=</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">, B=</span><span class="sc">{</span>B<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb18-497"><a href="#cb18-497" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
-<span id="cb18-498"><a href="#cb18-498" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()<span class="op">;</span> plt.show()</span>
-<span id="cb18-499"><a href="#cb18-499" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"empirical mean=</span><span class="sc">{</span>z<span class="sc">.</span>mean()<span class="sc">:.4f}</span><span class="ss">, sd=</span><span class="sc">{</span>z<span class="sc">.</span>std()<span class="sc">:.4f}</span><span class="ss"> (target 0, 1)"</span>)</span>
-<span id="cb18-500"><a href="#cb18-500" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-501"><a href="#cb18-501" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-502"><a href="#cb18-502" aria-hidden="true" tabindex="-1"></a>Empirical mean is near zero and standard deviation near one, consistent with @eq-clt.</span>
-<span id="cb18-503"><a href="#cb18-503" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-504"><a href="#cb18-504" aria-hidden="true" tabindex="-1"></a><span class="fu">### Sample vs theoretical Gaussian CDF</span></span>
-<span id="cb18-505"><a href="#cb18-505" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-506"><a href="#cb18-506" aria-hidden="true" tabindex="-1"></a>We draw $N$ i.i.d. standard normals, compute the empirical CDF on a grid, and compare to $\Phi$.</span>
-<span id="cb18-507"><a href="#cb18-507" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-510"><a href="#cb18-510" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-511"><a href="#cb18-511" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: gaussian-cdf</span></span>
-<span id="cb18-512"><a href="#cb18-512" aria-hidden="true" tabindex="-1"></a>N <span class="op">=</span> <span class="dv">200_000</span></span>
-<span id="cb18-513"><a href="#cb18-513" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">13</span>)</span>
-<span id="cb18-514"><a href="#cb18-514" aria-hidden="true" tabindex="-1"></a>emp <span class="op">=</span> rng.standard_normal(N)</span>
-<span id="cb18-515"><a href="#cb18-515" aria-hidden="true" tabindex="-1"></a>sample_cdf <span class="op">=</span> np.array([(emp <span class="op">&lt;=</span> xi).mean() <span class="cf">for</span> xi <span class="kw">in</span> x])</span>
-<span id="cb18-516"><a href="#cb18-516" aria-hidden="true" tabindex="-1"></a>theo_cdf <span class="op">=</span> norm.cdf(x)</span>
-<span id="cb18-517"><a href="#cb18-517" aria-hidden="true" tabindex="-1"></a>diff <span class="op">=</span> np.<span class="bu">max</span>(np.<span class="bu">abs</span>(sample_cdf <span class="op">-</span> theo_cdf))</span>
-<span id="cb18-518"><a href="#cb18-518" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"max |F_N - Phi|(</span><span class="sc">{</span>N<span class="sc">}</span><span class="ss"> draws) = </span><span class="sc">{</span>diff<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb18-519"><a href="#cb18-519" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-520"><a href="#cb18-520" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-521"><a href="#cb18-521" aria-hidden="true" tabindex="-1"></a>The maximum absolute difference is small and scales as $O(1/\sqrt{N})$, the Dvoretzky-Kiefer-Wolfowitz rate.</span>
-<span id="cb18-522"><a href="#cb18-522" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-523"><a href="#cb18-523" aria-hidden="true" tabindex="-1"></a><span class="fu">### SVD reconstruction error</span></span>
-<span id="cb18-524"><a href="#cb18-524" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-525"><a href="#cb18-525" aria-hidden="true" tabindex="-1"></a>We build a random $80 \times 40$ matrix and reconstruct it from its rank-$k$ SVD truncation for several $k$. The relative Frobenius error is $\sqrt{\sum_{i &gt; k} \sigma_i^2 / \sum_i \sigma_i^2}$ by Eckart-Young.</span>
-<span id="cb18-526"><a href="#cb18-526" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-529"><a href="#cb18-529" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-530"><a href="#cb18-530" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: svd-recon</span></span>
-<span id="cb18-531"><a href="#cb18-531" aria-hidden="true" tabindex="-1"></a>A <span class="op">=</span> rng.standard_normal((<span class="dv">80</span>, <span class="dv">40</span>))</span>
-<span id="cb18-532"><a href="#cb18-532" aria-hidden="true" tabindex="-1"></a>U, s, Vt <span class="op">=</span> np.linalg.svd(A, full_matrices<span class="op">=</span><span class="va">False</span>)</span>
-<span id="cb18-533"><a href="#cb18-533" aria-hidden="true" tabindex="-1"></a>A_norm <span class="op">=</span> np.linalg.norm(A, <span class="st">"fro"</span>)</span>
-<span id="cb18-534"><a href="#cb18-534" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> k <span class="kw">in</span> [<span class="dv">5</span>, <span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">40</span>]:</span>
-<span id="cb18-535"><a href="#cb18-535" aria-hidden="true" tabindex="-1"></a>    Ak <span class="op">=</span> U[:, :k] <span class="op">@</span> np.diag(s[:k]) <span class="op">@</span> Vt[:k, :]</span>
-<span id="cb18-536"><a href="#cb18-536" aria-hidden="true" tabindex="-1"></a>    err_emp <span class="op">=</span> np.linalg.norm(A <span class="op">-</span> Ak, <span class="st">"fro"</span>) <span class="op">/</span> A_norm</span>
-<span id="cb18-537"><a href="#cb18-537" aria-hidden="true" tabindex="-1"></a>    err_theo <span class="op">=</span> np.sqrt(np.<span class="bu">sum</span>(s[k:]<span class="op">**</span><span class="dv">2</span>)) <span class="op">/</span> A_norm</span>
-<span id="cb18-538"><a href="#cb18-538" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"k=</span><span class="sc">{</span>k<span class="sc">:2d}</span><span class="ss">  empirical=</span><span class="sc">{</span>err_emp<span class="sc">:.4f}</span><span class="ss">  theoretical=</span><span class="sc">{</span>err_theo<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb18-539"><a href="#cb18-539" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-540"><a href="#cb18-540" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-541"><a href="#cb18-541" aria-hidden="true" tabindex="-1"></a>The empirical and theoretical errors agree to machine precision.</span>
-<span id="cb18-542"><a href="#cb18-542" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-543"><a href="#cb18-543" aria-hidden="true" tabindex="-1"></a><span class="fu">### KKT system for a toy QP</span></span>
-<span id="cb18-544"><a href="#cb18-544" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-545"><a href="#cb18-545" aria-hidden="true" tabindex="-1"></a>We solve</span>
-<span id="cb18-546"><a href="#cb18-546" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-547"><a href="#cb18-547" aria-hidden="true" tabindex="-1"></a>$$</span>
-<span id="cb18-548"><a href="#cb18-548" aria-hidden="true" tabindex="-1"></a>\min_{\mathbf{x} \in \mathbb{R}^2} \tfrac{1}{2}\mathbf{x}^\top \mathbf{Q} \mathbf{x} + \mathbf{c}^\top \mathbf{x}</span>
-<span id="cb18-549"><a href="#cb18-549" aria-hidden="true" tabindex="-1"></a>\quad \text{s.t.} \quad \mathbf{A}\mathbf{x} = \mathbf{b},</span>
-<span id="cb18-550"><a href="#cb18-550" aria-hidden="true" tabindex="-1"></a>$$ {#eq-toyqp}</span>
-<span id="cb18-551"><a href="#cb18-551" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-552"><a href="#cb18-552" aria-hidden="true" tabindex="-1"></a>with $\mathbf{Q} = \begin{pmatrix} 4 &amp; 1 <span class="sc">\\</span> 1 &amp; 3 \end{pmatrix}$, $\mathbf{c} = (-1, -2)^\top$, $\mathbf{A} = (1, 1)$, $\mathbf{b} = 1$. The KKT system is a single linear solve.</span>
-<span id="cb18-553"><a href="#cb18-553" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-556"><a href="#cb18-556" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-557"><a href="#cb18-557" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: toy-kkt</span></span>
-<span id="cb18-558"><a href="#cb18-558" aria-hidden="true" tabindex="-1"></a>Q <span class="op">=</span> np.array([[<span class="fl">4.</span>, <span class="fl">1.</span>], [<span class="fl">1.</span>, <span class="fl">3.</span>]])</span>
-<span id="cb18-559"><a href="#cb18-559" aria-hidden="true" tabindex="-1"></a>c <span class="op">=</span> np.array([<span class="op">-</span><span class="fl">1.</span>, <span class="op">-</span><span class="fl">2.</span>])</span>
-<span id="cb18-560"><a href="#cb18-560" aria-hidden="true" tabindex="-1"></a>Aeq <span class="op">=</span> np.array([[<span class="fl">1.</span>, <span class="fl">1.</span>]])</span>
-<span id="cb18-561"><a href="#cb18-561" aria-hidden="true" tabindex="-1"></a>beq <span class="op">=</span> np.array([<span class="fl">1.0</span>])</span>
-<span id="cb18-562"><a href="#cb18-562" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-563"><a href="#cb18-563" aria-hidden="true" tabindex="-1"></a>KKT <span class="op">=</span> np.block([[Q, Aeq.T],</span>
-<span id="cb18-564"><a href="#cb18-564" aria-hidden="true" tabindex="-1"></a>                [Aeq, np.zeros((<span class="dv">1</span>, <span class="dv">1</span>))]])</span>
-<span id="cb18-565"><a href="#cb18-565" aria-hidden="true" tabindex="-1"></a>rhs <span class="op">=</span> np.concatenate([<span class="op">-</span>c, beq])</span>
-<span id="cb18-566"><a href="#cb18-566" aria-hidden="true" tabindex="-1"></a>sol <span class="op">=</span> np.linalg.solve(KKT, rhs)</span>
-<span id="cb18-567"><a href="#cb18-567" aria-hidden="true" tabindex="-1"></a>x_star, lam <span class="op">=</span> sol[:<span class="dv">2</span>], sol[<span class="dv">2</span>:]</span>
-<span id="cb18-568"><a href="#cb18-568" aria-hidden="true" tabindex="-1"></a>primal_obj <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> x_star <span class="op">@</span> Q <span class="op">@</span> x_star <span class="op">+</span> c <span class="op">@</span> x_star</span>
-<span id="cb18-569"><a href="#cb18-569" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"x* = </span><span class="sc">{</span>x_star<span class="sc">}</span><span class="ss">,  lambda = </span><span class="sc">{</span>lam<span class="sc">}</span><span class="ss">,  f(x*) = </span><span class="sc">{</span>primal_obj<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb18-570"><a href="#cb18-570" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"primal feasibility |Ax*-b| = </span><span class="sc">{</span><span class="bu">abs</span>(Aeq <span class="op">@</span> x_star <span class="op">-</span> beq)[<span class="dv">0</span>]<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
-<span id="cb18-571"><a href="#cb18-571" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"stationarity ||Qx*+c+A^T lambda|| = </span><span class="sc">{</span>np<span class="sc">.</span>linalg<span class="sc">.</span>norm(Q<span class="op">@</span>x_star <span class="op">+</span> c <span class="op">+</span> Aeq.T<span class="op">@</span>lam)<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
-<span id="cb18-572"><a href="#cb18-572" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-573"><a href="#cb18-573" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-574"><a href="#cb18-574" aria-hidden="true" tabindex="-1"></a>Both KKT residuals are at machine precision, so $\mathbf{x}^*$ is the primal optimum and $\lambda$ is the equality multiplier.</span>
-<span id="cb18-575"><a href="#cb18-575" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-576"><a href="#cb18-576" aria-hidden="true" tabindex="-1"></a><span class="fu">### IRLS logistic regression from scratch</span></span>
-<span id="cb18-577"><a href="#cb18-577" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-578"><a href="#cb18-578" aria-hidden="true" tabindex="-1"></a>We simulate a logistic model with known coefficients, fit by IRLS using @eq-irls, and compare to <span class="in">`sklearn.linear_model.LogisticRegression`</span> with no penalty.</span>
-<span id="cb18-579"><a href="#cb18-579" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-582"><a href="#cb18-582" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-583"><a href="#cb18-583" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: irls-scratch</span></span>
-<span id="cb18-584"><a href="#cb18-584" aria-hidden="true" tabindex="-1"></a>n, p <span class="op">=</span> <span class="dv">500</span>, <span class="dv">4</span></span>
-<span id="cb18-585"><a href="#cb18-585" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> np.hstack([np.ones((n, <span class="dv">1</span>)), rng.standard_normal((n, p))])</span>
-<span id="cb18-586"><a href="#cb18-586" aria-hidden="true" tabindex="-1"></a>beta_true <span class="op">=</span> np.array([<span class="fl">0.2</span>, <span class="fl">1.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.3</span>, <span class="fl">0.0</span>])</span>
-<span id="cb18-587"><a href="#cb18-587" aria-hidden="true" tabindex="-1"></a>eta <span class="op">=</span> X <span class="op">@</span> beta_true</span>
-<span id="cb18-588"><a href="#cb18-588" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>eta))</span>
-<span id="cb18-589"><a href="#cb18-589" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (rng.uniform(size<span class="op">=</span>n) <span class="op">&lt;</span> prob).astype(<span class="bu">float</span>)</span>
-<span id="cb18-590"><a href="#cb18-590" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-591"><a href="#cb18-591" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> irls_logistic(X, y, max_iter<span class="op">=</span><span class="dv">50</span>, tol<span class="op">=</span><span class="fl">1e-10</span>):</span>
-<span id="cb18-592"><a href="#cb18-592" aria-hidden="true" tabindex="-1"></a>    beta <span class="op">=</span> np.zeros(X.shape[<span class="dv">1</span>])</span>
-<span id="cb18-593"><a href="#cb18-593" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> it <span class="kw">in</span> <span class="bu">range</span>(max_iter):</span>
-<span id="cb18-594"><a href="#cb18-594" aria-hidden="true" tabindex="-1"></a>        eta <span class="op">=</span> X <span class="op">@</span> beta</span>
-<span id="cb18-595"><a href="#cb18-595" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>eta))</span>
-<span id="cb18-596"><a href="#cb18-596" aria-hidden="true" tabindex="-1"></a>        W <span class="op">=</span> np.clip(mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu), <span class="fl">1e-8</span>, <span class="va">None</span>)</span>
-<span id="cb18-597"><a href="#cb18-597" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> eta <span class="op">+</span> (y <span class="op">-</span> mu) <span class="op">/</span> W</span>
-<span id="cb18-598"><a href="#cb18-598" aria-hidden="true" tabindex="-1"></a>        XtW <span class="op">=</span> X.T <span class="op">*</span> W</span>
-<span id="cb18-599"><a href="#cb18-599" aria-hidden="true" tabindex="-1"></a>        H <span class="op">=</span> XtW <span class="op">@</span> X <span class="op">+</span> <span class="fl">1e-10</span> <span class="op">*</span> np.eye(X.shape[<span class="dv">1</span>])</span>
-<span id="cb18-600"><a href="#cb18-600" aria-hidden="true" tabindex="-1"></a>        new_beta <span class="op">=</span> np.linalg.solve(H, XtW <span class="op">@</span> z)</span>
-<span id="cb18-601"><a href="#cb18-601" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> np.linalg.norm(new_beta <span class="op">-</span> beta) <span class="op">&lt;</span> tol:</span>
-<span id="cb18-602"><a href="#cb18-602" aria-hidden="true" tabindex="-1"></a>            beta <span class="op">=</span> new_beta</span>
-<span id="cb18-603"><a href="#cb18-603" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> beta, it <span class="op">+</span> <span class="dv">1</span></span>
-<span id="cb18-604"><a href="#cb18-604" aria-hidden="true" tabindex="-1"></a>        beta <span class="op">=</span> new_beta</span>
-<span id="cb18-605"><a href="#cb18-605" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> beta, max_iter</span>
-<span id="cb18-606"><a href="#cb18-606" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-607"><a href="#cb18-607" aria-hidden="true" tabindex="-1"></a>beta_hat, n_iter <span class="op">=</span> irls_logistic(X, y)</span>
-<span id="cb18-608"><a href="#cb18-608" aria-hidden="true" tabindex="-1"></a>skl <span class="op">=</span> LogisticRegression(penalty<span class="op">=</span><span class="va">None</span>, fit_intercept<span class="op">=</span><span class="va">False</span>,</span>
-<span id="cb18-609"><a href="#cb18-609" aria-hidden="true" tabindex="-1"></a>                         solver<span class="op">=</span><span class="st">"lbfgs"</span>, max_iter<span class="op">=</span><span class="dv">500</span>).fit(X, y)</span>
-<span id="cb18-610"><a href="#cb18-610" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"IRLS      beta = </span><span class="sc">{</span>beta_hat<span class="sc">}</span><span class="ss">  (</span><span class="sc">{</span>n_iter<span class="sc">}</span><span class="ss"> iters)"</span>)</span>
-<span id="cb18-611"><a href="#cb18-611" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"sklearn   beta = </span><span class="sc">{</span>skl<span class="sc">.</span>coef_<span class="sc">.</span>ravel()<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb18-612"><a href="#cb18-612" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"max abs diff  = </span><span class="sc">{</span>np<span class="sc">.</span><span class="bu">max</span>(np.<span class="bu">abs</span>(beta_hat <span class="op">-</span> skl.coef_.ravel()))<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
-<span id="cb18-613"><a href="#cb18-613" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-614"><a href="#cb18-614" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-615"><a href="#cb18-615" aria-hidden="true" tabindex="-1"></a>IRLS and scikit-learn agree to several decimals and recover the true coefficients up to sampling noise. The asymptotic variance at the MLE is the inverse Fisher information, which we can also compute from the final weights.</span>
-<span id="cb18-616"><a href="#cb18-616" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-619"><a href="#cb18-619" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-620"><a href="#cb18-620" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fisher-info</span></span>
-<span id="cb18-621"><a href="#cb18-621" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>(X <span class="op">@</span> beta_hat)))</span>
-<span id="cb18-622"><a href="#cb18-622" aria-hidden="true" tabindex="-1"></a>W <span class="op">=</span> mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu)</span>
-<span id="cb18-623"><a href="#cb18-623" aria-hidden="true" tabindex="-1"></a>I_hat <span class="op">=</span> (X.T <span class="op">*</span> W) <span class="op">@</span> X</span>
-<span id="cb18-624"><a href="#cb18-624" aria-hidden="true" tabindex="-1"></a>se <span class="op">=</span> np.sqrt(np.diag(np.linalg.inv(I_hat)))</span>
-<span id="cb18-625"><a href="#cb18-625" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"beta_hat:"</span>, beta_hat)</span>
-<span id="cb18-626"><a href="#cb18-626" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"SE     :"</span>, se)</span>
-<span id="cb18-627"><a href="#cb18-627" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-628"><a href="#cb18-628" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-629"><a href="#cb18-629" aria-hidden="true" tabindex="-1"></a>The standard errors come straight out of @eq-fisher and the MLE asymptotic normality in @eq-mle.</span>
-<span id="cb18-630"><a href="#cb18-630" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-631"><a href="#cb18-631" aria-hidden="true" tabindex="-1"></a><span class="fu">### Bootstrap confidence interval for AUC</span></span>
-<span id="cb18-632"><a href="#cb18-632" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-633"><a href="#cb18-633" aria-hidden="true" tabindex="-1"></a>We use the score $s(\mathbf{x}) = \mathbf{x}^\top \hat{\mathbf{\beta}}$ and compute a nonparametric percentile bootstrap 95% CI for the AUC.</span>
-<span id="cb18-634"><a href="#cb18-634" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-637"><a href="#cb18-637" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-638"><a href="#cb18-638" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: boot-auc</span></span>
-<span id="cb18-639"><a href="#cb18-639" aria-hidden="true" tabindex="-1"></a>scores <span class="op">=</span> X <span class="op">@</span> beta_hat</span>
-<span id="cb18-640"><a href="#cb18-640" aria-hidden="true" tabindex="-1"></a>B <span class="op">=</span> <span class="dv">1000</span></span>
-<span id="cb18-641"><a href="#cb18-641" aria-hidden="true" tabindex="-1"></a>auc_b <span class="op">=</span> np.empty(B)</span>
-<span id="cb18-642"><a href="#cb18-642" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> b <span class="kw">in</span> <span class="bu">range</span>(B):</span>
-<span id="cb18-643"><a href="#cb18-643" aria-hidden="true" tabindex="-1"></a>    idx <span class="op">=</span> rng.integers(<span class="dv">0</span>, n, n)</span>
-<span id="cb18-644"><a href="#cb18-644" aria-hidden="true" tabindex="-1"></a>    auc_b[b] <span class="op">=</span> roc_auc_score(y[idx], scores[idx])</span>
-<span id="cb18-645"><a href="#cb18-645" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-646"><a href="#cb18-646" aria-hidden="true" tabindex="-1"></a>auc_point <span class="op">=</span> roc_auc_score(y, scores)</span>
-<span id="cb18-647"><a href="#cb18-647" aria-hidden="true" tabindex="-1"></a>ci_lo, ci_hi <span class="op">=</span> np.quantile(auc_b, [<span class="fl">0.025</span>, <span class="fl">0.975</span>])</span>
-<span id="cb18-648"><a href="#cb18-648" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"AUC point estimate = </span><span class="sc">{</span>auc_point<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb18-649"><a href="#cb18-649" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"95% percentile CI  = [</span><span class="sc">{</span>ci_lo<span class="sc">:.4f}</span><span class="ss">, </span><span class="sc">{</span>ci_hi<span class="sc">:.4f}</span><span class="ss">] over B=</span><span class="sc">{</span>B<span class="sc">}</span><span class="ss"> resamples"</span>)</span>
-<span id="cb18-650"><a href="#cb18-650" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-651"><a href="#cb18-651" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-652"><a href="#cb18-652" aria-hidden="true" tabindex="-1"></a>The CI is centered on the point estimate with width of the expected order. @sec-ch04 develops ROC/AUC inference in full, including the DeLong variance estimator and its comparison to the bootstrap.</span>
-<span id="cb18-653"><a href="#cb18-653" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-656"><a href="#cb18-656" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb18-657"><a href="#cb18-657" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: runtime-total</span></span>
-<span id="cb18-658"><a href="#cb18-658" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"total runtime: </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.2f}</span><span class="ss"> s"</span>)</span>
-<span id="cb18-659"><a href="#cb18-659" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb18-660"><a href="#cb18-660" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-661"><a href="#cb18-661" aria-hidden="true" tabindex="-1"></a><span class="fu">## Further reading</span></span>
-<span id="cb18-662"><a href="#cb18-662" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-663"><a href="#cb18-663" aria-hidden="true" tabindex="-1"></a>For the probability and measure background, @billingsley1995probability remains the canonical graduate text; @casella2002statistical covers inference at the advanced undergraduate level and is a useful bridge for practitioners. Convex optimization is covered end to end in @boyd2004convex, with @nocedal2006numerical for numerical methods including IRLS and quasi-Newton. For linear algebra, @golub2013matrix and @trefethen1997numerical are the two books to own, with @horn2012matrix as the theoretical reference. Information theory is @cover1999elements. The bootstrap has @efron1993introduction as the accessible monograph and @efron1979bootstrap as the original. Asymptotic theory of the MLE, score tests, Wald, and LR is treated in @vandervaart1998asymptotic and @lehmann1998theory. Causal inference: @pearl2009causality for graphs and identification, @imbens2015causal for the potential outcomes program. Survival analysis: @klein2003survival. The GLM framework in general, and logistic regression by IRLS in particular, is covered in @mccullagh1989glm and @green1984iteratively.</span>
-<span id="cb18-664"><a href="#cb18-664" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-665"><a href="#cb18-665" aria-hidden="true" tabindex="-1"></a><span class="fu">## Takeaways</span></span>
-<span id="cb18-666"><a href="#cb18-666" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-667"><a href="#cb18-667" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Conditional expectation $\mathbb{E}<span class="co">[</span><span class="ot">Y \mid \mathbf{X}</span><span class="co">]</span>$ is the target of every classifier; everything else (calibration, ROC, costs) is a function of how well this object is estimated.</span>
-<span id="cb18-668"><a href="#cb18-668" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>SVD, spectral decomposition, Woodbury, and Schur complement cover most of the linear algebra moves used in the book.</span>
-<span id="cb18-669"><a href="#cb18-669" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>KKT conditions are the single most useful tool for understanding what a regularized estimator does at the optimum, including L1 sparsity.</span>
-<span id="cb18-670"><a href="#cb18-670" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>The logistic loss is binary cross-entropy is negative log-likelihood; IRLS is Newton's method on that loss.</span>
-<span id="cb18-671"><a href="#cb18-671" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>MLE, Fisher information, and the Delta method give asymptotic standard errors for almost any smooth transformation of regression coefficients, and the bootstrap backs them up without closed-form formulas.</span>
-<span id="cb18-672"><a href="#cb18-672" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Ignorability, overlap, and SUTVA are the three assumptions to check before claiming any causal interpretation of a credit scoring model.</span>
+<span id="cb18-469"><a href="#cb18-469" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> stable_sigmoid</span>
+<span id="cb18-470"><a href="#cb18-470" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-471"><a href="#cb18-471" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">42</span></span>
+<span id="cb18-472"><a href="#cb18-472" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(SEED)</span>
+<span id="cb18-473"><a href="#cb18-473" aria-hidden="true" tabindex="-1"></a>np.set_printoptions(precision<span class="op">=</span><span class="dv">4</span>, suppress<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb18-474"><a href="#cb18-474" aria-hidden="true" tabindex="-1"></a>t0 <span class="op">=</span> time.time()</span>
+<span id="cb18-475"><a href="#cb18-475" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-476"><a href="#cb18-476" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-477"><a href="#cb18-477" aria-hidden="true" tabindex="-1"></a><span class="fu">### CLT simulation</span></span>
+<span id="cb18-478"><a href="#cb18-478" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-479"><a href="#cb18-479" aria-hidden="true" tabindex="-1"></a>We sample $B$ independent batches, each of $n$ i.i.d. Exponential$(1)$ draws (mean $\mu = 1$, variance $\sigma^2 = 1$), form the standardized mean $\sqrt{n}(\bar{X}_n - 1)$, and compare its histogram to $\mathcal{N}(0, 1)$.</span>
+<span id="cb18-480"><a href="#cb18-480" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-483"><a href="#cb18-483" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-484"><a href="#cb18-484" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fig-clt</span></span>
+<span id="cb18-485"><a href="#cb18-485" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "CLT for Exponential(1): standardized sample mean vs. standard normal density."</span></span>
+<span id="cb18-486"><a href="#cb18-486" aria-hidden="true" tabindex="-1"></a>n, B <span class="op">=</span> <span class="dv">200</span>, <span class="dv">5000</span></span>
+<span id="cb18-487"><a href="#cb18-487" aria-hidden="true" tabindex="-1"></a>samples <span class="op">=</span> rng.exponential(scale<span class="op">=</span><span class="fl">1.0</span>, size<span class="op">=</span>(B, n))</span>
+<span id="cb18-488"><a href="#cb18-488" aria-hidden="true" tabindex="-1"></a>means <span class="op">=</span> samples.mean(axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb18-489"><a href="#cb18-489" aria-hidden="true" tabindex="-1"></a>z <span class="op">=</span> (means <span class="op">-</span> <span class="fl">1.0</span>) <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">/</span> np.sqrt(n))</span>
+<span id="cb18-490"><a href="#cb18-490" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-491"><a href="#cb18-491" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="fl">3.5</span>))</span>
+<span id="cb18-492"><a href="#cb18-492" aria-hidden="true" tabindex="-1"></a>ax.hist(z, bins<span class="op">=</span><span class="dv">60</span>, density<span class="op">=</span><span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.6</span>, color<span class="op">=</span><span class="st">"steelblue"</span>, edgecolor<span class="op">=</span><span class="st">"white"</span>)</span>
+<span id="cb18-493"><a href="#cb18-493" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">4</span>, <span class="dv">4</span>, <span class="dv">300</span>)</span>
+<span id="cb18-494"><a href="#cb18-494" aria-hidden="true" tabindex="-1"></a>ax.plot(grid, norm.pdf(grid), color<span class="op">=</span><span class="st">"black"</span>, lw<span class="op">=</span><span class="dv">2</span>, label<span class="op">=</span><span class="st">"N(0,1) density"</span>)</span>
+<span id="cb18-495"><a href="#cb18-495" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"</span><span class="dv">$\s</span><span class="vs">qrt{n}</span><span class="kw">(</span><span class="dv">\b</span><span class="vs">ar X_n - 1</span><span class="kw">)</span><span class="dv">$</span><span class="vs">"</span>)</span>
+<span id="cb18-496"><a href="#cb18-496" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"density"</span>)</span>
+<span id="cb18-497"><a href="#cb18-497" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="ss">f"CLT check, n=</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">, B=</span><span class="sc">{</span>B<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb18-498"><a href="#cb18-498" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb18-499"><a href="#cb18-499" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()<span class="op">;</span> plt.show()</span>
+<span id="cb18-500"><a href="#cb18-500" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"empirical mean=</span><span class="sc">{</span>z<span class="sc">.</span>mean()<span class="sc">:.4f}</span><span class="ss">, sd=</span><span class="sc">{</span>z<span class="sc">.</span>std()<span class="sc">:.4f}</span><span class="ss"> (target 0, 1)"</span>)</span>
+<span id="cb18-501"><a href="#cb18-501" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-502"><a href="#cb18-502" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-503"><a href="#cb18-503" aria-hidden="true" tabindex="-1"></a>Empirical mean is near zero and standard deviation near one, consistent with @eq-clt.</span>
+<span id="cb18-504"><a href="#cb18-504" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-505"><a href="#cb18-505" aria-hidden="true" tabindex="-1"></a><span class="fu">### Sample vs theoretical Gaussian CDF</span></span>
+<span id="cb18-506"><a href="#cb18-506" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-507"><a href="#cb18-507" aria-hidden="true" tabindex="-1"></a>We draw $N$ i.i.d. standard normals, compute the empirical CDF on a grid, and compare to $\Phi$.</span>
+<span id="cb18-508"><a href="#cb18-508" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-511"><a href="#cb18-511" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-512"><a href="#cb18-512" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: gaussian-cdf</span></span>
+<span id="cb18-513"><a href="#cb18-513" aria-hidden="true" tabindex="-1"></a>N <span class="op">=</span> <span class="dv">200_000</span></span>
+<span id="cb18-514"><a href="#cb18-514" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">13</span>)</span>
+<span id="cb18-515"><a href="#cb18-515" aria-hidden="true" tabindex="-1"></a>emp <span class="op">=</span> rng.standard_normal(N)</span>
+<span id="cb18-516"><a href="#cb18-516" aria-hidden="true" tabindex="-1"></a>sample_cdf <span class="op">=</span> np.array([(emp <span class="op">&lt;=</span> xi).mean() <span class="cf">for</span> xi <span class="kw">in</span> x])</span>
+<span id="cb18-517"><a href="#cb18-517" aria-hidden="true" tabindex="-1"></a>theo_cdf <span class="op">=</span> norm.cdf(x)</span>
+<span id="cb18-518"><a href="#cb18-518" aria-hidden="true" tabindex="-1"></a>diff <span class="op">=</span> np.<span class="bu">max</span>(np.<span class="bu">abs</span>(sample_cdf <span class="op">-</span> theo_cdf))</span>
+<span id="cb18-519"><a href="#cb18-519" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"max |F_N - Phi|(</span><span class="sc">{</span>N<span class="sc">}</span><span class="ss"> draws) = </span><span class="sc">{</span>diff<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb18-520"><a href="#cb18-520" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-521"><a href="#cb18-521" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-522"><a href="#cb18-522" aria-hidden="true" tabindex="-1"></a>The maximum absolute difference is small and scales as $O(1/\sqrt{N})$, the Dvoretzky-Kiefer-Wolfowitz rate.</span>
+<span id="cb18-523"><a href="#cb18-523" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-524"><a href="#cb18-524" aria-hidden="true" tabindex="-1"></a><span class="fu">### SVD reconstruction error</span></span>
+<span id="cb18-525"><a href="#cb18-525" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-526"><a href="#cb18-526" aria-hidden="true" tabindex="-1"></a>We build a random $80 \times 40$ matrix and reconstruct it from its rank-$k$ SVD truncation for several $k$. The relative Frobenius error is $\sqrt{\sum_{i &gt; k} \sigma_i^2 / \sum_i \sigma_i^2}$ by Eckart-Young.</span>
+<span id="cb18-527"><a href="#cb18-527" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-530"><a href="#cb18-530" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-531"><a href="#cb18-531" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: svd-recon</span></span>
+<span id="cb18-532"><a href="#cb18-532" aria-hidden="true" tabindex="-1"></a>A <span class="op">=</span> rng.standard_normal((<span class="dv">80</span>, <span class="dv">40</span>))</span>
+<span id="cb18-533"><a href="#cb18-533" aria-hidden="true" tabindex="-1"></a>U, s, Vt <span class="op">=</span> np.linalg.svd(A, full_matrices<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb18-534"><a href="#cb18-534" aria-hidden="true" tabindex="-1"></a>A_norm <span class="op">=</span> np.linalg.norm(A, <span class="st">"fro"</span>)</span>
+<span id="cb18-535"><a href="#cb18-535" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> k <span class="kw">in</span> [<span class="dv">5</span>, <span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">40</span>]:</span>
+<span id="cb18-536"><a href="#cb18-536" aria-hidden="true" tabindex="-1"></a>    Ak <span class="op">=</span> U[:, :k] <span class="op">@</span> np.diag(s[:k]) <span class="op">@</span> Vt[:k, :]</span>
+<span id="cb18-537"><a href="#cb18-537" aria-hidden="true" tabindex="-1"></a>    err_emp <span class="op">=</span> np.linalg.norm(A <span class="op">-</span> Ak, <span class="st">"fro"</span>) <span class="op">/</span> A_norm</span>
+<span id="cb18-538"><a href="#cb18-538" aria-hidden="true" tabindex="-1"></a>    err_theo <span class="op">=</span> np.sqrt(np.<span class="bu">sum</span>(s[k:]<span class="op">**</span><span class="dv">2</span>)) <span class="op">/</span> A_norm</span>
+<span id="cb18-539"><a href="#cb18-539" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"k=</span><span class="sc">{</span>k<span class="sc">:2d}</span><span class="ss">  empirical=</span><span class="sc">{</span>err_emp<span class="sc">:.4f}</span><span class="ss">  theoretical=</span><span class="sc">{</span>err_theo<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb18-540"><a href="#cb18-540" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-541"><a href="#cb18-541" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-542"><a href="#cb18-542" aria-hidden="true" tabindex="-1"></a>The empirical and theoretical errors agree to machine precision.</span>
+<span id="cb18-543"><a href="#cb18-543" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-544"><a href="#cb18-544" aria-hidden="true" tabindex="-1"></a><span class="fu">### KKT system for a toy QP</span></span>
+<span id="cb18-545"><a href="#cb18-545" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-546"><a href="#cb18-546" aria-hidden="true" tabindex="-1"></a>We solve</span>
+<span id="cb18-547"><a href="#cb18-547" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-548"><a href="#cb18-548" aria-hidden="true" tabindex="-1"></a>$$</span>
+<span id="cb18-549"><a href="#cb18-549" aria-hidden="true" tabindex="-1"></a>\min_{\mathbf{x} \in \mathbb{R}^2} \tfrac{1}{2}\mathbf{x}^\top \mathbf{Q} \mathbf{x} + \mathbf{c}^\top \mathbf{x}</span>
+<span id="cb18-550"><a href="#cb18-550" aria-hidden="true" tabindex="-1"></a>\quad \text{s.t.} \quad \mathbf{A}\mathbf{x} = \mathbf{b},</span>
+<span id="cb18-551"><a href="#cb18-551" aria-hidden="true" tabindex="-1"></a>$$ {#eq-toyqp}</span>
+<span id="cb18-552"><a href="#cb18-552" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-553"><a href="#cb18-553" aria-hidden="true" tabindex="-1"></a>with $\mathbf{Q} = \begin{pmatrix} 4 &amp; 1 <span class="sc">\\</span> 1 &amp; 3 \end{pmatrix}$, $\mathbf{c} = (-1, -2)^\top$, $\mathbf{A} = (1, 1)$, $\mathbf{b} = 1$. The KKT system is a single linear solve.</span>
+<span id="cb18-554"><a href="#cb18-554" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-557"><a href="#cb18-557" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-558"><a href="#cb18-558" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: toy-kkt</span></span>
+<span id="cb18-559"><a href="#cb18-559" aria-hidden="true" tabindex="-1"></a>Q <span class="op">=</span> np.array([[<span class="fl">4.</span>, <span class="fl">1.</span>], [<span class="fl">1.</span>, <span class="fl">3.</span>]])</span>
+<span id="cb18-560"><a href="#cb18-560" aria-hidden="true" tabindex="-1"></a>c <span class="op">=</span> np.array([<span class="op">-</span><span class="fl">1.</span>, <span class="op">-</span><span class="fl">2.</span>])</span>
+<span id="cb18-561"><a href="#cb18-561" aria-hidden="true" tabindex="-1"></a>Aeq <span class="op">=</span> np.array([[<span class="fl">1.</span>, <span class="fl">1.</span>]])</span>
+<span id="cb18-562"><a href="#cb18-562" aria-hidden="true" tabindex="-1"></a>beq <span class="op">=</span> np.array([<span class="fl">1.0</span>])</span>
+<span id="cb18-563"><a href="#cb18-563" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-564"><a href="#cb18-564" aria-hidden="true" tabindex="-1"></a>KKT <span class="op">=</span> np.block([[Q, Aeq.T],</span>
+<span id="cb18-565"><a href="#cb18-565" aria-hidden="true" tabindex="-1"></a>                [Aeq, np.zeros((<span class="dv">1</span>, <span class="dv">1</span>))]])</span>
+<span id="cb18-566"><a href="#cb18-566" aria-hidden="true" tabindex="-1"></a>rhs <span class="op">=</span> np.concatenate([<span class="op">-</span>c, beq])</span>
+<span id="cb18-567"><a href="#cb18-567" aria-hidden="true" tabindex="-1"></a>sol <span class="op">=</span> np.linalg.solve(KKT, rhs)</span>
+<span id="cb18-568"><a href="#cb18-568" aria-hidden="true" tabindex="-1"></a>x_star, lam <span class="op">=</span> sol[:<span class="dv">2</span>], sol[<span class="dv">2</span>:]</span>
+<span id="cb18-569"><a href="#cb18-569" aria-hidden="true" tabindex="-1"></a>primal_obj <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> x_star <span class="op">@</span> Q <span class="op">@</span> x_star <span class="op">+</span> c <span class="op">@</span> x_star</span>
+<span id="cb18-570"><a href="#cb18-570" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"x* = </span><span class="sc">{</span>x_star<span class="sc">}</span><span class="ss">,  lambda = </span><span class="sc">{</span>lam<span class="sc">}</span><span class="ss">,  f(x*) = </span><span class="sc">{</span>primal_obj<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb18-571"><a href="#cb18-571" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"primal feasibility |Ax*-b| = </span><span class="sc">{</span><span class="bu">abs</span>(Aeq <span class="op">@</span> x_star <span class="op">-</span> beq)[<span class="dv">0</span>]<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
+<span id="cb18-572"><a href="#cb18-572" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"stationarity ||Qx*+c+A^T lambda|| = </span><span class="sc">{</span>np<span class="sc">.</span>linalg<span class="sc">.</span>norm(Q<span class="op">@</span>x_star <span class="op">+</span> c <span class="op">+</span> Aeq.T<span class="op">@</span>lam)<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
+<span id="cb18-573"><a href="#cb18-573" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-574"><a href="#cb18-574" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-575"><a href="#cb18-575" aria-hidden="true" tabindex="-1"></a>Both KKT residuals are at machine precision, so $\mathbf{x}^*$ is the primal optimum and $\lambda$ is the equality multiplier.</span>
+<span id="cb18-576"><a href="#cb18-576" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-577"><a href="#cb18-577" aria-hidden="true" tabindex="-1"></a><span class="fu">### IRLS logistic regression from scratch</span></span>
+<span id="cb18-578"><a href="#cb18-578" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-579"><a href="#cb18-579" aria-hidden="true" tabindex="-1"></a>We simulate a logistic model with known coefficients, fit by IRLS using @eq-irls, and compare to <span class="in">`sklearn.linear_model.LogisticRegression`</span> with no penalty. The sigmoid is evaluated through <span class="in">`creditutils.stable_sigmoid`</span>, which uses the branchless overflow-safe form $\pi(\eta) = \mathbb{1}<span class="sc">\{</span>\eta \ge 0<span class="sc">\}</span>\,/(1+e^{-\eta}) + \mathbb{1}<span class="sc">\{</span>\eta &lt; 0<span class="sc">\}</span>\,e^{\eta}/(1+e^{\eta})$ so the exponent argument is always non-positive. The naive form $1/(1+e^{-\eta})$ overflows once $|\eta|$ exceeds roughly 700 in float64, which is small relative to the scores produced by IRLS on poorly conditioned designs; using the stable form is a free correctness guard. See @sec-ch07-impl for the same routine inside the production scorecard fitter.</span>
+<span id="cb18-580"><a href="#cb18-580" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-583"><a href="#cb18-583" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-584"><a href="#cb18-584" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: irls-scratch</span></span>
+<span id="cb18-585"><a href="#cb18-585" aria-hidden="true" tabindex="-1"></a>n, p <span class="op">=</span> <span class="dv">500</span>, <span class="dv">4</span></span>
+<span id="cb18-586"><a href="#cb18-586" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> np.hstack([np.ones((n, <span class="dv">1</span>)), rng.standard_normal((n, p))])</span>
+<span id="cb18-587"><a href="#cb18-587" aria-hidden="true" tabindex="-1"></a>beta_true <span class="op">=</span> np.array([<span class="fl">0.2</span>, <span class="fl">1.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.3</span>, <span class="fl">0.0</span>])</span>
+<span id="cb18-588"><a href="#cb18-588" aria-hidden="true" tabindex="-1"></a>eta <span class="op">=</span> X <span class="op">@</span> beta_true</span>
+<span id="cb18-589"><a href="#cb18-589" aria-hidden="true" tabindex="-1"></a>prob <span class="op">=</span> stable_sigmoid(eta)</span>
+<span id="cb18-590"><a href="#cb18-590" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (rng.uniform(size<span class="op">=</span>n) <span class="op">&lt;</span> prob).astype(<span class="bu">float</span>)</span>
+<span id="cb18-591"><a href="#cb18-591" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-592"><a href="#cb18-592" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> irls_logistic(X, y, max_iter<span class="op">=</span><span class="dv">50</span>, tol<span class="op">=</span><span class="fl">1e-10</span>):</span>
+<span id="cb18-593"><a href="#cb18-593" aria-hidden="true" tabindex="-1"></a>    beta <span class="op">=</span> np.zeros(X.shape[<span class="dv">1</span>])</span>
+<span id="cb18-594"><a href="#cb18-594" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> it <span class="kw">in</span> <span class="bu">range</span>(max_iter):</span>
+<span id="cb18-595"><a href="#cb18-595" aria-hidden="true" tabindex="-1"></a>        eta <span class="op">=</span> X <span class="op">@</span> beta</span>
+<span id="cb18-596"><a href="#cb18-596" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> stable_sigmoid(eta)</span>
+<span id="cb18-597"><a href="#cb18-597" aria-hidden="true" tabindex="-1"></a>        W <span class="op">=</span> np.clip(mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu), <span class="fl">1e-8</span>, <span class="va">None</span>)</span>
+<span id="cb18-598"><a href="#cb18-598" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> eta <span class="op">+</span> (y <span class="op">-</span> mu) <span class="op">/</span> W</span>
+<span id="cb18-599"><a href="#cb18-599" aria-hidden="true" tabindex="-1"></a>        XtW <span class="op">=</span> X.T <span class="op">*</span> W</span>
+<span id="cb18-600"><a href="#cb18-600" aria-hidden="true" tabindex="-1"></a>        H <span class="op">=</span> XtW <span class="op">@</span> X <span class="op">+</span> <span class="fl">1e-10</span> <span class="op">*</span> np.eye(X.shape[<span class="dv">1</span>])</span>
+<span id="cb18-601"><a href="#cb18-601" aria-hidden="true" tabindex="-1"></a>        new_beta <span class="op">=</span> np.linalg.solve(H, XtW <span class="op">@</span> z)</span>
+<span id="cb18-602"><a href="#cb18-602" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> np.linalg.norm(new_beta <span class="op">-</span> beta) <span class="op">&lt;</span> tol:</span>
+<span id="cb18-603"><a href="#cb18-603" aria-hidden="true" tabindex="-1"></a>            beta <span class="op">=</span> new_beta</span>
+<span id="cb18-604"><a href="#cb18-604" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> beta, it <span class="op">+</span> <span class="dv">1</span></span>
+<span id="cb18-605"><a href="#cb18-605" aria-hidden="true" tabindex="-1"></a>        beta <span class="op">=</span> new_beta</span>
+<span id="cb18-606"><a href="#cb18-606" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> beta, max_iter</span>
+<span id="cb18-607"><a href="#cb18-607" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-608"><a href="#cb18-608" aria-hidden="true" tabindex="-1"></a>beta_hat, n_iter <span class="op">=</span> irls_logistic(X, y)</span>
+<span id="cb18-609"><a href="#cb18-609" aria-hidden="true" tabindex="-1"></a>skl <span class="op">=</span> LogisticRegression(penalty<span class="op">=</span><span class="va">None</span>, fit_intercept<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb18-610"><a href="#cb18-610" aria-hidden="true" tabindex="-1"></a>                         solver<span class="op">=</span><span class="st">"lbfgs"</span>, max_iter<span class="op">=</span><span class="dv">500</span>).fit(X, y)</span>
+<span id="cb18-611"><a href="#cb18-611" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"IRLS      beta = </span><span class="sc">{</span>beta_hat<span class="sc">}</span><span class="ss">  (</span><span class="sc">{</span>n_iter<span class="sc">}</span><span class="ss"> iters)"</span>)</span>
+<span id="cb18-612"><a href="#cb18-612" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"sklearn   beta = </span><span class="sc">{</span>skl<span class="sc">.</span>coef_<span class="sc">.</span>ravel()<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb18-613"><a href="#cb18-613" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"max abs diff  = </span><span class="sc">{</span>np<span class="sc">.</span><span class="bu">max</span>(np.<span class="bu">abs</span>(beta_hat <span class="op">-</span> skl.coef_.ravel()))<span class="sc">:.2e}</span><span class="ss">"</span>)</span>
+<span id="cb18-614"><a href="#cb18-614" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-615"><a href="#cb18-615" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-616"><a href="#cb18-616" aria-hidden="true" tabindex="-1"></a>IRLS and scikit-learn agree to several decimals and recover the true coefficients up to sampling noise. The asymptotic variance at the MLE is the inverse Fisher information, which we can also compute from the final weights.</span>
+<span id="cb18-617"><a href="#cb18-617" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-620"><a href="#cb18-620" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-621"><a href="#cb18-621" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fisher-info</span></span>
+<span id="cb18-622"><a href="#cb18-622" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> stable_sigmoid(X <span class="op">@</span> beta_hat)</span>
+<span id="cb18-623"><a href="#cb18-623" aria-hidden="true" tabindex="-1"></a>W <span class="op">=</span> mu <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mu)</span>
+<span id="cb18-624"><a href="#cb18-624" aria-hidden="true" tabindex="-1"></a>I_hat <span class="op">=</span> (X.T <span class="op">*</span> W) <span class="op">@</span> X</span>
+<span id="cb18-625"><a href="#cb18-625" aria-hidden="true" tabindex="-1"></a>se <span class="op">=</span> np.sqrt(np.diag(np.linalg.inv(I_hat)))</span>
+<span id="cb18-626"><a href="#cb18-626" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"beta_hat:"</span>, beta_hat)</span>
+<span id="cb18-627"><a href="#cb18-627" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"SE     :"</span>, se)</span>
+<span id="cb18-628"><a href="#cb18-628" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-629"><a href="#cb18-629" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-630"><a href="#cb18-630" aria-hidden="true" tabindex="-1"></a>The standard errors come straight out of @eq-fisher and the MLE asymptotic normality in @eq-mle.</span>
+<span id="cb18-631"><a href="#cb18-631" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-632"><a href="#cb18-632" aria-hidden="true" tabindex="-1"></a><span class="fu">### Bootstrap confidence interval for AUC</span></span>
+<span id="cb18-633"><a href="#cb18-633" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-634"><a href="#cb18-634" aria-hidden="true" tabindex="-1"></a>We use the score $s(\mathbf{x}) = \mathbf{x}^\top \hat{\mathbf{\beta}}$ and compute a nonparametric percentile bootstrap 95% CI for the AUC.</span>
+<span id="cb18-635"><a href="#cb18-635" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-638"><a href="#cb18-638" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-639"><a href="#cb18-639" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: boot-auc</span></span>
+<span id="cb18-640"><a href="#cb18-640" aria-hidden="true" tabindex="-1"></a>scores <span class="op">=</span> X <span class="op">@</span> beta_hat</span>
+<span id="cb18-641"><a href="#cb18-641" aria-hidden="true" tabindex="-1"></a>B <span class="op">=</span> <span class="dv">1000</span></span>
+<span id="cb18-642"><a href="#cb18-642" aria-hidden="true" tabindex="-1"></a>auc_b <span class="op">=</span> np.empty(B)</span>
+<span id="cb18-643"><a href="#cb18-643" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> b <span class="kw">in</span> <span class="bu">range</span>(B):</span>
+<span id="cb18-644"><a href="#cb18-644" aria-hidden="true" tabindex="-1"></a>    idx <span class="op">=</span> rng.integers(<span class="dv">0</span>, n, n)</span>
+<span id="cb18-645"><a href="#cb18-645" aria-hidden="true" tabindex="-1"></a>    auc_b[b] <span class="op">=</span> roc_auc_score(y[idx], scores[idx])</span>
+<span id="cb18-646"><a href="#cb18-646" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-647"><a href="#cb18-647" aria-hidden="true" tabindex="-1"></a>auc_point <span class="op">=</span> roc_auc_score(y, scores)</span>
+<span id="cb18-648"><a href="#cb18-648" aria-hidden="true" tabindex="-1"></a>ci_lo, ci_hi <span class="op">=</span> np.quantile(auc_b, [<span class="fl">0.025</span>, <span class="fl">0.975</span>])</span>
+<span id="cb18-649"><a href="#cb18-649" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"AUC point estimate = </span><span class="sc">{</span>auc_point<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb18-650"><a href="#cb18-650" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"95% percentile CI  = [</span><span class="sc">{</span>ci_lo<span class="sc">:.4f}</span><span class="ss">, </span><span class="sc">{</span>ci_hi<span class="sc">:.4f}</span><span class="ss">] over B=</span><span class="sc">{</span>B<span class="sc">}</span><span class="ss"> resamples"</span>)</span>
+<span id="cb18-651"><a href="#cb18-651" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-652"><a href="#cb18-652" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-653"><a href="#cb18-653" aria-hidden="true" tabindex="-1"></a>The CI is centered on the point estimate with width of the expected order. @sec-ch04 develops ROC/AUC inference in full, including the DeLong variance estimator and its comparison to the bootstrap.</span>
+<span id="cb18-654"><a href="#cb18-654" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-657"><a href="#cb18-657" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb18-658"><a href="#cb18-658" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: runtime-total</span></span>
+<span id="cb18-659"><a href="#cb18-659" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"total runtime: </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.2f}</span><span class="ss"> s"</span>)</span>
+<span id="cb18-660"><a href="#cb18-660" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb18-661"><a href="#cb18-661" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-662"><a href="#cb18-662" aria-hidden="true" tabindex="-1"></a><span class="fu">## Further reading</span></span>
+<span id="cb18-663"><a href="#cb18-663" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-664"><a href="#cb18-664" aria-hidden="true" tabindex="-1"></a>For the probability and measure background, @billingsley1995probability remains the canonical graduate text; @casella2002statistical covers inference at the advanced undergraduate level and is a useful bridge for practitioners. Convex optimization is covered end to end in @boyd2004convex, with @nocedal2006numerical for numerical methods including IRLS and quasi-Newton. For linear algebra, @golub2013matrix and @trefethen1997numerical are the two books to own, with @horn2012matrix as the theoretical reference. Information theory is @cover1999elements. The bootstrap has @efron1993introduction as the accessible monograph and @efron1979bootstrap as the original. Asymptotic theory of the MLE, score tests, Wald, and LR is treated in @vandervaart1998asymptotic and @lehmann1998theory. Causal inference: @pearl2009causality for graphs and identification, @imbens2015causal for the potential outcomes program. Survival analysis: @klein2003survival. The GLM framework in general, and logistic regression by IRLS in particular, is covered in @mccullagh1989glm and @green1984iteratively.</span>
+<span id="cb18-665"><a href="#cb18-665" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-666"><a href="#cb18-666" aria-hidden="true" tabindex="-1"></a><span class="fu">## Takeaways</span></span>
+<span id="cb18-667"><a href="#cb18-667" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-668"><a href="#cb18-668" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Conditional expectation $\mathbb{E}<span class="co">[</span><span class="ot">Y \mid \mathbf{X}</span><span class="co">]</span>$ is the target of every classifier; everything else (calibration, ROC, costs) is a function of how well this object is estimated.</span>
+<span id="cb18-669"><a href="#cb18-669" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>SVD, spectral decomposition, Woodbury, and Schur complement cover most of the linear algebra moves used in the book.</span>
+<span id="cb18-670"><a href="#cb18-670" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>KKT conditions are the single most useful tool for understanding what a regularized estimator does at the optimum, including L1 sparsity.</span>
+<span id="cb18-671"><a href="#cb18-671" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>The logistic loss is binary cross-entropy is negative log-likelihood; IRLS is Newton's method on that loss.</span>
+<span id="cb18-672"><a href="#cb18-672" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>MLE, Fisher information, and the Delta method give asymptotic standard errors for almost any smooth transformation of regression coefficients, and the bootstrap backs them up without closed-form formulas.</span>
+<span id="cb18-673"><a href="#cb18-673" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Ignorability, overlap, and SUTVA are the three assumptions to check before claiming any causal interpretation of a credit scoring model.</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->

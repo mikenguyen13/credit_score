@@ -887,7 +887,7 @@ window.Quarto = {
 <section id="notation" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="notation">Notation</h2>
 <p>Let <span class="math inline">\((x_i, y_i)_{i=1}^n\)</span> denote the training set, with feature vector <span class="math inline">\(x_i \in \mathbb{R}^p\)</span> and label <span class="math inline">\(y_i \in \{0, 1\}\)</span> (1 = default). A feedforward network with <span class="math inline">\(L\)</span> layers defines a function <span class="math inline">\(f_\theta: \mathbb{R}^p \to \mathbb{R}\)</span> with parameters <span class="math inline">\(\theta = (W^{(\ell)}, b^{(\ell)})_{\ell=1}^{L}\)</span>, where <span class="math inline">\(W^{(\ell)} \in \mathbb{R}^{d_\ell \times d_{\ell-1}}\)</span> and <span class="math inline">\(b^{(\ell)} \in \mathbb{R}^{d_\ell}\)</span>. The activation at layer <span class="math inline">\(\ell\)</span> is <span class="math inline">\(a^{(\ell)}\)</span>, the pre-activation is <span class="math inline">\(z^{(\ell)}\)</span>, and <span class="math inline">\(\sigma(\cdot)\)</span> is a nonlinearity (tanh, ReLU, GELU). Probability of default is <span class="math inline">\(\hat{p}_i = \mathrm{sigmoid}(f_\theta(x_i))\)</span>, and the binary cross-entropy loss is <span class="math inline">\(\ell(\theta) = -\tfrac{1}{n}\sum_i [y_i \log \hat{p}_i + (1 - y_i) \log(1 - \hat{p}_i)]\)</span>.</p>
-<div id="setup" class="cell" data-execution_count="2">
+<div id="setup" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
@@ -908,7 +908,7 @@ window.Quarto = {
 <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> (</span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    load_german_credit, load_taiwan_default,</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    train_valid_test_split, ks_statistic,</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    train_valid_test_split, ks_statistic, stable_sigmoid,</span>
 <span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">0</span></span>
@@ -969,7 +969,7 @@ m_{t+1} = \beta_1 m_t + (1 - \beta_1) g_t, \qquad v_{t+1} = \beta_2 v_t + (1 - \
 <section id="backpropagation-from-scratch-numerically-checked" class="level3" data-number="14.2.4">
 <h3 data-number="14.2.4" class="anchored" data-anchor-id="backpropagation-from-scratch-numerically-checked"><span class="header-section-number">14.2.4</span> Backpropagation from scratch, numerically checked</h3>
 <p>A from-scratch implementation clarifies what the framework hides. We build a two-layer MLP, compute analytic gradients by the chain rule above, and compare against PyTorch’s autograd.</p>
-<div id="backprop-check" class="cell" data-execution_count="3">
+<div id="backprop-check" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">0</span>)</span>
@@ -984,7 +984,7 @@ m_{t+1} = \beta_1 m_t + (1 - \beta_1) g_t, \qquad v_{t+1} = \beta_2 v_t + (1 - \
 <span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>b2 <span class="op">=</span> np.zeros(<span class="dv">1</span>, dtype<span class="op">=</span><span class="st">"float32"</span>)</span>
 <span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sigmoid(u):</span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>u))</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> stable_sigmoid(u)</span>
 <span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Forward</span></span>
 <span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>z1 <span class="op">=</span> x <span class="op">@</span> W1 <span class="op">+</span> b1</span>
@@ -1024,10 +1024,10 @@ m_{t+1} = \beta_1 m_t + (1 - \beta_1) g_t, \qquad v_{t+1} = \beta_2 v_t + (1 - \
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>loss np=0.674530  torch=0.674530
-max|dW1|_np - dW1_torch| = 0.00e+00
-max|db1|_np - db1_torch| = 0.00e+00
-max|dW2|_np - dW2_torch| = 0.00e+00
-max|db2|_np - db2_torch| = 0.00e+00</code></pre>
+max|dW1|_np - dW1_torch| = 5.15e-09
+max|db1|_np - db1_torch| = 1.57e-09
+max|dW2|_np - dW2_torch| = 6.52e-09
+max|db2|_np - db2_torch| = 2.56e-10</code></pre>
 </div>
 </div>
 <p>Agreement is at float32 precision on every parameter block. This is the only sanity check that actually catches bugs in a custom training loop, and it should be the first thing you add when porting to a new framework.</p>
@@ -1089,7 +1089,7 @@ max|db2|_np - db2_torch| = 0.00e+00</code></pre>
 <section id="a-concrete-mlp-on-taiwan" class="level3" data-number="14.3.6">
 <h3 data-number="14.3.6" class="anchored" data-anchor-id="a-concrete-mlp-on-taiwan"><span class="header-section-number">14.3.6</span> A concrete MLP on Taiwan</h3>
 <p>We pull everything above together into a baseline MLP for the Taiwan default dataset. The Taiwan dataset contains 30,000 Taiwanese credit card holders observed in 2005 with a binary “default next month” label (22.1% positive). It is small enough to train on a laptop in seconds, but realistic enough that overfitting is a live threat.</p>
-<div id="taiwan-prep" class="cell" data-execution_count="4">
+<div id="taiwan-prep" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>taiwan <span class="op">=</span> load_taiwan_default().drop(columns<span class="op">=</span>[<span class="st">"id"</span>])</span>
@@ -1116,7 +1116,7 @@ default rate (train): 0.2245</code></pre>
 </div>
 </div>
 <p>The MLP is 23 inputs, two hidden layers of 64 and 32 units, ReLU, dropout 0.3, BCE loss, AdamW with weight decay <span class="math inline">\(10^{-4}\)</span>, and early stopping on validation AUC with patience 5. We cap training at 40 epochs; in practice early stopping fires earlier.</p>
-<div id="mlp-train" class="cell" data-execution_count="5">
+<div id="mlp-train" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> TaiwanMLP(nn.Module):</span>
@@ -1179,10 +1179,10 @@ default rate (train): 0.2245</code></pre>
 <span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"epochs trained: </span><span class="sc">{</span><span class="bu">len</span>(hist)<span class="sc">}</span><span class="ss">  best val AUC: </span><span class="sc">{</span><span class="bu">max</span>(hist)<span class="sc">:.4f}</span><span class="ss">  wall: </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.1f}</span><span class="ss">s"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>epochs trained: 38  best val AUC: 0.7744  wall: 6.4s</code></pre>
+<pre><code>epochs trained: 38  best val AUC: 0.7744  wall: 2.1s</code></pre>
 </div>
 </div>
-<div id="mlp-test" class="cell" data-execution_count="6">
+<div id="mlp-test" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> score(model, X):</span>
@@ -1200,7 +1200,7 @@ default rate (train): 0.2245</code></pre>
 </div>
 </div>
 <p>Compare against logistic regression and XGBoost.</p>
-<div id="cell-mlp-baselines" class="cell" data-execution_count="7">
+<div id="cell-mlp-baselines" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> xgboost <span class="im">as</span> xgb</span>
@@ -1274,7 +1274,7 @@ default rate (train): 0.2245</code></pre>
 <section id="dropout-ablation" class="level3" data-number="14.3.7">
 <h3 data-number="14.3.7" class="anchored" data-anchor-id="dropout-ablation"><span class="header-section-number">14.3.7</span> Dropout ablation</h3>
 <p>The claim that dropout matters on small credit samples is easy to test. We retrain the same architecture three times: no dropout, dropout 0.3, dropout 0.5, all else held fixed.</p>
-<div id="cell-dropout-ablation" class="cell" data-execution_count="8">
+<div id="cell-dropout-ablation" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> []</span>
@@ -1341,7 +1341,7 @@ default rate (train): 0.2245</code></pre>
 <section id="uncertainty-via-mc-dropout" class="level3" data-number="14.3.8">
 <h3 data-number="14.3.8" class="anchored" data-anchor-id="uncertainty-via-mc-dropout"><span class="header-section-number">14.3.8</span> Uncertainty via MC-dropout</h3>
 <p>Because we have a dropout net, we can produce an uncertainty band for each prediction by doing many forward passes with dropout on. This is operationally relevant: reject inference, policy overrides, and counterfactual denials all want “is this PD known to be high, or is it a confident 0.12?”</p>
-<div id="mc-dropout" class="cell" data-execution_count="9">
+<div id="mc-dropout" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mc_dropout_score(model, X, n_samples<span class="op">=</span><span class="dv">30</span>, seed<span class="op">=</span><span class="dv">0</span>):</span>
@@ -1387,7 +1387,7 @@ default rate (train): 0.2245</code></pre>
 <li>Image-like features built from ordered billing histories (credit card PAY_0, PAY_2, …, PAY_6 as a <span class="math inline">\(6 \times 1\)</span> grid).</li>
 </ul>
 <p>We show the last one on Taiwan. Taiwan has a twelve-dimensional slice that is naturally 2D: six months of repayment delay codes (<span class="math inline">\(\mathrm{PAY}_0, \ldots, \mathrm{PAY}_6\)</span>) and six months of bill amounts (<span class="math inline">\(\mathrm{BILL\_AMT1}, \ldots, \mathrm{BILL\_AMT6}\)</span>). Arrange as a <span class="math inline">\(2 \times 6\)</span> grid and run a tiny 2D CNN.</p>
-<div id="taiwan-cnn" class="cell" data-execution_count="10">
+<div id="taiwan-cnn" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>pay_cols  <span class="op">=</span> [<span class="st">"PAY_0"</span>, <span class="st">"PAY_2"</span>, <span class="st">"PAY_3"</span>, <span class="st">"PAY_4"</span>, <span class="st">"PAY_5"</span>, <span class="st">"PAY_6"</span>]</span>
@@ -1462,7 +1462,7 @@ default rate (train): 0.2245</code></pre>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>CNN input shape: (18000, 2, 6)
-CNN val AUC 0.7636  wall 6.6s
+CNN val AUC 0.7636  wall 6.4s
 CNN test AUC 0.7522  KS 0.4092</code></pre>
 </div>
 </div>
@@ -1494,7 +1494,7 @@ h_t &amp;= o_t \odot \tanh(c_t).
 <h3 data-number="14.5.3" class="anchored" data-anchor-id="credit-card-transactions-as-sequence-input"><span class="header-section-number">14.5.3</span> Credit card transactions as sequence input</h3>
 <p>A standard representation is: at each transaction <span class="math inline">\(t\)</span>, a feature vector <span class="math inline">\(x_t\)</span> containing amount, merchant-category embedding, time-of-day, days-since-previous, weekday, and a binary flag for online. The label <span class="math inline">\(y\)</span> is a customer-level default within a forward window. Real transaction data cannot be shipped inside a textbook; we build a synthetic stream with the structure real transaction data has.</p>
 <p>We simulate <span class="math inline">\(N = 800\)</span> customers, each with <span class="math inline">\(T = 20\)</span> transactions and <span class="math inline">\(F = 4\)</span> features. Defaulters show increasing transaction variance, escalating amounts, and rising late-payment flags. Non-defaulters are stable.</p>
-<div id="lstm-synth" class="cell" data-execution_count="11">
+<div id="lstm-synth" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_transactions(n<span class="op">=</span><span class="dv">400</span>, T<span class="op">=</span><span class="dv">20</span>, F<span class="op">=</span><span class="dv">4</span>, default<span class="op">=</span><span class="dv">0</span>, rng<span class="op">=</span><span class="va">None</span>):</span>
@@ -1524,7 +1524,7 @@ h_t &amp;= o_t \odot \tanh(c_t).
 <pre><code>sequence tensor: (560, 20, 4) default rate: 0.5232143</code></pre>
 </div>
 </div>
-<div id="lstm-train" class="cell" data-execution_count="12">
+<div id="lstm-train" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> LSTMClassifier(nn.Module):</span>
@@ -1571,7 +1571,7 @@ h_t &amp;= o_t \odot \tanh(c_t).
 <span id="cb18-42"><a href="#cb18-42" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"time </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.1f}</span><span class="ss">s"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>LSTM AUC 1.0000  KS 1.0000  time 0.9s</code></pre>
+<pre><code>LSTM AUC 1.0000  KS 1.0000  time 0.6s</code></pre>
 </div>
 </div>
 <p>On a clean synthetic signal the LSTM nails it. The real-world lesson is in the architectural choices: a single LSTM layer of moderate width, followed by LayerNorm and a small MLP head, with dropout on the head and not inside the recurrence. Applying dropout between the input and hidden recurrences tends to hurt short sequences. For longer sequences (hundreds to thousands of transactions), variational dropout (fixed mask across time) or layer-wise recurrent dropout becomes necessary; for credit-card monthly sequences, the simple form above is sufficient.</p>
@@ -1587,7 +1587,7 @@ h_t &amp;= o_t \odot \tanh(c_t).
 <li>Feature-drift detection: residuals are a sensitive detector of covariate shift and a natural input to SR 11-7 monitoring dashboards.</li>
 </ul>
 <p>We demonstrate on the German Credit data. German is tiny (1,000 rows, 30% default rate after encoding), so the classification performance of a pure autoencoder is mediocre, but the mechanics are clean.</p>
-<div id="ae-german" class="cell" data-execution_count="13">
+<div id="ae-german" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>german <span class="op">=</span> load_german_credit()</span>
@@ -1646,7 +1646,7 @@ h_t &amp;= o_t \odot \tanh(c_t).
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>AE recon-error AUC vs default: 0.6553
-time: 0.6s
+time: 0.4s
 anomaly-flag default rate: 74.00%  base rate: 30.00%  lift: 2.47x</code></pre>
 </div>
 </div>
@@ -1680,7 +1680,7 @@ P[i] = \prod_{j=1}^{i} (\gamma - M[j]),
 \mathcal{L}_{\mathrm{sparse}} = \lambda_{\mathrm{sparse}} \cdot \frac{1}{N_{\mathrm{steps}} \cdot n} \sum_{b, i, j} -M_{b, i, j} \log(M_{b, i, j} + \epsilon).
 \tag{14.20}\]</span></span></p>
 <p>The <code>pytorch-tabnet</code> library implements this faithfully. We run it on a Taiwan subsample to keep training under 90 seconds.</p>
-<div id="tabnet" class="cell" data-execution_count="14">
+<div id="tabnet" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pytorch_tabnet.tab_model <span class="im">import</span> TabNetClassifier</span>
@@ -1722,10 +1722,10 @@ P[i] = \prod_{j=1}^{i} (\gamma - M[j]),
 <div class="cell-output cell-output-stdout">
 <pre><code>
 Early stopping occurred at epoch 16 with best_epoch = 10 and best_val_0_auc = 0.74056
-TabNet AUC 0.7524  KS 0.4310  time 2.5s</code></pre>
+TabNet AUC 0.7524  KS 0.4310  time 1.8s</code></pre>
 </div>
 </div>
-<div id="cell-tabnet-importance" class="cell" data-execution_count="15">
+<div id="cell-tabnet-importance" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>imp <span class="op">=</span> pd.Series(tabnet.feature_importances_, index<span class="op">=</span>sub_feat).sort_values(ascending<span class="op">=</span><span class="va">False</span>)</span>
@@ -1766,7 +1766,7 @@ h' = h + \mathrm{MHA}(\mathrm{LN}(h)), \qquad h'' = h' + \mathrm{FFN}(\mathrm{LN
 \hat{y} = W_{\mathrm{head}} \cdot \mathrm{LN}(h^{(L)}_{[\mathrm{CLS}]}).
 \tag{14.24}\]</span></span></p>
 <p>A simplified FT-Transformer fits in sixty lines of PyTorch and is trainable in under 90 seconds on Taiwan at 8,000 rows.</p>
-<div id="ft-transformer-from-scratch" class="cell" data-execution_count="16">
+<div id="ft-transformer-from-scratch" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> NumericTokenizer(nn.Module):</span>
@@ -1813,7 +1813,7 @@ h' = h + \mathrm{MHA}(\mathrm{LN}(h)), \qquad h'' = h' + \mathrm{FFN}(\mathrm{LN
 <span id="cb26-42"><a href="#cb26-42" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">self</span>.head(h[:, <span class="dv">0</span>]).squeeze(<span class="op">-</span><span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
-<div id="ft-transformer-train" class="cell" data-execution_count="17">
+<div id="ft-transformer-train" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>torch.manual_seed(<span class="dv">0</span>)</span>
@@ -1855,7 +1855,7 @@ h' = h + \mathrm{MHA}(\mathrm{LN}(h)), \qquad h'' = h' + \mathrm{FFN}(\mathrm{LN
 <span id="cb27-37"><a href="#cb27-37" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"time </span><span class="sc">{</span>time<span class="sc">.</span>time() <span class="op">-</span> t0<span class="sc">:.1f}</span><span class="ss">s"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>FT-Transformer AUC 0.7895  KS 0.4490  time 26.8s</code></pre>
+<pre><code>FT-Transformer AUC 0.7895  KS 0.4490  time 19.8s</code></pre>
 </div>
 </div>
 <p>On an 8,000-row subsample the from-scratch FT-Transformer matches or beats XGBoost on the same subsample, at roughly 10 to 15 seconds of training time. The full-data picture (30,000 rows) narrows; at 8,000 rows, variance is high and a lucky seed is easy to mistake for a real win. We discuss this more in the next section.</p>
@@ -1883,7 +1883,7 @@ h' = h + \mathrm{MHA}(\mathrm{LN}(h)), \qquad h'' = h' + \mathrm{FFN}(\mathrm{LN
 <section id="head-to-head-on-taiwan-a-summary" class="level3" data-number="14.8.1">
 <h3 data-number="14.8.1" class="anchored" data-anchor-id="head-to-head-on-taiwan-a-summary"><span class="header-section-number">14.8.1</span> Head-to-head on Taiwan: a summary</h3>
 <p>We collect the tabular numbers from the earlier sections and add a final XGBoost run tuned a bit more, to give the comparison a fair shot.</p>
-<div id="cell-head-to-head" class="cell" data-execution_count="18">
+<div id="cell-head-to-head" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>xgb_tuned <span class="op">=</span> xgb.XGBClassifier(</span>
@@ -1973,7 +1973,7 @@ h' = h + \mathrm{MHA}(\mathrm{LN}(h)), \qquad h'' = h' + \mathrm{FFN}(\mathrm{LN
 <section id="onnx-export-and-runtime" class="level3" data-number="14.10.1">
 <h3 data-number="14.10.1" class="anchored" data-anchor-id="onnx-export-and-runtime"><span class="header-section-number">14.10.1</span> ONNX export and runtime</h3>
 <p>We export the Taiwan MLP to ONNX, load it in onnxruntime, and check that predictions match PyTorch to float precision.</p>
-<div id="onnx-export" class="cell" data-execution_count="19">
+<div id="onnx-export" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> tempfile, onnxruntime <span class="im">as</span> ort</span>
@@ -2076,7 +2076,7 @@ ONNX AUC: 0.7698  PyTorch AUC: 0.7698</code></pre>
 <section id="worked-example-integrated-credit-stack" class="level2" data-number="14.12">
 <h2 data-number="14.12" class="anchored" data-anchor-id="worked-example-integrated-credit-stack"><span class="header-section-number">14.12</span> Worked example: integrated credit stack</h2>
 <p>To close the chapter, we assemble the pieces into a single tabular+uncertainty pipeline that we would be comfortable describing to a model risk committee.</p>
-<div id="integrated-pipeline" class="cell" data-execution_count="20">
+<div id="integrated-pipeline" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> build_stack(X_tr, y_tr, X_va, y_va):</span>
@@ -2114,7 +2114,7 @@ std            0.2065              0.1890             0.0186  0.4136
 max            0.9548              0.9499             0.1672  1.0000</code></pre>
 </div>
 </div>
-<div id="cell-integrated-metrics" class="cell" data-execution_count="21">
+<div id="cell-integrated-metrics" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> metric_row(name, y, p):</span>
@@ -2175,7 +2175,7 @@ max            0.9548              0.9499             0.1672  1.0000</code></pre
 </section>
 <section id="application-considerations" class="level3" data-number="14.13.2">
 <h3 data-number="14.13.2" class="anchored" data-anchor-id="application-considerations"><span class="header-section-number">14.13.2</span> Application considerations</h3>
-<p>Thin-sample overfit is the defining problem for a neural credit model in Vietnam. An MLP with two hidden layers of 128 units has about 20,000 parameters; a vintage of 50,000 applications with 2,500 positives pushes the ratio of positives per parameter under 0.2, which is well into the regime where the network memorizes noise on the training fold and collapses on an out-of-time hold-out. The empirical recipe that has held up in Vietnamese work is unglamorous: start from a logistic baseline, add one hidden layer of 32 or 64 units, apply dropout of 0.3 or more, weight-decay in the 1e-3 to 1e-2 range, and early stopping with a patience of five to ten epochs <span class="citation" data-cites="tran2022xgboost">(<a href="11-trees-rules.html#ref-tran2022xgboost" role="doc-biblioref"><strong>tran2022xgboost?</strong></a>)</span>. Two hidden layers are defensible at 100,000-plus rows. Deeper networks rarely pay for themselves below a million rows on Vietnamese retail data.</p>
+<p>Thin-sample overfit is the defining problem for a neural credit model in Vietnam. An MLP with two hidden layers of 128 units has about 20,000 parameters; a vintage of 50,000 applications with 2,500 positives pushes the ratio of positives per parameter under 0.2, which is well into the regime where the network memorizes noise on the training fold and collapses on an out-of-time hold-out. The empirical recipe that has held up in Vietnamese work is unglamorous: start from a logistic baseline, add one hidden layer of 32 or 64 units, apply dropout of 0.3 or more, weight-decay in the 1e-3 to 1e-2 range, and early stopping with a patience of five to ten epochs <span class="citation" data-cites="tran2021machine">(<a href="11-trees-rules.html#ref-tran2021machine" role="doc-biblioref">Tran et al., 2021</a>)</span>. Two hidden layers are defensible at 100,000-plus rows. Deeper networks rarely pay for themselves below a million rows on Vietnamese retail data.</p>
 <p>Three architecture-specific points. First, transformer-style tabular models (FT-Transformer, TabNet) need more data than MLPs to show their lift; on Vietnamese consumer vintages the MLP is usually the right deep baseline, and an FT-Transformer becomes credible only when application, behavioral, and transaction features are stacked into a single training set of several million rows. Second, sequence architectures (LSTM, Transformer) are the right choice for transaction-stream features once a mobile-money or card issuer crosses two to five million monthly active users, because the underlying modality is inherently sequential and tree-based featurization throws away ordering <span class="citation" data-cites="bjorkegren2020behavior">(<a href="11-trees-rules.html#ref-bjorkegren2020behavior" role="doc-biblioref">Bjorkegren &amp; Grissen, 2020</a>)</span>. Third, autoencoder-based anomaly detection is an attractive fraud layer for Vietnamese eKYC flows: it does not require fraud labels and can be trained on the confirmed-good population, which is what most finance companies have early in a product launch.</p>
 <p>Calibration and uncertainty are where a neural challenger earns its keep. MC-dropout gives a per-applicant uncertainty band that no gradient-boosted tree produces natively, and for IFRS 9 stage-2 transfer decisions that uncertainty is directly useful. Post-hoc isotonic calibration on an out-of-time fold is mandatory; an uncalibrated neural PD cannot feed an ECL computation.</p>
 </section>
@@ -2375,6 +2375,9 @@ State Bank of Vietnam. (2024). <em>Regulatory sandbox for fintech activities in 
 </div>
 <div id="ref-tibshirani1996regression" class="csl-entry" role="listitem">
 Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. <em>Journal of the Royal Statistical Society. Series B (Methodological)</em>, <em>58</em>(1), 267–288.
+</div>
+<div id="ref-tran2021machine" class="csl-entry" role="listitem">
+Tran, K. Q., Duong, B. V., Tran, L. Q., Tran, A. L.-H., Nguyen, A. T., &amp; Nguyen, K. V. (2021). Machine learning-based empirical investigation for credit scoring in vietnam’s banking. <em>International Conference on Industrial, Engineering and Other Applications of Applied Intelligent Systems</em>, 564–574.
 </div>
 <div id="ref-wager2013dropout" class="csl-entry" role="listitem">
 Wager, S., Wang, S., &amp; Liang, P. (2013). Dropout training as adaptive regularization. <em>Advances in Neural Information Processing Systems</em>, <em>26</em>.
@@ -2923,7 +2926,7 @@ Yeh, I.-C., &amp; Lien, C. (2009). The comparisons of data mining techniques for
 <span id="cb36-50"><a href="#cb36-50" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb36-51"><a href="#cb36-51" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> (</span>
 <span id="cb36-52"><a href="#cb36-52" aria-hidden="true" tabindex="-1"></a>    load_german_credit, load_taiwan_default,</span>
-<span id="cb36-53"><a href="#cb36-53" aria-hidden="true" tabindex="-1"></a>    train_valid_test_split, ks_statistic,</span>
+<span id="cb36-53"><a href="#cb36-53" aria-hidden="true" tabindex="-1"></a>    train_valid_test_split, ks_statistic, stable_sigmoid,</span>
 <span id="cb36-54"><a href="#cb36-54" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb36-55"><a href="#cb36-55" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb36-56"><a href="#cb36-56" aria-hidden="true" tabindex="-1"></a>SEED <span class="op">=</span> <span class="dv">0</span></span>
@@ -3016,7 +3019,7 @@ Yeh, I.-C., &amp; Lien, C. (2009). The comparisons of data mining techniques for
 <span id="cb36-145"><a href="#cb36-145" aria-hidden="true" tabindex="-1"></a>b2 <span class="op">=</span> np.zeros(<span class="dv">1</span>, dtype<span class="op">=</span><span class="st">"float32"</span>)</span>
 <span id="cb36-146"><a href="#cb36-146" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb36-147"><a href="#cb36-147" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sigmoid(u):</span>
-<span id="cb36-148"><a href="#cb36-148" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>u))</span>
+<span id="cb36-148"><a href="#cb36-148" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> stable_sigmoid(u)</span>
 <span id="cb36-149"><a href="#cb36-149" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb36-150"><a href="#cb36-150" aria-hidden="true" tabindex="-1"></a><span class="co"># Forward</span></span>
 <span id="cb36-151"><a href="#cb36-151" aria-hidden="true" tabindex="-1"></a>z1 <span class="op">=</span> x <span class="op">@</span> W1 <span class="op">+</span> b1</span>

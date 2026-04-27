@@ -1145,7 +1145,7 @@ k_{\mathrm{rbf}}(x, x') = \exp(-\gamma \lVert x - x' \rVert^2), \qquad \gamma &g
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, ks_statistic</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, ks_statistic, stable_sigmoid</span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">0</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
@@ -1379,8 +1379,8 @@ test KS:     0.524</code></pre>
 <span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"AUC </span><span class="sc">{</span>roc_auc_score(yte_b, sgd.decision_function(Xte_b))<span class="sc">:.3f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>LinearSVC    fit  0.22s  AUC 0.791
-SGD(hinge)   fit  0.21s  AUC 0.723</code></pre>
+<pre><code>LinearSVC    fit  0.19s  AUC 0.791
+SGD(hinge)   fit  0.20s  AUC 0.723</code></pre>
 </div>
 </div>
 <p>Both solvers fit in under a second on 80000 training rows. For comparison, calling <code>SVC(kernel='rbf')</code> on the same data would allocate a Gram matrix of about 50 GB and never return. We do not attempt it.</p>
@@ -1420,8 +1420,8 @@ SGD(hinge)   fit  0.21s  AUC 0.723</code></pre>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>plain LR            fit  0.05s AUC 0.794
-Nystroem + LR       fit  0.89s AUC 0.896
-kernel SVC (5k sub) fit  3.14s AUC 0.938</code></pre>
+Nystroem + LR       fit  0.80s AUC 0.896
+kernel SVC (5k sub) fit  3.09s AUC 0.938</code></pre>
 </div>
 </div>
 <p>The Nystroem pipeline matches or exceeds the accuracy of a kernel SVM trained on a small subsample, at similar or lower cost, while using the full 80000 training rows. For credit portfolios that need some nonlinearity but cannot afford a kernel SVM, this is the right production shape.</p>
@@ -1669,7 +1669,7 @@ top 5% flagged: default rate = 32.89%  vs base rate = 22.12%  lift = 1.49x</code
 <span id="cb20-30"><a href="#cb20-30" aria-hidden="true" tabindex="-1"></a>         <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> feat[<span class="st">'delinq_12m'</span>].to_numpy()</span>
 <span id="cb20-31"><a href="#cb20-31" aria-hidden="true" tabindex="-1"></a>         <span class="op">+</span> <span class="fl">0.4</span> <span class="op">*</span> feat[<span class="st">'inquiries_6m'</span>].to_numpy()</span>
 <span id="cb20-32"><a href="#cb20-32" aria-hidden="true" tabindex="-1"></a>         <span class="op">-</span> <span class="fl">0.02</span> <span class="op">*</span> feat[<span class="st">'tenure_mo'</span>].to_numpy() <span class="op">/</span> <span class="fl">50.0</span>)</span>
-<span id="cb20-33"><a href="#cb20-33" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logit))</span>
+<span id="cb20-33"><a href="#cb20-33" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> stable_sigmoid(logit)</span>
 <span id="cb20-34"><a href="#cb20-34" aria-hidden="true" tabindex="-1"></a>y_sim <span class="op">=</span> (rng.random(N) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb20-35"><a href="#cb20-35" aria-hidden="true" tabindex="-1"></a>X_sim <span class="op">=</span> feat.to_numpy()</span>
 <span id="cb20-36"><a href="#cb20-36" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"N = </span><span class="sc">{</span>N<span class="sc">:,}</span><span class="ss">   p = </span><span class="sc">{</span>X_sim<span class="sc">.</span>shape[<span class="dv">1</span>]<span class="sc">}</span><span class="ss">   "</span></span>
@@ -1695,7 +1695,7 @@ top 5% flagged: default rate = 32.89%  vs base rate = 22.12%  lift = 1.49x</code
 <span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"LinearSVC on 1M rows  fit </span><span class="sc">{</span>t_fit<span class="sc">:5.2f}</span><span class="ss">s   AUC </span><span class="sc">{</span>auc<span class="sc">:.3f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>LinearSVC on 1M rows  fit  1.08s   AUC 0.629</code></pre>
+<pre><code>LinearSVC on 1M rows  fit  1.05s   AUC 0.629</code></pre>
 </div>
 </div>
 <p>Two seconds on a laptop for a million rows. Contrast with a kernel SVM: the Gram matrix is one million squared times eight bytes, roughly eight terabytes, and factorizing it is out of the question even on a workstation. This is not a question of patience, it is a hard memory wall. The linear path is the only viable option at this scale unless we approximate the kernel explicitly.</p>
@@ -2750,7 +2750,7 @@ Zadrozny, B., &amp; Elkan, C. (2002). <em>Transforming classifier scores into ac
 <span id="cb24-330"><a href="#cb24-330" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb24-331"><a href="#cb24-331" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb24-332"><a href="#cb24-332" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb24-333"><a href="#cb24-333" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, ks_statistic</span>
+<span id="cb24-333"><a href="#cb24-333" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit, load_taiwan_default, ks_statistic, stable_sigmoid</span>
 <span id="cb24-334"><a href="#cb24-334" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">0</span>)</span>
 <span id="cb24-335"><a href="#cb24-335" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb24-336"><a href="#cb24-336" aria-hidden="true" tabindex="-1"></a></span>
@@ -3167,7 +3167,7 @@ Zadrozny, B., &amp; Elkan, C. (2002). <em>Transforming classifier scores into ac
 <span id="cb24-769"><a href="#cb24-769" aria-hidden="true" tabindex="-1"></a>         <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> feat[<span class="st">'delinq_12m'</span>].to_numpy()</span>
 <span id="cb24-770"><a href="#cb24-770" aria-hidden="true" tabindex="-1"></a>         <span class="op">+</span> <span class="fl">0.4</span> <span class="op">*</span> feat[<span class="st">'inquiries_6m'</span>].to_numpy()</span>
 <span id="cb24-771"><a href="#cb24-771" aria-hidden="true" tabindex="-1"></a>         <span class="op">-</span> <span class="fl">0.02</span> <span class="op">*</span> feat[<span class="st">'tenure_mo'</span>].to_numpy() <span class="op">/</span> <span class="fl">50.0</span>)</span>
-<span id="cb24-772"><a href="#cb24-772" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> np.exp(<span class="op">-</span>logit))</span>
+<span id="cb24-772"><a href="#cb24-772" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> stable_sigmoid(logit)</span>
 <span id="cb24-773"><a href="#cb24-773" aria-hidden="true" tabindex="-1"></a>y_sim <span class="op">=</span> (rng.random(N) <span class="op">&lt;</span> p).astype(<span class="bu">int</span>)</span>
 <span id="cb24-774"><a href="#cb24-774" aria-hidden="true" tabindex="-1"></a>X_sim <span class="op">=</span> feat.to_numpy()</span>
 <span id="cb24-775"><a href="#cb24-775" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"N = </span><span class="sc">{</span>N<span class="sc">:,}</span><span class="ss">   p = </span><span class="sc">{</span>X_sim<span class="sc">.</span>shape[<span class="dv">1</span>]<span class="sc">}</span><span class="ss">   "</span></span>
