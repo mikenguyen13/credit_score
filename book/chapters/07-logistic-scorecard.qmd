@@ -8,6 +8,10 @@ execute:
 
 # Logistic Regression and the Scorecard {#sec-ch07}
 
+::: {.callout-note appearance="simple" icon="false"}
+**Scope: retail (with one corporate detour).** Primary applications are consumer credit scorecards on UCI German Credit and UCI Taiwan default. The Ohlson O-score section (@sec-ch07-ohlson) applies the same logit machinery to corporate bankruptcy and is flagged inline.
+:::
+
 ## Overview {.unnumbered}
 
 Logistic regression is still the workhorse of retail credit risk. Every large bank, every bureau, every fintech with a prime book runs a logistic regression scorecard somewhere in its decision stack. Not because nothing better exists, but because nothing else clears the simultaneous bar of statistical rigor, regulatory transparency, and operational robustness. A well-built scorecard is auditable at the bin level, easy to monitor, cheap to score at ten thousand requests per second, and trivial to explain to an adverse-action letter recipient. That combination is rare.
@@ -225,7 +229,7 @@ IV is sensitive to sample size and binning choices, so treat it as a screen rath
 
 Several items worth flagging before we code.
 
-1.  *Rare events.* Under heavy imbalance (low base rate), MLE $\hat\beta_0$ is biased downward. @king2001logistic give a closed-form correction; @firth1993bias recommends Jeffreys prior penalization, which has become the default in modern credit practice. sklearn's L2 penalty (@sec-logistic-l2-ridge) with modest `C` achieves similar regularization in large-$n$ credit datasets without the small-sample closed-form.
+1.  *Rare events.* Under heavy imbalance (low base rate), MLE $\hat\beta_0$ is biased downward. @king2001logistic give a closed-form correction; @firth1993bias recommends Jeffreys prior penalization, which has become the default in modern credit practice. sklearn's L2 penalty (@sec-logistic-l2-ridge) with modest `C` achieves similar regularization in large-$n$ credit datasets without the small-sample closed-form. The full menu of resampling, cost-sensitive, and threshold-moving fixes for severe imbalance is treated in @sec-ch15.
 2.  *Separation.* Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin [@navas2016optimal] to prevent this before fitting.
 3.  *Prior corrections.* When a training set is stratified (over-sampled bads), the MLE intercept no longer reflects the deployment prior. The standard correction shifts $\hat\beta_0$ by $\log(\pi_{\text{pop}} / (1-\pi_{\text{pop}})) - \log(\pi_{\text{train}} / (1-\pi_{\text{train}}))$ [@king2001logistic]. All other coefficients are left unchanged; only the intercept carries the mismatch between training and deployment base rates. This is a one-line fix that many deployed scorecards get wrong when a sampling policy changes mid-year.
 4.  *Choice-based sampling.* When the sampling scheme itself is endogenous (e.g., the training set is only of accepted applicants), the logistic likelihood is mis-specified in a more fundamental way. Reject inference (@sec-ch10) addresses this directly. For the bulk of retail products where the sampling scheme is exogenous or rebuilt via weighted likelihood, the base-rate shift is the only correction needed.
@@ -340,9 +344,9 @@ print("monotone bad rate:", is_monotone(tree_tab["bad_rate"]))
 
 Three patterns recur every time this comparison is run on a real portfolio, and they show up here as well.
 
-1. *Equal-width is sensitive to skew.* `DTI` is gamma-distributed, so the two highest equal-width bins together hold under 10% of the portfolio. Bad rates are monotone on this seed but the tail bin counts are small enough that a typical 5% min-bin-size rule would force a merge, and on neighboring seeds the top bin's rate is noisy enough to invert against its neighbor.
-2. *Equal-frequency stabilizes counts but not cuts.* Quantile cuts give every bin the same `n`, which is what makes IV and WoE estimates low-variance. Cuts land at population quantiles (here 0.142, 0.243, 0.355, 0.527), not at policy-relevant thresholds. A 36% DTI is a meaningful underwriting boundary; a 35.5% quantile is not.
-3. *Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on `default`, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what `optbinning` does for a single feature, minus the mixed-integer monotone constraint [@navas2016optimal].
+1.  *Equal-width is sensitive to skew.* `DTI` is gamma-distributed, so the two highest equal-width bins together hold under 10% of the portfolio. Bad rates are monotone on this seed but the tail bin counts are small enough that a typical 5% min-bin-size rule would force a merge, and on neighboring seeds the top bin's rate is noisy enough to invert against its neighbor.
+2.  *Equal-frequency stabilizes counts but not cuts.* Quantile cuts give every bin the same `n`, which is what makes IV and WoE estimates low-variance. Cuts land at population quantiles (here 0.142, 0.243, 0.355, 0.527), not at policy-relevant thresholds. A 36% DTI is a meaningful underwriting boundary; a 35.5% quantile is not.
+3.  *Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on `default`, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what `optbinning` does for a single feature, minus the mixed-integer monotone constraint [@navas2016optimal]. The CART splitting rule used here is derived in @sec-ch11-splits; the same impurity criterion underlies decision-tree binning in production.
 
 In production we would feed the supervised cuts into an optimizer that adds a monotone-event-rate constraint per feature, the way `optbinning` and `scorecardpy` do. For a one-feature walkthrough the supervised cuts are usually adequate; we use rounded, policy-readable boundaries instead so the WoE arithmetic in the next step stays legible.
 
@@ -640,7 +644,7 @@ That said, scaling conventions vary. Some shops use `base_score=500, base_odds=2
 
 #### Master-scale mapping
 
-For IRB portfolios, the score must be discretized into a master scale of rating grades with pre-defined PD midpoints. The master scale is a single table that every credit risk system in the bank agrees on. A typical master scale has 10 to 22 grades. Bin boundaries are set so each grade contains roughly equal obligor counts on the training set and so the pooled default rate in each grade monotonically increases. @eba2017gl requires the grades to be distinct, ordered, and sufficiently granular that no two adjacent grades have overlapping 95% confidence intervals on their default rate. The score in points gives us a clean axis to draw these boundaries on.
+For IRB portfolios, the score must be discretized into a master scale of rating grades with pre-defined PD midpoints. The master scale is a single table that every credit risk system in the bank agrees on. A typical master scale has 10 to 22 grades. Bin boundaries are set so each grade contains roughly equal obligor counts on the training set and so the pooled default rate in each grade monotonically increases. @eba2017gl requires the grades to be distinct, ordered, and sufficiently granular that no two adjacent grades have overlapping 95% confidence intervals on their default rate. The score in points gives us a clean axis to draw these boundaries on. The IRB capital function the master scale feeds into is derived in @sec-ch05-regulation.
 
 #### Negative points and policy overrides
 
@@ -656,9 +660,9 @@ First, credit features are correlated. Payment status, utilization, and recent d
 
 Three triage rules for *when* to regularize, mapped onto the same workflow:
 
-1. *After binning, before fitting,* if any bin has fewer than ~30 bads or zero bads. Quasi-separation will make unpenalized IRLS diverge or produce wildly large coefficients. Use L2 with a modest `C` (i.e. `C = 1.0` to `4.0` in sklearn) by default; this is the cheapest fix and matches what monotone optimal binning expects downstream.
-2. *Before fitting,* if your candidate feature pool has more than ~3x the features you intend to keep. Use L1 to do selection, then refit L2 on the survivors. The two-stage approach is what production teams ship because the L2 refit produces stable coefficients, and the L1 stage produces an auditable selection trail.
-3. *During the out-of-time check,* if the recent-vintage AUC is materially worse than CV AUC. This is a sign the unregularized model has memorized vintage-specific noise. Increase $\lambda$ until the gap closes; the *Picking $\lambda$* subsection below has the rule.
+1.  *After binning, before fitting,* if any bin has fewer than \~30 bads or zero bads. Quasi-separation will make unpenalized IRLS diverge or produce wildly large coefficients. Use L2 with a modest `C` (i.e. `C = 1.0` to `4.0` in sklearn) by default; this is the cheapest fix and matches what monotone optimal binning expects downstream.
+2.  *Before fitting,* if your candidate feature pool has more than \~3x the features you intend to keep. Use L1 to do selection, then refit L2 on the survivors. The two-stage approach is what production teams ship because the L2 refit produces stable coefficients, and the L1 stage produces an auditable selection trail.
+3.  *During the out-of-time check,* if the recent-vintage AUC is materially worse than CV AUC. This is a sign the unregularized model has memorized vintage-specific noise. Increase $\lambda$ until the gap closes; the *Picking* $\lambda$ subsection below has the rule.
 
 ### L1 (lasso)
 
@@ -732,15 +736,21 @@ sklearn offers several solvers. For credit-sized L2 problems (p \< 1000, n \< 10
 
 : Default penalty choice by credit-modeling regime. Triage rules at the start of @sec-ch07-regularization (bin sparsity, candidate pool size, OOT gap) decide *whether* to regularize; this table decides *which* penalty once the answer is yes. {#tbl-ch07-penalty-regimes}
 
-In all cases, tune via stratified K-fold on the training window and confirm the penalty choice on an out-of-time validation set.
+In all cases, tune $\lambda$ on the training window with a cross-validation scheme that matches the data structure, then confirm the penalty choice on an out-of-time validation set. The inner CV is for hyperparameter selection; the OOT set is the time-shift check. Three cases cover most credit data:
+
+1.  **Independent obligor-snapshots** (one row per borrower, single performance window). Use `StratifiedKFold` on the label. Random folds are safe because every row already shares the same observation and performance frame, so there is no temporal channel through which information can leak between folds.
+2.  **Panel data with repeating obligors** (same borrower appears in multiple snapshots, e.g. monthly behavioral scoring). Random K-fold leaks: the same borrower can land in both train and validation folds, inflating CV AUC. Use `StratifiedGroupKFold(groups=borrower_id)` so all rows for a given borrower stay in the same fold, and stratification still balances bads across folds.
+3.  **Long training window spanning macro regimes** (multiple vintages, visible cycle inside the training period). If you want the inner CV to mirror the deployment condition rather than the within-window condition, use `TimeSeriesSplit` (rolling or expanding origin) so each validation fold is later in time than its training fold. This is closer to OOT but costs statistical efficiency; reserve it for cases where the training window itself is non-stationary.
+
+The default for a textbook scorecard built on a single application vintage is case 1. Cases 2 and 3 are the situations where "stratified K-fold" without further qualification quietly overstates performance.
 
 ## Calibration {#sec-ch07-calibration}
 
-Discrimination (AUC, KS, Gini) tells you whether the score ranks bads above goods. Calibration tells you whether the predicted PD equals the observed default rate. A lender needs both. Miscalibrated scores damage pricing, capital, and loss provisioning regardless of AUC.
+Discrimination (AUC and Gini in @sec-ch04-auc, KS in @sec-ch04-ks) tells you whether the score ranks bads above goods. Calibration tells you whether the predicted PD equals the observed default rate (@sec-ch04-brier). A lender needs both. Miscalibrated scores damage pricing, capital, and loss provisioning regardless of AUC.
 
 ### Reliability diagram
 
-Partition the score into equal-quantile bins. Plot $\bar p_k$ (mean predicted PD within bin $k$) against $\bar y_k$ (observed default rate within bin $k$). A perfectly calibrated model lies on the identity line. @dawid1982well gives the Bayesian foundation; @degroot1983comparison decompose the Brier score into calibration + refinement, which underlies the chapter-4 metric toolkit. @fig-ch07-reliability-taiwan shows what the diagram looks like in practice on Taiwan default for the uncalibrated, Platt, and isotonic versions of the same logistic regression.
+Partition the score into equal-quantile bins. Plot $\bar p_k$ (mean predicted PD within bin $k$) against $\bar y_k$ (observed default rate within bin $k$). A perfectly calibrated model lies on the identity line. @dawid1982well gives the Bayesian foundation; @degroot1983comparison decompose the Brier score into calibration + refinement, which underlies the metric toolkit in @sec-ch04-brier. @fig-ch07-reliability-taiwan shows what the diagram looks like in practice on Taiwan default for the uncalibrated, Platt, and isotonic versions of the same logistic regression.
 
 ### Platt scaling
 
@@ -752,13 +762,13 @@ Partition the score into equal-quantile bins. Plot $\bar p_k$ (mean predicted PD
 
 ### Beta calibration
 
-@kull2017beta proposed a three-parameter family that generalizes Platt and corrects for S-shaped, L-shaped, or U-shaped miscalibration. Use it when the reliability diagram shows asymmetric deviation, like an isotonic-like S in @fig-ch07-reliability-taiwan but on a medium-sized calibration set where isotonic would over-fit.
+@kull2017beta proposed a three-parameter family that generalizes Platt and corrects for S-shaped, L-shaped, or U-shaped miscalibration. Use it when the reliability diagram shows asymmetric deviation, like an isotonic-like S in @fig-ch07-reliability-taiwan, but on a medium-sized calibration set where isotonic would over-fit.
 
 @niculescu2005predicting is the canonical empirical comparison. The summary, adapted for credit: logistic regression on enough data is usually well calibrated out of the box; calibration pays off when the training population does not match deployment (policy changes, re-weighting) or after tree ensembles.
 
 ### Temperature scaling and confidence calibration
 
-@guo2017calibration popularized temperature scaling for neural networks: divide the logit by a scalar $T > 0$ learned on the validation set. For logistic regression it collapses to rescaling the slope. In credit scorecards this is useful when the score is produced by a stacked model whose top layer is not itself a logit (think SHAP-stacked trees fed into a ranker); a temperature-scaled calibrator then turns the raw margin into a probability without touching the base model. Temperature scaling is a special case of Platt with the intercept fixed at its unregularized MLE.
+@guo2017calibration popularized temperature scaling for neural networks: divide the logit by a scalar $T > 0$ learned on the validation set. For logistic regression, it collapses to rescaling the slope. In credit scorecards, this is useful when the score is produced by a stacked model whose top layer is not itself a logit (think SHAP-stacked trees fed into a ranker); a temperature-scaled calibrator then turns the raw margin into a probability without touching the base model. Temperature scaling is a special case of Platt with the intercept fixed at its unregularized MLE. The runnable demo in @sec-ch07-temperature-demo fits $T$ by 1-D minimization of validation NLL on the Taiwan logits and produces the figure showing $T^*$ landing near 1 (as expected for a base model whose log-likelihood is already at its maximum).
 
 ### Choosing the calibration method
 
@@ -800,7 +810,7 @@ Three alternatives appear in regulatory validation docs.
 -   **Maximum Calibration Error (MCE).** Worst-case bin gap. Used as a conservative upper bound.
 -   **Hosmer-Lemeshow goodness-of-fit test.** Chi-square on deciles of predicted PD [@hosmer2013applied]. A low p-value flags miscalibration; under SR 11-7 a bank is expected to act on that signal.
 
-In practice, ECE with ten deciles plus a reliability plot is the combination you will see in most validation packages.
+In practice, ECE with ten deciles plus a reliability plot is the combination you will see in most validation packages. @sec-ch07-ece-mce-hl runs all three on the Taiwan PDs from @fig-ch07-reliability-taiwan and reports them in @tbl-ch07-ece-mce-hl.
 
 ### Base rate drift and recalibration
 
@@ -810,7 +820,7 @@ A recurring production issue is base-rate drift. Your scorecard predicts 4% defa
 2.  *Platt recalibration (cheaper than refit).* Re-learn intercept and slope on a held-out recent vintage. Defensible when the ranking is slightly compressed but still correct on ordering.
 3.  *Full refit.* When CSI on a dominant feature exceeds 0.25 or when KS drops by more than 10%. Requires full revalidation.
 
-## Ohlson's O-score
+## Ohlson's O-score {#sec-ch07-ohlson}
 
 @ohlson1980financial introduced the logit bankruptcy model that shifted corporate distress prediction off the discriminant-analysis path that @altman1968zscore (see @sec-ch06) had defined. Ohlson fitted a logistic regression on 105 bankrupt and 2058 non-bankrupt US firms over 1970-1976. The nine covariates, with Ohlson's estimated coefficients, are
 
@@ -838,11 +848,11 @@ where
 
 The one-year-ahead PD is $\Pr(\text{bankrupt}) = \sigma(\mathrm{O})$. Ohlson reported a Type I error of 12.4% at a 3.8% cutoff on his holdout. Later work reconfirmed on larger samples [@shumway2001forecasting; @campbell2008search] and extended the logit framework to multi-period hazard (@sec-ch09).
 
-The equation is presented here because it is an instructive example of how a logit with nine well-chosen ratios competes with modern ML on firm-level distress, and because many commercial credit-risk systems still use an O-score variant as a baseline. We will code @eq-oscore below on synthetic firm-year data to verify the arithmetic.
+The equation is presented here because it is an instructive example of how a logit with nine well-chosen ratios competes with modern ML on firm-level distress, and because many commercial credit-risk systems still use an O-score variant as a baseline. Below we first verify the arithmetic of @eq-oscore on a small synthetic panel, then refit the same specification on the UCI 572 Taiwanese Bankruptcy Prediction panel [@liang2016financial] (6,819 firm-years, 1999-2009) so the reader can see how Ohlson's 1980 sign pattern survives on out-of-sample public data.
 
 #### Why Ohlson matters
 
-Three things are remarkable about the O-score. First, Ohlson chose a logit specification when discriminant analysis was still the standard [@altman1968zscore]. His justification is econometric: discriminant analysis assumes multivariate normality of the covariates within each class, which financial ratios violate badly (they are fat-tailed, skewed, and mixed continuous-binary). The logit link drops that assumption and replaces it with a weaker one: that the log-odds of bankruptcy is linear in the covariates. Second, the sign pattern of @eq-oscore is the sign pattern every modern corporate-default model produces: leverage up, profitability down, liquidity down, volatility in NI up. A logit with nine ratios captures almost the entire story. Third, @shumway2001forecasting showed that Ohlson's one-year specification is biased because it treats each firm-year as independent when the same firm contributes multiple observations. The right object is a discrete-time hazard model (@sec-ch09), which can be estimated as a pooled logit with a time-varying hazard baseline. The O-score is the one-shot logit; the Shumway hazard is the panel-logit generalization.
+Three things are remarkable about the O-score. First, Ohlson chose a logit specification when discriminant analysis was still the standard [@altman1968zscore]. His justification is econometric: discriminant analysis assumes multivariate normality of the covariates within each class, which financial ratios violate badly (they are fat-tailed, skewed, and mixed continuous-binary). The logit link drops that assumption and replaces it with a weaker one: that the log-odds of bankruptcy is linear in the covariates. Second, the sign pattern of @eq-oscore is the sign pattern every modern corporate-default model produces: leverage up, profitability down, liquidity down, volatility in NI up. A logit with nine ratios captures almost the entire story. Third, @shumway2001forecasting showed that Ohlson's one-year specification is biased because it treats each firm-year as independent when the same firm contributes multiple observations. The right object is a discrete-time hazard model (@sec-ch09-shumway), which can be estimated as a pooled logit with a time-varying hazard baseline. The O-score is the one-shot logit; the Shumway hazard is the panel-logit generalization (@sec-ch09-shumway).
 
 #### Reproducing Ohlson's diagnostics
 
@@ -861,7 +871,7 @@ import warnings
 import sys
 warnings.filterwarnings("ignore")
 sys.path.insert(0, "../code")
-from creditutils import load_german_credit, load_taiwan_default, ks_statistic, gini, psi, scorecard_points, stable_sigmoid
+from creditutils import load_german_credit, load_taiwan_default, load_taiwan_bankruptcy, ks_statistic, gini, psi, scorecard_points, stable_sigmoid
 
 rng = np.random.default_rng(42)
 
@@ -977,6 +987,56 @@ print(firms[["firm", "O", "PD_1y"]].round(4).to_string(index=False))
 ```
 
 Firm `delta` (leverage above assets, negative working capital, sharp NI drop) lands with the highest PD; firm `gamma` (profitable, conservative leverage, improving NI) lands with the lowest. The arithmetic sign pattern reproduces @ohlson1980financial Table 4.
+
+#### Refitting Ohlson on UCI 572 (public data)
+
+The synthetic block above only checks that we can multiply Ohlson's coefficients by a row of ratios. The interesting question is whether the *specification* still works on data Ohlson never saw. The UCI 572 Taiwanese Bankruptcy panel ships nearly every Ohlson covariate by name, so we can map columns one-for-one and refit. The two exceptions are `INTWO` (the UCI `Net_Income_Flag` column is constant on the released file, so it carries no information and we drop it) and `CHIN` (Ohlson's earnings-change ratio requires a $t-1$ observation, but UCI 572 is a single firm-year cross-section without a usable lag). All remaining ratios in UCI 572 are min-max scaled to $[0,1]$ by the publishers [@liang2016financial], so the *magnitudes* of the refit coefficients will not match Ohlson 1980 in absolute units. The *signs* should.
+
+```{python}
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+
+bk = load_taiwan_bankruptcy()
+
+# Map UCI 572 columns to Ohlson's nine covariates.
+ohlson_map = {
+    "SIZE":  np.log1p(bk["Total_assets_to_GNP_price"]),
+    "TLTA":  bk["Debt_ratio_%"],
+    "WCTA":  bk["Working_Capital_to_Total_Assets"],
+    "CLCA":  bk["Current_Liability_to_Current_Assets"],
+    "OENEG": bk["Liability-Assets_Flag"].astype(int),
+    "NITA":  bk["Net_Income_to_Total_Assets"],
+    "FUTL":  bk["Operating_Funds_to_Liability"],
+}
+Xo = pd.DataFrame(ohlson_map)
+yo = bk["default"].to_numpy()
+
+Xo_tr, Xo_te, yo_tr, yo_te = train_test_split(
+    Xo, yo, test_size=0.3, random_state=0, stratify=yo
+)
+
+X_tr_mat = np.hstack([np.ones((len(Xo_tr), 1)), Xo_tr.to_numpy()])
+X_te_mat = np.hstack([np.ones((len(Xo_te), 1)), Xo_te.to_numpy()])
+
+ohlson_fit = sm.Logit(yo_tr, X_tr_mat).fit(disp=0)
+pred_oh = stable_sigmoid(X_te_mat @ ohlson_fit.params)
+print(f"Refit Ohlson AUC on UCI 572 hold-out : {roc_auc_score(yo_te, pred_oh):.4f}")
+
+ohlson_1980_signs = {"SIZE": -1, "TLTA": +1, "WCTA": -1, "CLCA": +1,
+                     "OENEG": -1, "NITA": -1, "FUTL": -1}
+refit = pd.DataFrame({
+    "covariate":      ["intercept"] + list(Xo.columns),
+    "coef_refit":     np.round(ohlson_fit.params, 3),
+    "p_value":        np.round(ohlson_fit.pvalues, 4),
+})
+refit["sign_refit"] = np.sign(refit["coef_refit"]).astype(int)
+refit["sign_1980"]  = (
+    [np.nan] + [ohlson_1980_signs[c] for c in Xo.columns]
+)
+print(refit.to_string(index=False))
+```
+
+The hold-out AUC sits above 0.9 with only seven covariates, in the same ballpark as the full 95-ratio classifiers @liang2016financial benchmark on this panel. Of the refit coefficients that are statistically distinguishable from zero (TLTA, WCTA, NITA, and the intercept), the sign of every one matches Ohlson's 1980 sign on US Compustat data: higher leverage pushes PD up, lower working capital pushes PD up, lower profitability pushes PD up. The two covariates whose refit sign disagrees with @ohlson1980financial (CLCA, FUTL) are not statistically significant here and so are not load-bearing for the classifier. The point of the exercise is not that one should ship Ohlson's 1980 *coefficients* on Taiwan 2009 firms (that would be coefficient transport without recalibration; see @sec-ch04-drift on PSI/CSI monitoring and @sec-ch04-oot on out-of-time validation). It is that the *feature set* @ohlson1980financial chose in 1980 still produces a usable bankruptcy logit on a different country and a different decade. Corporate-rating extensions of the Ohlson logit, including ordered-multinomial and hazard variants on rating grades, are treated in @sec-ch29.
 
 ## The standard library call
 
@@ -1094,9 +1154,9 @@ $$
 \pi(s) = (1 - p(s)) \cdot r - p(s) \cdot L.
 $$
 
-Solving $\pi(s^*) = 0$ gives the breakeven PD $p^* = r / (r + L)$, and the corresponding score is the break-even cutoff. In practice, you want positive expected profit plus a margin for model error, so the operational cutoff sits slightly above breakeven. @verbraken2014novel embed this logic inside a profit-based classifier metric, the Expected Maximum Profit (EMP), which we will revisit in the benchmarking chapter (@sec-ch16).
+Solving $\pi(s^*) = 0$ gives the breakeven PD $p^* = r / (r + L)$, and the corresponding score is the break-even cutoff. In practice, you want positive expected profit plus a margin for model error, so the operational cutoff sits slightly above breakeven. @verbraken2014novel embed this logic inside a profit-based classifier metric, the Expected Maximum Profit (EMP), derived in @sec-ch04-emp and revisited in the benchmarking chapter (@sec-ch16).
 
-Cutoff choices interact with regulatory requirements in three places. (a) Fair-lending: the cutoff must not produce disparate impact on a protected class. (b) Regulatory capital: the cutoff ties into the portfolio's PD distribution, which feeds the IRB risk-weight function. (c) CECL / IFRS 9: the cutoff implicitly defines the provisioning split between Stage 1 (performing) and Stage 2 (significant increase in credit risk), so moving the cutoff moves the allowance for credit losses. For all three reasons, cutoff changes need change-management sign-off even though the underlying scorecard is unchanged.
+Cutoff choices interact with regulatory requirements in three places. (a) Fair-lending: the cutoff must not produce disparate impact on a protected class (@sec-ch24). (b) Regulatory capital: the cutoff ties into the portfolio's PD distribution, which feeds the IRB risk-weight function (@sec-ch05-regulation). (c) CECL / IFRS 9: the cutoff implicitly defines the provisioning split between Stage 1 (performing) and Stage 2 (significant increase in credit risk), so moving the cutoff moves the allowance for credit losses; the staging rules and ECL math sit in @sec-ch35. For all three reasons, cutoff changes need change-management sign-off even though the underlying scorecard is unchanged.
 
 ## Benchmark on German + Taiwan
 
@@ -1266,7 +1326,7 @@ print(f"deploy C      : min(1-SE, OOT) = {C_deploy:.4f}  "
       "(more strongly regularized of the two)")
 ```
 
-The OOT-selected `C` is usually equal to or smaller than the 1-SE choice, because vintage shift punishes models that leaned on training-window quirks. The "take the larger $\lambda$" recipe in the prose is the conservative read: deploy the more regularized of the two.
+Because we synthesized the vintage from an already-shuffled `train_test_split`, the "OOT" block is a random subsample rather than a true time shift, and the OOT AUC (≈0.81) actually *exceeds* the CV-AUC (≈0.76) instead of dropping below it. On this German-credit run that flips the usual ordering: OOT lands on a *larger* `C` than the 1-SE rule. With genuine vintage drift, OOT typically picks an equal-or-smaller `C` than 1-SE, because time shift penalizes models that leaned on training-window quirks. The deploy rule `C = min(1-SE, OOT)` is robust either way: it takes the more strongly regularized of the two, which is the "take the larger $\lambda$" recipe in the prose.
 
 ### Calibration demo on Taiwan
 
@@ -1356,13 +1416,230 @@ print(brier_decomp.to_string(index=False))
 
 The Brier decomposition in @tbl-ch07-brier-decomposition shows where each calibration method spends its effort: Platt reduces reliability (the miscalibration term) without moving resolution much, while isotonic shaves both (it can reshape non-monotone residual patterns).
 
+### ECE, MCE, and Hosmer-Lemeshow on Taiwan {#sec-ch07-ece-mce-hl}
+
+The three regulatory-grade summaries from the *Calibration metrics beyond Brier* list reduce to a few lines on top of the same quantile binning used for the reliability diagram. ECE and MCE share the bin-gap object $\bar p_k - \bar y_k$; the Hosmer-Lemeshow $\hat C$ statistic squares and standardizes it under a binomial null and compares the result to a $\chi^2_{B-2}$ reference [@hosmer2013applied].
+
+```{python}
+#| label: tbl-ch07-ece-mce-hl
+#| tbl-cap: "ECE, MCE, and Hosmer-Lemeshow on Taiwan default for the three calibration variants. ECE and MCE use ten quantile bins. The Hosmer-Lemeshow $\\hat C$ statistic is referenced to a $\\chi^2_{B-2}$ distribution; a low p-value flags miscalibration. AUC and Brier from @fig-ch07-reliability-taiwan are reproduced for cross-reference."
+from scipy.stats import chi2
+
+def calibration_metrics(y_true, y_prob, n_bins=10):
+    """Return (ECE, MCE, HL stat, HL p-value) on quantile bins."""
+    y_true = np.asarray(y_true, dtype=float)
+    y_prob = np.asarray(y_prob, dtype=float)
+    qs = np.quantile(y_prob, np.linspace(0, 1, n_bins + 1))
+    qs[0], qs[-1] = -np.inf, np.inf
+    bins = np.digitize(y_prob, qs[1:-1], right=False)
+    n = len(y_true)
+    ece = 0.0
+    mce = 0.0
+    hl = 0.0
+    used = 0
+    for b in np.unique(bins):
+        mask = bins == b
+        nk = mask.sum()
+        if nk == 0:
+            continue
+        pk = y_prob[mask].mean()
+        ok = y_true[mask].mean()
+        gap = abs(pk - ok)
+        ece += (nk / n) * gap
+        mce = max(mce, gap)
+        # Hosmer-Lemeshow: (obs - exp)^2 / (exp * (1 - pk)), summed over bins.
+        exp_pos = nk * pk
+        denom = exp_pos * (1.0 - pk)
+        if denom > 0:
+            hl += (nk * ok - exp_pos) ** 2 / denom
+            used += 1
+    df = max(used - 2, 1)
+    p_hl = float(chi2.sf(hl, df))
+    return ece, mce, hl, p_hl, df
+
+rows = []
+for name, probs in [("uncalibrated", pd_uncal),
+                    ("Platt", pd_platt),
+                    ("isotonic", pd_iso)]:
+    ece, mce, hl, p_hl, df = calibration_metrics(y_test, probs, n_bins=10)
+    rows.append({"method": name,
+                 "AUC": round(roc_auc_score(y_test, probs), 4),
+                 "Brier": round(brier_score_loss(y_test, probs), 4),
+                 "ECE": round(ece, 4),
+                 "MCE": round(mce, 4),
+                 "HL_stat": round(hl, 2),
+                 "HL_df": df,
+                 "HL_p": round(p_hl, 4)})
+ece_table = pd.DataFrame(rows)
+print(ece_table.to_string(index=False))
+```
+
+Read the table column by column. ECE summarizes average miscalibration in the same units as PD; values under roughly 0.01 are acceptable for retail PD on a sample of this size. MCE is sensitive to a single bad bin and is the right metric when a tail miscalibration would mis-price the highest-risk segment. The Hosmer-Lemeshow p-value is the formal test; on a clean Taiwan split the uncalibrated logistic typically does not reject, and Platt and isotonic move the p-value upward by shrinking residual bin gaps. A rejecting p-value on a recalibrated model is a signal that the bin structure itself is wrong, for example because of a tied-score plateau, and that wider or rank-based bins are needed before the test can be trusted.
+
+### Beta calibration on Taiwan
+
+The @kull2017beta family is
+
+$$
+\mu(s;\, a, b, c) \;=\; \sigma\!\bigl(a \log s \,-\, b \log(1 - s) \,+\, c\bigr),
+$$
+
+which collapses to Platt when $a = b$. Fit by stacking the two log-odds-like features $\log s$ and $-\log(1 - s)$ and running a two-feature logistic regression on the calibration sample. The implementation below avoids the `betacal` external dependency and uses only `numpy` + `scikit-learn`.
+
+```{python}
+#| label: tbl-ch07-beta-calibration
+#| tbl-cap: "Beta calibration on Taiwan default. The fitted parameters $(a, b, c)$ are reported alongside held-out AUC, Brier, reliability, and resolution; compare against the Platt and isotonic rows from @tbl-ch07-brier-decomposition. $a \\approx b$ would imply Platt is sufficient; deviation from that ridge is the signature of asymmetric tail miscalibration."
+class BetaCalibrator:
+    """Three-parameter beta calibration of Kull, Silva Filho, and Flach (2017)."""
+    def __init__(self, eps=1e-12):
+        self.eps = eps
+
+    def _features(self, s):
+        s = np.clip(np.asarray(s, dtype=float), self.eps, 1 - self.eps)
+        return np.column_stack([np.log(s), -np.log(1 - s)])
+
+    def fit(self, s, y):
+        Z = self._features(s)
+        # large C => effectively unregularized two-feature MLE
+        self.lr_ = LogisticRegression(C=1e6, solver="lbfgs",
+                                      max_iter=2000).fit(Z, y)
+        self.a_, self.b_ = self.lr_.coef_[0]
+        self.c_ = float(self.lr_.intercept_[0])
+        return self
+
+    def predict_proba(self, s):
+        return self.lr_.predict_proba(self._features(s))[:, 1]
+
+# Fit on the same (train scores, train labels) pair the existing demo uses.
+pd_uncal_train = raw_lr.predict_proba(Xtr_raw)[:, 1]
+beta = BetaCalibrator().fit(pd_uncal_train, y_train)
+pd_beta = beta.predict_proba(pd_uncal)
+
+rel_b, res_b, unc_b = brier_decomposition(y_test, pd_beta)
+print(f"beta params:  a={beta.a_:+.3f}  b={beta.b_:+.3f}  c={beta.c_:+.3f}")
+print(f"beta-calib    AUC={roc_auc_score(y_test, pd_beta):.4f}"
+      f"  Brier={brier_score_loss(y_test, pd_beta):.4f}"
+      f"  reliability={rel_b:.5f}  resolution={res_b:.5f}")
+```
+
+When $a$ and $b$ come out close to one and $c$ close to zero, Platt scaling already absorbed the available correction and the beta fit collapses to the identity. Asymmetric values, for instance $a$ noticeably larger than $b$, indicate that the model over-shoots in the high-PD tail more than it does in the low-PD tail; that is the regime where beta calibration earns its keep over a pure sigmoid.
+
+### Temperature scaling on Taiwan {#sec-ch07-temperature-demo}
+
+The @guo2017calibration recipe is one line of code once the base logits are in hand: minimize validation NLL over a single positive scalar $T$, then divide every deployment-time logit by $T^*$ before applying the sigmoid. With logistic regression the base logits already come from a likelihood maximizer, so $T^*$ is expected to land near 1 on a representative sample; the value of running the fit is to produce evidence for that claim and to have a deployable T-scaler ready when the base model is later swapped for a stacked or non-logit ranker.
+
+```{python}
+#| label: fig-ch07-temperature-taiwan
+#| fig-cap: "Temperature scaling on Taiwan default. Left: training NLL as a function of $T$, with $T^*$ marked. Right: reliability diagram before and after dividing the test-set logits by $T^*$. $T^*$ near 1 confirms the base logistic regression is already well calibrated; $T^* > 1$ would indicate overconfident logits, $T^* < 1$ underconfident."
+from scipy.optimize import minimize_scalar
+
+# Base-model logits on the same train/test fold the Platt and isotonic demos used.
+logits_tr = raw_lr.decision_function(Xtr_raw)
+logits_te = raw_lr.decision_function(Xte_raw)
+
+def temp_nll(T, logits, y):
+    # Numerically stable mean Bernoulli NLL of sigmoid(logits / T).
+    z = logits / T
+    return float(np.mean(np.logaddexp(0.0, z) - y * z))
+
+opt = minimize_scalar(lambda T: temp_nll(T, logits_tr, y_train),
+                      bounds=(0.05, 20.0), method="bounded")
+T_star = float(opt.x)
+pd_temp = 1.0 / (1.0 + np.exp(-logits_te / T_star))
+
+rel_t, res_t, unc_t = brier_decomposition(y_test, pd_temp)
+print(f"T*={T_star:.4f}  "
+      f"AUC={roc_auc_score(y_test, pd_temp):.4f}  "
+      f"Brier={brier_score_loss(y_test, pd_temp):.4f}  "
+      f"reliability={rel_t:.5f}  resolution={res_t:.5f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+T_grid = np.linspace(0.5, 3.0, 60)
+nll_grid = [temp_nll(T, logits_tr, y_train) for T in T_grid]
+axes[0].plot(T_grid, nll_grid, lw=1.2)
+axes[0].axvline(T_star, color="black", lw=0.7, ls="--",
+                label=f"T*={T_star:.3f}")
+axes[0].set_xlabel("temperature T")
+axes[0].set_ylabel("training NLL")
+axes[0].set_title("Temperature objective")
+axes[0].legend()
+
+for name, probs, ls in [("uncalibrated", pd_uncal, "-"),
+                          (f"T-scaled (T={T_star:.2f})", pd_temp, "--")]:
+    px, py = reliability(y_test, probs)
+    axes[1].plot(px, py, ls, marker="o", lw=1.2, label=name)
+axes[1].plot([0, 1], [0, 1], color="black", lw=0.7)
+axes[1].set_xlabel("predicted PD (quantile-binned)")
+axes[1].set_ylabel("observed default rate")
+axes[1].set_title("Reliability after temperature scaling")
+axes[1].legend()
+plt.tight_layout()
+plt.show()
+```
+
+On Taiwan the optimizer returns $T^*$ very close to 1 and Brier nearly identical to `pd_uncal`, which is the predicted behavior: the base logits come from the same likelihood that temperature scaling re-optimizes one parameter of, so there is nothing to recover. The demo becomes useful in the stacked-model setting referenced in @sec-ch07-calibration: replace `raw_lr.decision_function` with the raw margin output of a non-logit ranker and the same six lines fit a deployable T-scaler without touching the base model.
+
+### Niculescu-Mizil and Caruana on Taiwan
+
+@niculescu2005predicting compared logistic regression, boosted trees (@sec-ch12-gbm), SVMs (@sec-ch13), random forests (@sec-ch12-bagging), and naive Bayes across eleven UCI datasets. The headline is that boosted trees and SVMs produce sigmoid-distorted scores that Platt fixes cheaply, while logistic regression on a representative sample needs no help. The block below reproduces the spirit of that comparison on Taiwan default by fitting a logistic regression and a gradient boosted classifier, then applying each calibrator and tabulating Brier reliability and resolution.
+
+```{python}
+#| label: tbl-ch07-niculescu-mizil-credit
+#| tbl-cap: "Brier reliability and resolution on Taiwan default for logistic regression vs gradient boosting, before and after Platt, isotonic, and beta calibration. Reliability is the miscalibration term (smaller is better); the calibration columns leave AUC unchanged because all three calibrators are monotone in the input score."
+from sklearn.ensemble import GradientBoostingClassifier
+
+base_models = {
+    "logistic": raw_lr,
+    "gradient boosting": GradientBoostingClassifier(
+        n_estimators=300, max_depth=3, learning_rate=0.05,
+        random_state=0).fit(Xtr_raw, y_train),
+}
+
+prob_store = {}  # (base_name, variant) -> held-out probability vector
+
+def calibrate_and_score(base, name):
+    p_train = base.predict_proba(Xtr_raw)[:, 1]
+    p_test = base.predict_proba(Xte_raw)[:, 1]
+
+    platt_b = CalibratedClassifierCV(base, method="sigmoid",
+                                     cv="prefit").fit(Xtr_raw, y_train)
+    iso_b = CalibratedClassifierCV(base, method="isotonic",
+                                   cv="prefit").fit(Xtr_raw, y_train)
+    beta_b = BetaCalibrator().fit(p_train, y_train)
+
+    variants = {
+        "uncalibrated": p_test,
+        "Platt": platt_b.predict_proba(Xte_raw)[:, 1],
+        "isotonic": iso_b.predict_proba(Xte_raw)[:, 1],
+        "beta": beta_b.predict_proba(p_test),
+    }
+    out = []
+    for variant, probs in variants.items():
+        prob_store[(name, variant)] = probs
+        rel, res, _ = brier_decomposition(y_test, probs)
+        out.append({"base": name, "calibration": variant,
+                    "AUC": round(roc_auc_score(y_test, probs), 4),
+                    "Brier": round(brier_score_loss(y_test, probs), 4),
+                    "reliability": round(rel, 5),
+                    "resolution": round(res, 5)})
+    return out
+
+nm_rows = []
+for name, model in base_models.items():
+    nm_rows.extend(calibrate_and_score(model, name))
+nm_table = pd.DataFrame(nm_rows)
+print(nm_table.to_string(index=False))
+```
+
+Two patterns from the table line up with the original Niculescu-Mizil and Caruana finding. First, the four logistic-regression rows have nearly identical Brier and reliability: the MLE is already calibrated on a representative training sample, so the calibrators have nothing to add. Second, the gradient-boosting rows show a visibly larger reliability gap in the *uncalibrated* row, and Platt closes most of it; isotonic and beta typically tie Platt on a sample this size and pull ahead only when the residual miscalibration is non-monotone or asymmetric. AUC is held constant within each base model by construction, since all three calibrators are monotone in the input score.
+
 ### Decision-tree recommendations applied to Taiwan
 
-With `pd_uncal`, `pd_platt`, and `pd_iso` already in scope from the demo above, we can encode the calibration decision tree from @fig-ch07-calibration-decision as a function and apply it to a handful of representative scenarios.
+The `prob_store` dictionary from the previous block holds the held-out probability vectors for each (base, calibrator) cell of @tbl-ch07-niculescu-mizil-credit. We encode the calibration decision tree from @fig-ch07-calibration-decision as a function and look up the resulting Brier from the right base-model column.
 
 ```{python}
 #| label: tbl-ch07-calibration-recommendations
-#| tbl-cap: "Calibration-method recommendations from @fig-ch07-calibration-decision applied to five scenarios, with held-out Brier on Taiwan default after applying the recommendation. The Brier (no calib) column is the same baseline across rows; compare it against Brier (held-out) to read off the calibrator's effect."
+#| tbl-cap: "Calibration-method recommendations from @fig-ch07-calibration-decision applied to five scenarios. *Brier (no calib)* is the uncalibrated Brier of the row's base model on Taiwan default; *Brier (held-out)* is the Brier after applying the recommended calibrator to the same base. The two LR rows and the three tree-ensemble rows therefore have different baselines."
 def pick_calibrator(base_model, representative_sample,
                     n_calib, sshape_after_platt):
     if base_model != "logistic":
@@ -1393,32 +1670,30 @@ scenarios = [
          n_calib=20000, sshape_after_platt=False),
 ]
 
-base_brier = brier_score_loss(y_test, pd_uncal)
+base_name_for = {"logistic": "logistic", "tree": "gradient boosting"}
+rec_to_variant = {"Platt": "Platt", "Isotonic": "isotonic", "Beta": "beta"}
 
-def brier_for(rec):
-    if rec in ("No calibration",) or rec.startswith("King-Zeng"):
-        return base_brier
-    if rec == "Platt":
-        return brier_score_loss(y_test, pd_platt)
-    if rec == "Isotonic":
-        return brier_score_loss(y_test, pd_iso)
-    if rec == "Beta":
-        # No native sklearn impl in this demo; Platt is the practical fallback.
-        return brier_score_loss(y_test, pd_platt)
-    return float("nan")
+def brier_for(rec, base_model):
+    base_name = base_name_for[base_model]
+    if rec == "No calibration" or rec.startswith("King-Zeng"):
+        probs = prob_store[(base_name, "uncalibrated")]
+    else:
+        probs = prob_store[(base_name, rec_to_variant[rec])]
+    return brier_score_loss(y_test, probs)
 
 rows = []
 for s in scenarios:
     rec = pick_calibrator(s["base_model"], s["representative_sample"],
                           s["n_calib"], s["sshape_after_platt"])
+    base_uncal = prob_store[(base_name_for[s["base_model"]], "uncalibrated")]
     rows.append({"scenario": s["name"], "recommendation": rec,
-                 "Brier (held-out)": round(brier_for(rec), 4),
-                 "Brier (no calib)": round(base_brier, 4)})
+                 "Brier (held-out)": round(brier_for(rec, s["base_model"]), 4),
+                 "Brier (no calib)": round(brier_score_loss(y_test, base_uncal), 4)})
 calib_recs = pd.DataFrame(rows)
 print(calib_recs.to_string(index=False))
 ```
 
-Two patterns are visible. First, the "Big retail LR" row recommends *no calibration* and lands at the same Brier as the uncalibrated model by construction; this is the regime where Platt would change essentially nothing. Second, the "Tree ensemble" rows recommend Platt or isotonic, and on Taiwan both move Brier in the right direction (compare *Brier (held-out)* against *Brier (no calib)*); the small-calibration-set row falls back to Platt, which is the safer choice when isotonic would over-fit. The function and table together turn the verbal decision tree into an auditable artifact, which is what an SR 11-7 validator will ask for.
+Three patterns are visible. First, the "Big retail LR" and "Stratified bad-oversample LR" rows take the *no calibration* and *King-Zeng intercept* branches respectively and land at the LR base Brier (`0.146`) by construction; King-Zeng is an intercept-only shift, so it leaves Brier unchanged on a held-out sample drawn from the same population. Second, the gradient-boosting baseline on Taiwan is already at `0.135`, lower than LR; with default rate \~22% and 300 shallow trees, the boosted ensemble does not show the textbook S-shape that Platt was designed to fix. The three tree-ensemble rows therefore land within `±0.001` of the GBM baseline: Platt and beta hold Brier nearly flat, and isotonic is a hair worse here because it spends degrees of freedom fitting bin-level noise. The point of the table is *not* that calibration always helps but that the decision tree picks the lowest-risk calibrator for each regime; the empirical effect on any one dataset depends on whether the base model is already calibrated. This is the auditable artifact an SR 11-7 validator will ask for.
 
 ## Scalability
 
@@ -1532,6 +1807,8 @@ This is what teams reach for when running behavioral scorecards across multi-yea
 
 ## Deployment
 
+The MLOps stack (FastAPI service contracts, container images, ONNX runtimes, MLflow registries, CI / shadow-deploy patterns) gets a full treatment in @sec-ch34. The blocks below cover only the scorecard-specific glue: serializing the artifact, exposing a thin scoring endpoint, and confirming numerical equivalence under ONNX export.
+
 ### Persist the scorecard
 
 ```{python}
@@ -1625,13 +1902,13 @@ with mlflow.start_run(run_name="taiwan_scorecard_v1") as run:
 shutil.rmtree(mlruns_dir, ignore_errors=True)
 ```
 
-Every production scorecard should be MLflow-logged with the hyperparameters, metric suite (AUC, KS, Brier, PSI, approval/bad rates), training data signature, and the artifact itself. SR 11-7 expects you to reproduce the fit from logged artifacts on demand.
+Every production scorecard should be MLflow-logged with the hyperparameters, metric suite (AUC, KS, Brier, PSI, approval/bad rates), training data signature, and the artifact itself. SR 11-7 (@sec-sr117) expects you to reproduce the fit from logged artifacts on demand; @sec-ch34 covers the registry-plus-CI workflow that operationalizes that requirement.
 
 ## Operational deployment
 
 ### Reason codes
 
-Regulation B (ECOA) and FCRA require that a denied applicant be told, in concrete terms, why. The standard scorecard approach is: for each applicant, rank feature bins by points below the approved-population average for that feature; return the top-k features. The FastAPI skeleton above does this by comparing each applicant's bin points against the table of bin points.
+Regulation B (ECOA) and FCRA require that a denied applicant be told, in concrete terms, why; the legal text and the four-reason rule are walked through in @sec-adverse-action, with the broader ECOA and FCRA framing in @sec-ch05-ecoa and @sec-ch05-fcra. The standard scorecard approach is: for each applicant, rank feature bins by points below the approved-population average for that feature; return the top-k features. The FastAPI skeleton above does this by comparing each applicant's bin points against the table of bin points.
 
 ```{python}
 # demo: reason codes for five random declined applicants
@@ -1664,7 +1941,7 @@ for i in range(len(declined)):
 
 ### Monotonic constraints
 
-Regulatory and policy teams require that certain features be monotone: higher utilization should never *lower* PD, and older delinquencies should never *raise* it. Two mechanisms enforce this.
+Regulatory and policy teams require that certain features be monotone: higher utilization should never *lower* PD, and older delinquencies should never *raise* it. Two mechanisms enforce this; tree-ensemble equivalents are derived in @sec-ch11-monotonic.
 
 1.  **Monotonic binning.** Optimal binning solves its mixed-integer program with a monotone event-rate constraint per feature. Then the learned WoE values are automatically monotone in the feature. This is the preferred approach because it is visible in the scorecard table and auditable.
 2.  **Sign-constrained logistic regression.** Fit a penalized LR with coefficient sign constraints imposed via convex optimization (`cvxpy`) or a projected gradient step. This is the fallback when a feature must enter raw.
@@ -1683,10 +1960,10 @@ Here `monotonic_trend="ascending"` forces event rate to rise with PAY_0 (later p
 
 ### Model monitoring pillars
 
-Three quantities must be tracked at production cadence (daily for application scorecards, monthly for behavioral):
+Three quantities must be tracked at production cadence (daily for application scorecards, monthly for behavioral; behavioral scoring itself is treated in @sec-ch32):
 
-1.  **Population Stability Index (PSI) on score**, flagged above 0.1, escalated above 0.25.
-2.  **Characteristic Stability Index (CSI)** per feature, for root-cause on any PSI alert.
+1.  **Population Stability Index (PSI) on score** (@sec-ch04-psi), flagged above 0.1, escalated above 0.25.
+2.  **Characteristic Stability Index (CSI)** per feature (@sec-ch04-csi), for root-cause on any PSI alert.
 3.  **Bad rate backtesting by score band**, with confidence intervals.
 
 The `creditutils.psi` helper computes the score-level PSI; we will compute CSI below.
@@ -1695,7 +1972,7 @@ The `creditutils.psi` helper computes the score-level PSI; we will compute CSI b
 
 ### PSI, characteristic stability, and recalibration cadence
 
-The Population Stability Index measures how the score distribution has shifted between a baseline window (training) and a current window (production):
+The Population Stability Index measures how the score distribution has shifted between a baseline window (training) and a current window (production); a fuller treatment with derivation, sampling distribution, and worked thresholds sits in @sec-ch04-psi:
 
 $$
 \mathrm{PSI} = \sum_{b=1}^{B} (A_b - E_b) \log(A_b / E_b)
@@ -1743,24 +2020,24 @@ A defensible cadence is: recalibrate quarterly on rolling 12-month data, refit a
 
 ### SR 11-7: Model Risk Management
 
-@sr117 and @occ2021model define three lines of defense. Scorecards sit inside the first line (development), are validated by the second (model risk), and audited by the third. The chapter's deliverables map onto SR 11-7 as follows.
+@sr117 and @occ2021model define three lines of defense; the supervisory letter and OCC bulletin are walked through in @sec-sr117. Scorecards sit inside the first line (development), are validated by the second (model risk), and audited by the third. The chapter's deliverables map onto SR 11-7 as follows.
 
--   **Conceptual soundness.** The derivation in 7.1 and 7.2 is the text you cite when asked "why logistic regression here." Monotonic WoE binning is the concrete control on feature behavior.
+-   **Conceptual soundness.** The derivation in @sec-ch07-scorecard and @sec-ch07-scaling is the text you cite when asked "why logistic regression here." Monotonic WoE binning is the concrete control on feature behavior.
 -   **Data and design.** MLflow logs capture the training data signature. PSI and CSI are the ongoing data-quality signals.
 -   **Process verification.** The IRLS-vs-statsmodels check confirms the solver is correct. The ONNX round-trip confirms the deployed artifact is the trained artifact.
 -   **Outcome analysis.** Holdout AUC/KS/Brier, reliability diagram, and back-testing at the score-band level.
 
 ### ECOA / FCRA
 
-Reason codes are mandatory for adverse actions [@hoffman1983interpretation]. The scorecard's additive form makes this trivial: the feature contributing the lowest points is the top reason. Disparate-impact analysis is required under the effects test; @sec-ch24 walks through the audit. A scorecard that passes disparate-treatment review but fails disparate-impact review needs redesign, not a wrapper.
+Reason codes are mandatory for adverse actions [@hoffman1983interpretation]; mechanics in @sec-adverse-action, statutory framing in @sec-ch05-ecoa and @sec-ch05-fcra. The scorecard's additive form makes this trivial: the feature contributing the lowest points is the top reason. Disparate-impact analysis is required under the effects test; @sec-ch24 walks through the audit. A scorecard that passes disparate-treatment review but fails disparate-impact review needs redesign, not a wrapper.
 
 ### Basel II / III IRB
 
-@basel2006international, @basel2005irb, and @basel2017finalising lay out IRB expectations. A PD model used for regulatory capital must be pointed at a 12-month outcome window, ranked into pools, and validated annually. Logistic regression scorecards are the most common IRB PD model [@eba2017gl; @eba2022irb], and the points system in 7.2 is typically translated into rating grades by binning the score into master-scale bands.
+@basel2006international, @basel2005irb, and @basel2017finalising lay out IRB expectations; the ASRF capital formula and PD/LGD/EAD definitions are derived in @sec-ch05-regulation. A PD model used for regulatory capital must be pointed at a 12-month outcome window, ranked into pools, and validated annually. Logistic regression scorecards are the most common IRB PD model [@eba2017gl; @eba2022irb], and the points system in @sec-ch07-scaling is typically translated into rating grades by binning the score into master-scale bands.
 
 ### GDPR Article 22 and the EU AI Act
 
-Article 22 of GDPR entitles the data subject to an explanation of an automated decision. Reason codes satisfy the right to explanation in practice. The EU AI Act classifies credit-scoring as high-risk and imposes documentation and human-oversight requirements. Scorecards are naturally auditable, which is one reason banks in the EU are reluctant to replace them wholesale with black-box ensembles.
+Article 22 of GDPR entitles the data subject to an explanation of an automated decision (@sec-ch05-gdpr). Reason codes satisfy the right to explanation in practice. The EU AI Act classifies credit-scoring as high-risk and imposes documentation and human-oversight requirements (@sec-ch05-euaia). Scorecards are naturally auditable, which is one reason banks in the EU are reluctant to replace them wholesale with black-box ensembles.
 
 ### Fair-lending guardrails
 
@@ -1782,7 +2059,7 @@ Default-rate drift and target definition. The Circular 11 default definition agg
 
 ### Rationalization
 
-Scorecards fit Vietnamese retail credit well. The regulatory environment rewards auditability. SBV on-site teams understand a coefficient table. Reason codes, which Decree 13/2023 pushes toward under its automated-processing language, fall out of a scorecard for free. The method fits less well when the portfolio is dominated by heavy alternative data streams (transaction text, device fingerprints) that are not easily binned; in that regime, a stacked model with a logistic scorecard on core features plus a gradient-boosted residual on alternative data is a realistic compromise, as long as both components are documented for SBV. The scorecard also underperforms on super-thin-file segments where there is no variation to bin; @bjorkegren2020behavior gives the benchmark for alternative-data PD models in adjacent markets.
+Scorecards fit Vietnamese retail credit well. The regulatory environment rewards auditability. SBV on-site teams understand a coefficient table. Reason codes, which Decree 13/2023 pushes toward under its automated-processing language, fall out of a scorecard for free. The method fits less well when the portfolio is dominated by heavy alternative data streams (transaction text, device fingerprints) that are not easily binned; in that regime, a stacked model with a logistic scorecard on core features plus a gradient-boosted residual (@sec-ch12-gbm) on alternative data is a realistic compromise, with the meta-learner choice analyzed in @sec-ch12-stacking, as long as both components are documented for SBV. The scorecard also underperforms on super-thin-file segments where there is no variation to bin; @bjorkegren2020behavior gives the benchmark for alternative-data PD models in adjacent markets.
 
 ### Practical notes
 
@@ -1795,7 +2072,7 @@ Operational cadence. A Vietnamese retail scorecard should be revalidated at leas
 ## Takeaways
 
 -   A scorecard is a logistic regression on WoE-encoded features plus an affine scaling that turns log-odds into integer points. Both pieces have closed-form math and should be understood end to end.
--   IRLS is the right solver to know by hand. The four-line derivation in 7.1 is enough to implement logistic regression from scratch in NumPy and to verify any production library.
+-   IRLS is the right solver to know by hand. The four-line derivation in @sec-ch07-scorecard is enough to implement logistic regression from scratch in NumPy and to verify any production library.
 -   Points per bin are $-B \beta_j \mathrm{WoE}_{jk}$ plus an intercept share. That formula is the contract between modelers and policy analysts.
 -   Regularization helps three times: stability under quasi-separation, lower variance under correlated features, and better out-of-time transfer. L2 is safe; L1 is for feature selection; elastic net handles correlated behaviorals.
 -   Calibration matters as much as discrimination for pricing and capital. Platt and isotonic are mechanical corrections; the reliability diagram is the test.
