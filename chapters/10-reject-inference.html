@@ -1163,7 +1163,7 @@ Q(\beta \mid \beta^{(t)}) = \sum_i \Big[ q_i^{(t)} \log p(1 \mid X_i; \beta) + (
 <section id="implementation-from-scratch" class="level2" data-number="10.9">
 <h2 data-number="10.9" class="anchored" data-anchor-id="implementation-from-scratch"><span class="header-section-number">10.9</span> Implementation from scratch</h2>
 <p>The code below generates a synthetic through-the-door population with a known selection rule and a known default model. We run a naive fit, a Heckman two-step, fuzzy augmentation, self-training via <code>sklearn</code>, and an empirical demonstration of the impossibility result. All seeds are fixed and every code block is deterministic.</p>
-<div id="bb10e413" class="cell" data-execution_count="1">
+<div id="65e85b65" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1185,7 +1185,7 @@ Q(\beta \mid \beta^{(t)}) = \sum_i \Big[ q_i^{(t)} \log p(1 \mid X_i; \beta) + (
 <section id="simulating-a-biased-acceptance-environment" class="level3" data-number="10.9.1">
 <h3 data-number="10.9.1" class="anchored" data-anchor-id="simulating-a-biased-acceptance-environment"><span class="header-section-number">10.9.1</span> Simulating a biased acceptance environment</h3>
 <p>The simulation follows <a href="#eq-latent-default" class="quarto-xref">Eq.&nbsp;<span>10.3</span></a> and <a href="#eq-latent-selection" class="quarto-xref">Eq.&nbsp;<span>10.4</span></a>. We draw <span class="math inline">\(n = 20,000\)</span> applicants with three covariates. Two of them (<span class="math inline">\(X_1\)</span>, <span class="math inline">\(X_2\)</span>) enter both the default and selection equations; the third (<span class="math inline">\(Z\)</span>) enters selection only and plays the role of the exclusion restriction. The joint error is bivariate normal with correlation <span class="math inline">\(\rho = 0.6\)</span>. We set the coefficients so that the accept rate is near 55 percent and the through-the-door default rate is near 30 percent. Those numbers mimic a mid-risk unsecured product.</p>
-<div id="53031bfa" class="cell" data-execution_count="2">
+<div id="0665f762" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">20_000</span></span>
@@ -1223,7 +1223,7 @@ Default rate among rejected (oracle): 0.366</code></pre>
 <section id="the-naive-mle-and-the-oracle" class="level3" data-number="10.9.2">
 <h3 data-number="10.9.2" class="anchored" data-anchor-id="the-naive-mle-and-the-oracle"><span class="header-section-number">10.9.2</span> The naive MLE and the oracle</h3>
 <p>We fit a probit on the accepted sample and compare to the oracle fit that uses the full through-the-door labels (available only because this is a simulation). The gap between the two is the bias that a reject inference method must close.</p>
-<div id="705090ca" class="cell" data-execution_count="3">
+<div id="d2145669" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>X_out <span class="op">=</span> np.column_stack([np.ones(n), X1, X2])</span>
@@ -1251,7 +1251,7 @@ X2          0.7   0.695  0.886</code></pre>
 <section id="heckman-two-step" class="level3" data-number="10.9.3">
 <h3 data-number="10.9.3" class="anchored" data-anchor-id="heckman-two-step"><span class="header-section-number">10.9.3</span> Heckman two-step</h3>
 <p>We implement the two-step estimator exactly as in <a href="#sec-ch10-bureau-extrapolation" class="quarto-xref"><span>Section 10.4</span></a>. Stage 1 is a probit of <span class="math inline">\(S\)</span> on <span class="math inline">\((X_1, X_2, Z)\)</span> on the full applicant sample. Stage 2 is a probit of <span class="math inline">\(Y\)</span> on <span class="math inline">\((X_1, X_2, \hat \lambda)\)</span> on the accepted sample, where <span class="math inline">\(\hat \lambda\)</span> is the inverse Mills ratio from stage 1.</p>
-<div id="936173bc" class="cell" data-execution_count="4">
+<div id="4005ec96" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>W <span class="op">=</span> np.column_stack([np.ones(n), X1, X2, Z])</span>
@@ -1294,7 +1294,7 @@ imr_coef                0.6    0.656</code></pre>
 <section id="a-from-scratch-imr-computation" class="level3" data-number="10.9.4">
 <h3 data-number="10.9.4" class="anchored" data-anchor-id="a-from-scratch-imr-computation"><span class="header-section-number">10.9.4</span> A from-scratch IMR computation</h3>
 <p>For pedagogical clarity, reimplement the IMR without <code>scipy.stats</code>. The expression <span class="math inline">\(\phi(a)/\Phi(a)\)</span> is numerically unstable for large negative <span class="math inline">\(a\)</span> (both <span class="math inline">\(\phi\)</span> and <span class="math inline">\(\Phi\)</span> underflow). A stable form uses the scaled complementary error function.</p>
-<div id="448302b2" class="cell" data-execution_count="5">
+<div id="c0854e31" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy.special <span class="im">import</span> erfcx</span>
@@ -1326,7 +1326,7 @@ imr_coef                0.6    0.656</code></pre>
 <section id="parceling-and-fuzzy-augmentation" class="level3" data-number="10.9.5">
 <h3 data-number="10.9.5" class="anchored" data-anchor-id="parceling-and-fuzzy-augmentation"><span class="header-section-number">10.9.5</span> Parceling and fuzzy augmentation</h3>
 <p>The fuzzy augmentation procedure follows <a href="#eq-fuzzy-augmentation" class="quarto-xref">Eq.&nbsp;<span>10.6</span></a>. Fit an accepted-only PD, score the rejects, scale their PD by <span class="math inline">\(\tau\)</span>, and refit a weighted logistic with fractional labels. We report two values of <span class="math inline">\(\tau\)</span>: the MAR baseline (<span class="math inline">\(\tau = 1\)</span>) and a moderate industry value (<span class="math inline">\(\tau = 2\)</span>).</p>
-<div id="09b5860b" class="cell" data-execution_count="6">
+<div id="ce56df0e" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fit_fuzzy_augmentation(X, y, s, tau<span class="op">=</span><span class="fl">1.0</span>):</span>
@@ -1378,7 +1378,7 @@ X2          1.206  1.567       1.568       2.047</code></pre>
 <section id="self-training-via-sklearn" class="level3" data-number="10.9.6">
 <h3 data-number="10.9.6" class="anchored" data-anchor-id="self-training-via-sklearn"><span class="header-section-number">10.9.6</span> Self-training via sklearn</h3>
 <p><code>SelfTrainingClassifier</code> wraps any scikit-learn estimator with a probability interface. We label the accepted observations with their observed <span class="math inline">\(Y\)</span> and mark the rejected observations as unlabeled (the sklearn convention is <span class="math inline">\(-1\)</span>).</p>
-<div id="b7d34f38" class="cell" data-execution_count="7">
+<div id="0e060e5e" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>labels <span class="op">=</span> np.where(s <span class="op">==</span> <span class="dv">1</span>, y, <span class="op">-</span><span class="dv">1</span>)</span>
@@ -1411,7 +1411,7 @@ Pseudo-labels added by self-training: 5034</code></pre>
 <section id="an-em-implementation-of-self-training" class="level3" data-number="10.9.7">
 <h3 data-number="10.9.7" class="anchored" data-anchor-id="an-em-implementation-of-self-training"><span class="header-section-number">10.9.7</span> An EM implementation of self-training</h3>
 <p>We also code the EM version of self-training by hand to expose the mechanics of <a href="#eq-em-estep" class="quarto-xref">Eq.&nbsp;<span>10.19</span></a> and <a href="#eq-em-mstep" class="quarto-xref">Eq.&nbsp;<span>10.20</span></a>. The objective is the incomplete-data log-likelihood. The E-step assigns soft pseudo-labels <span class="math inline">\(q_i^{(t)}\)</span> to the rejected observations. The M-step refits a weighted logistic.</p>
-<div id="2f438fc0" class="cell" data-execution_count="8">
+<div id="52067429" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> em_reject_inference(X, y, s, n_iter<span class="op">=</span><span class="dv">30</span>, tol<span class="op">=</span><span class="fl">1e-5</span>):</span>
@@ -1461,7 +1461,7 @@ X2          1.206  1.567  1.569</code></pre>
 <section id="comparing-recovered-pd-curves" class="level3" data-number="10.9.8">
 <h3 data-number="10.9.8" class="anchored" data-anchor-id="comparing-recovered-pd-curves"><span class="header-section-number">10.9.8</span> Comparing recovered PD curves</h3>
 <p>A scalar coefficient table understates the differences between estimators because PD curves can disagree most in specific regions of score. We plot the recovered curves against the oracle along a univariate slice (<span class="math inline">\(X_1\)</span> varying, <span class="math inline">\(X_2 = 0\)</span>).</p>
-<div id="b5302ae1" class="cell" data-execution_count="9">
+<div id="f8f17259" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
@@ -1513,7 +1513,7 @@ X2          1.206  1.567  1.569</code></pre>
 <section id="an-empirical-impossibility-result" class="level3" data-number="10.9.9">
 <h3 data-number="10.9.9" class="anchored" data-anchor-id="an-empirical-impossibility-result"><span class="header-section-number">10.9.9</span> An empirical impossibility result</h3>
 <p>To demonstrate <a href="#eq-f-of-f" class="quarto-xref">Eq.&nbsp;<span>10.16</span></a> directly, we construct two data generating processes with identical <span class="math inline">\(P(Y \mid X, S=1)\)</span> and different <span class="math inline">\(P(Y \mid X, S=0)\)</span>, then show that every reject inference method that uses only the observed data fits them identically.</p>
-<div id="9f6e29ca" class="cell" data-execution_count="10">
+<div id="5d30baad" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>rng2 <span class="op">=</span> np.random.default_rng(<span class="dv">777</span>)</span>
@@ -1558,7 +1558,7 @@ True rejected default rate B: 0.496</code></pre>
 </section>
 <section id="visualizing-the-impossibility" class="level3" data-number="10.9.10">
 <h3 data-number="10.9.10" class="anchored" data-anchor-id="visualizing-the-impossibility"><span class="header-section-number">10.9.10</span> Visualizing the impossibility</h3>
-<div id="abfd6e7b" class="cell" data-execution_count="11">
+<div id="8fbb8c88" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">200</span>)</span>
@@ -1595,7 +1595,7 @@ True rejected default rate B: 0.496</code></pre>
 <section id="benchmark-on-real-data" class="level2" data-number="10.10">
 <h2 data-number="10.10" class="anchored" data-anchor-id="benchmark-on-real-data"><span class="header-section-number">10.10</span> Benchmark on real data</h2>
 <p>We use the UCI Taiwan default dataset (<code>load_taiwan_default</code>) to stage a reject inference benchmark. The dataset has no acceptance structure; every observation has an observed outcome. We simulate an acceptance policy by fitting a logistic model on a small fraction of the data and using that model’s predicted probability to define a score cutoff. Everyone below the cutoff is treated as “rejected” (their labels are held out); everyone above is treated as “accepted” (labels retained). This lets us run the full reject-inference toolbox and compare back to the oracle that uses all labels.</p>
-<div id="0c8c0bf6" class="cell" data-execution_count="12">
+<div id="9f5e448c" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default, train_valid_test_split, ks_statistic, gini</span>
@@ -1639,7 +1639,7 @@ Default rate among rejected (oracle): 0.179</code></pre>
 <section id="fitting-and-comparing-reject-inference-estimators" class="level3" data-number="10.10.1">
 <h3 data-number="10.10.1" class="anchored" data-anchor-id="fitting-and-comparing-reject-inference-estimators"><span class="header-section-number">10.10.1</span> Fitting and comparing reject inference estimators</h3>
 <p>We fit the naive, Heckman, fuzzy (<span class="math inline">\(\tau = 2\)</span>), self-training, and EM estimators, then evaluate all of them on the full held-out sample with the oracle labels. The goal is to see which method’s through-the-door PD is closest to the oracle.</p>
-<div id="5499ca80" class="cell" data-execution_count="13">
+<div id="ec0cc6c3" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Split 70 / 30 for train / test. Train on selected subset; test uses full.</span></span>
@@ -1728,7 +1728,7 @@ em         0.7127  0.3916  0.1439   0.2296</code></pre>
 <section id="calibration-by-score-band" class="level3" data-number="10.10.2">
 <h3 data-number="10.10.2" class="anchored" data-anchor-id="calibration-by-score-band"><span class="header-section-number">10.10.2</span> Calibration by score band</h3>
 <p>The rank-order versus calibration distinction deserves its own diagnostic. We bucket each method’s scores into deciles on the test set and compare average predicted PD to observed default rate per decile.</p>
-<div id="ebdde0fb" class="cell" data-execution_count="14">
+<div id="74e8d782" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> calibration_table(p, y, n_bins<span class="op">=</span><span class="dv">10</span>):</span>
@@ -1786,7 +1786,7 @@ em         0.7127  0.3916  0.1439   0.2296</code></pre>
 <section id="polars-for-feature-assembly" class="level3" data-number="10.11.2">
 <h3 data-number="10.11.2" class="anchored" data-anchor-id="polars-for-feature-assembly"><span class="header-section-number">10.11.2</span> Polars for feature assembly</h3>
 <p>A typical production reject inference pipeline joins the applicant snapshot to the bureau snapshot at application time and the bureau snapshot 18 or 24 months later. That is three large joins on applicant ID, followed by a filter on the performance window. Polars does this faster than pandas by roughly 4 to 10 times on mid-size data (10 to 100 million rows), and the lazy-frame API composes well with a <code>select</code>-project-at-the-end pipeline that avoids materializing intermediate data.</p>
-<div id="2b2f9641" class="cell" data-execution_count="15">
+<div id="f89a4290" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> polars <span class="im">as</span> pl</span>
@@ -1827,7 +1827,7 @@ em         0.7127  0.3916  0.1439   0.2296</code></pre>
 <section id="fastapi-wrapper" class="level3" data-number="10.12.1">
 <h3 data-number="10.12.1" class="anchored" data-anchor-id="fastapi-wrapper"><span class="header-section-number">10.12.1</span> FastAPI wrapper</h3>
 <p>A reject-inference-corrected PD model deploys exactly like any other PD model; the reject inference was a training-time concern. The deployment wrapper has to expose both the raw score (for monitoring against future applicants) and the MNAR-adjusted score (for policy). Downstream consumers, especially pricing engines and loss forecasting, should be aware of which is which.</p>
-<div id="3f1007ad" class="cell" data-execution_count="16">
+<div id="a06cd6a7" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># This block is illustrative only. It builds the artifacts a FastAPI</span></span>
@@ -1924,7 +1924,7 @@ def score(inp: ApplicantFeatures):
 </section>
 <section id="practical-notes" class="level3" data-number="10.14.4">
 <h3 data-number="10.14.4" class="anchored" data-anchor-id="practical-notes"><span class="header-section-number">10.14.4</span> Practical notes</h3>
-<p>Datasets. CIC trade-line lookups for booked-and-declined cohorts, internal application tables keyed on national ID, and FiinGroup consumer panels. For pedagogy, the Taiwan default dataset <span class="citation" data-cites="yeh2009comparisons">(<a href="11-trees-rules.html#ref-yeh2009comparisons" role="doc-biblioref">Yeh &amp; Lien, 2009</a>)</span> plus a synthetic decline overlay reproduces the qualitative pattern.</p>
+<p>Datasets. CIC trade-line lookups for booked-and-declined cohorts, internal application tables keyed on national ID, and DataCore consumer panels. For pedagogy, the Taiwan default dataset <span class="citation" data-cites="yeh2009comparisons">(<a href="11-trees-rules.html#ref-yeh2009comparisons" role="doc-biblioref">Yeh &amp; Lien, 2009</a>)</span> plus a synthetic decline overlay reproduces the qualitative pattern.</p>
 <p>Regulator touchpoints. SBV inspections under Circular 11/2021 expect a written reject-inference methodology in the model development document. Decree 13/2023 filings should name the decline-data retention period, the legal basis, and the reject-inference use explicitly. IRB-aspirant banks should expect SBV to benchmark the reject-inference-adjusted PD against the CIC supervisory score on the through-the-door applicant population.</p>
 <p>Governance cadence. Reject inference is one of the few modeling areas where the validation team’s written challenge is routinely more valuable than the model developer’s output, because the identifying assumption (exclusion restriction, MAR, bureau coverage) is the load-bearing piece. Vietnamese validation units should require a sensitivity table that reports the adjusted PD under at least three reject inference methods and a conservative margin that reflects the spread between them. ADB and IFC work on SME credit in Vietnam makes clear that decline rates move with policy cycles, and a reject-inference model fit on a single vintage should be refit after any material overlay change <span class="citation" data-cites="ifc2019vnmsme adb2022vnfin">(<a href="11-trees-rules.html#ref-adb2022vnfin" role="doc-biblioref">Asian Development Bank, 2022</a>; <a href="11-trees-rules.html#ref-ifc2019vnmsme" role="doc-biblioref">International Finance Corporation, 2019</a>)</span>. The Fintech Regulatory Sandbox under Decree 94/2025/ND-CP is the appropriate venue to trial reject-inference methods that rely on alternative-data labels from telco or e-wallet partners, because both the data-sharing arrangement and the lawful basis under Decree 13/2023 need supervisory comfort before production deployment <span class="citation" data-cites="sbv2023vietnam govvn2023decree13">(<a href="11-trees-rules.html#ref-govvn2023decree13" role="doc-biblioref">Government of Vietnam, 2023</a>; <a href="11-trees-rules.html#ref-sbv2023vietnam" role="doc-biblioref">State Bank of Vietnam, 2024</a>)</span>.</p>
 </section>
@@ -3526,7 +3526,7 @@ Zhu, X., &amp; Goldberg, A. B. (2009). Introduction to semi-supervised learning.
 <span id="cb31-1014"><a href="#cb31-1014" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb31-1015"><a href="#cb31-1015" aria-hidden="true" tabindex="-1"></a><span class="fu">### Practical notes</span></span>
 <span id="cb31-1016"><a href="#cb31-1016" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb31-1017"><a href="#cb31-1017" aria-hidden="true" tabindex="-1"></a>Datasets. CIC trade-line lookups for booked-and-declined cohorts, internal application tables keyed on national ID, and FiinGroup consumer panels. For pedagogy, the Taiwan default dataset <span class="co">[</span><span class="ot">@yeh2009comparisons</span><span class="co">]</span> plus a synthetic decline overlay reproduces the qualitative pattern.</span>
+<span id="cb31-1017"><a href="#cb31-1017" aria-hidden="true" tabindex="-1"></a>Datasets. CIC trade-line lookups for booked-and-declined cohorts, internal application tables keyed on national ID, and DataCore consumer panels. For pedagogy, the Taiwan default dataset <span class="co">[</span><span class="ot">@yeh2009comparisons</span><span class="co">]</span> plus a synthetic decline overlay reproduces the qualitative pattern.</span>
 <span id="cb31-1018"><a href="#cb31-1018" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb31-1019"><a href="#cb31-1019" aria-hidden="true" tabindex="-1"></a>Regulator touchpoints. SBV inspections under Circular 11/2021 expect a written reject-inference methodology in the model development document. Decree 13/2023 filings should name the decline-data retention period, the legal basis, and the reject-inference use explicitly. IRB-aspirant banks should expect SBV to benchmark the reject-inference-adjusted PD against the CIC supervisory score on the through-the-door applicant population.</span>
 <span id="cb31-1020"><a href="#cb31-1020" aria-hidden="true" tabindex="-1"></a></span>
