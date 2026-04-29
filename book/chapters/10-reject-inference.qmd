@@ -65,7 +65,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The funnel is descriptive. The substantive damage is visible on a default-rate curve. @fig-ch10-conditional-shift shows what happens when we draw the same plot using the full applicant population (which we know only because this is a simulation) and using the accepted slice (which is all a real lender ever sees).
+The funnel is descriptive. The substantive damage is visible on a default-rate curve. @fig-ch10-conditional-shift shows what happens when we draw the same plot using the full applicant population (which we know only because this is a simulation) and using the accepted slice (which is all a real lender ever sees). The three-box version of the funnel collapses several real selection layers (pre-application targeting, application self-selection, channel and KYC gates, take-up, and post-booking management) into a single accept/decline arrow; @sec-ch10-full-funnel returns to the full five-layer view and gives a separate correction for each layer.
 
 ```{python}
 #| label: fig-ch10-conditional-shift
@@ -1972,7 +1972,7 @@ The exact-propensity AIPW closes most of the gap to the oracle, and exact IPW do
 
 The operational lesson is that any fintech with a logged stochastic policy should be writing $\pi_i$ to the feature store at decision time. It costs one column and turns reject inference from a parametric correction into a weighted regression. Banks that randomize 5 percent of marginal cases have a partial but valuable variant: on the randomized slice the propensity is exact and on the deterministic slice it must still be estimated, which is the regime that justifies importance-weighted stacking.
 
-### Regression-discontinuity at a known cutoff
+### Regression-discontinuity at a known cutoff {#sec-ch10-rdd}
 
 When the engine is a deterministic threshold rule on a known score, $S = \mathbf{1}\{R > \tau\}$, the local PD is identifiable on each side of $\tau$ under the @hahn2001identification continuity assumption: $\mathbb{E}[Y \mid R = r]$ is continuous at $\tau$ except for the discontinuity introduced by selection. Just above the cutoff, we observe $Y$ on accepted applicants whose score is $\tau + \epsilon$. Just below, we observe nothing on the rejected. Under continuity, the limit from the accept side as $r \to \tau^+$ equals the through-the-door PD at $r = \tau$, the marginal applicant's PD. Extrapolating linearly across $\tau$ recovers the PD curve in a neighborhood of the threshold, with no parametric joint and no exclusion restriction.
 
@@ -2144,6 +2144,593 @@ The variance scales with the maximum density ratio. For policies far from the lo
 ### When observability changes the chapter
 
 Observability of the engine simplifies but does not eliminate reject inference. The MNAR impossibility result still applies: known propensity removes the estimation error in $\hat \pi$, but it cannot identify the conditional default distribution among rejected applicants whose score is far from the cutoff and who have zero observed bureau outcome. Observability shrinks the impossibility-result region (everything inside the random-override band is identified, everything outside is not), and it eliminates the AIPW double-robustness ambiguity (one of the two nuisances is exact). The corollary is that a bank investing in operational data quality (logging $\pi_i$, retaining override flags, recording bureau pulls on rejects) reduces the modeling burden of reject inference much more than a bank investing in better selection-correction estimators. The cleanest reject inference is the one you do not have to do.
+
+## Selection beyond underwriting: the full lender funnel {#sec-ch10-full-funnel}
+
+Every section of the chapter so far has treated one selection step: the underwriter's accept-or-decline at origination. A real consumer-lending stack runs at least four other selection steps that censor the data the modeler eventually sees, and a correction that handles only the underwriting step is still biased if any of the other steps go untreated. This section walks the full pipeline, names each layer, shows the production correction that fits each, and closes with a decision tree (@sec-ch10-decision-tree) for picking the right method given what the lender has logged.
+
+```{python}
+#| label: fig-ch10-full-funnel
+#| fig-cap: "Five layers of selection in a real consumer-lending stack. Reading left to right: a target population becomes a marketed pool through outbound campaigns and prescreens (layer 1, propensity $\\pi_M$); the marketed pool becomes an applicant pool through self-selection and abandonment (layer 2, $\\pi_A$); the applicant pool is filtered by channel, fraud, and KYC (layer 3, $\\pi_C$); the surviving applicants are accepted or declined by the underwriter and the offer is taken up or refused by the applicant (layer 4, $\\pi_U \\cdot \\pi_T$, the chapter's main subject); and the booked accounts are managed over the performance window through behavioral re-rating, line management, forbearance, and collections (layer 5, $\\pi_B(t)$). The simple three-box funnel of @fig-ch10-visibility-funnel collapses all five layers into one. A reject-inference correction that handles only layer 4 is biased by the residual selection in layers 1, 2, 3, and 5."
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+fig, ax = plt.subplots(figsize=(12.5, 5.4))
+ax.set_xlim(0, 14)
+ax.set_ylim(0, 6.5)
+ax.axis("off")
+
+stages = [
+    (0.2, 4.4, 2.0, 1.4, "#cfd8dc", "Target pop", "consumers reachable\nby the bank"),
+    (2.6, 4.6, 2.0, 1.2, "#b3e5fc", "Marketed", "uplift / prescreen /\npush / paid acq"),
+    (5.0, 4.7, 2.0, 1.0, "#81d4fa", "Applicants", "completed forms;\nself-selection"),
+    (7.4, 4.7, 2.0, 1.0, "#4fc3f7", "Underwritten", "channel, fraud, KYC,\npolicy + score"),
+    (9.8, 4.7, 2.0, 1.0, "#1976d2", "Booked", "accept + take-up;\nlimit, rate, term"),
+    (12.2, 4.7, 1.6, 1.0, "#0d47a1", "Outcome", "Y observed\nover window"),
+]
+for sx, sy, sw, sh, color, label, sub in stages:
+    rect = mpatches.FancyBboxPatch(
+        (sx, sy), sw, sh, boxstyle="round,pad=0.04",
+        facecolor=color, edgecolor="black", linewidth=1.1,
+    )
+    ax.add_patch(rect)
+    fc = "white" if color in ("#1976d2", "#0d47a1") else "black"
+    ax.text(sx + sw / 2, sy + sh * 0.65, label, ha="center", va="center",
+            fontsize=10.5, fontweight="bold", color=fc)
+    ax.text(sx + sw / 2, sy + sh * 0.28, sub, ha="center", va="center",
+            fontsize=8.2, color=fc)
+
+arrow_starts = [2.2, 4.6, 7.0, 9.4, 11.8]
+arrow_ends   = [2.6, 5.0, 7.4, 9.8, 12.2]
+labels = [r"$\pi_M$ (targeting)", r"$\pi_A$ (self-select)",
+          r"$\pi_C$ (channel/KYC)", r"$\pi_U \cdot \pi_T$ (accept + take-up)",
+          r"$\pi_B(t)$ (behavioral)"]
+for xs, xe, lab in zip(arrow_starts, arrow_ends, labels):
+    ax.annotate("", xy=(xe, 5.2), xytext=(xs, 5.2),
+                arrowprops=dict(arrowstyle="-|>", lw=1.4))
+    ax.text((xs + xe) / 2, 5.95, lab, ha="center", va="bottom", fontsize=8.5)
+
+drop_y = 2.4
+drops = [
+    (3.6, "no exposure"),
+    (6.0, "abandoned"),
+    (8.4, "fraud / KYC"),
+    (10.8, "declined or\noffer refused"),
+    (13.0, "censored:\nclosure / charge-off /\nforbearance"),
+]
+for x, lab in drops:
+    rect = mpatches.FancyBboxPatch(
+        (x - 0.85, drop_y), 1.7, 0.95, boxstyle="round,pad=0.04",
+        facecolor="#ef9a9a", edgecolor="#c62828", linewidth=1.0,
+    )
+    ax.add_patch(rect)
+    ax.text(x, drop_y + 0.47, lab, ha="center", va="center", fontsize=8.5)
+
+for xc, dx in zip([3.6, 6.0, 8.4, 10.8, 13.0], [0, 0, 0, 0, 0]):
+    ax.annotate("", xy=(xc + dx, drop_y + 0.95), xytext=(xc + dx, 4.6),
+                arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.45"))
+
+ax.text(7.0, 0.95,
+        "Underwriting (layer 4) is the chapter's main subject. The other four "
+        "layers each create their own missingness.",
+        ha="center", va="center", fontsize=10, style="italic")
+ax.text(7.0, 6.25, "The full lender funnel: five selection layers",
+        ha="center", va="center", fontsize=12.5, fontweight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+The five layers, ordered by where they sit in the pipeline, are: targeting (who gets the offer), application self-selection (who chooses to apply and who finishes the form), channel and gating (which distribution channel the applicant came through, plus KYC and fraud), underwriting plus take-up (the chapter's main subject, plus the applicant's decision to accept the offered terms), and post-booking management (behavioral re-rating, line management, forbearance, collections, charge-off policy). Each layer has its own propensity, its own data availability, and its own correction. The unifying observation is that the AIPW master template (@eq-aipw-master) applies to every layer with a different propensity and a different outcome stage; what changes from layer to layer is the data the lender has logged and the identification strategy that survives the data it has not.
+
+We now treat the layers in pipeline order. Subsections @sec-ch10-targeting through @sec-ch10-outcome-def cover layers 1, 2, 3, 4b (take-up plus override), and 5 plus the often-overlooked outcome-definition layer. @sec-ch10-stacking shows how to compose the corrections when multiple layers are active simultaneously. @sec-ch10-decision-tree compresses the choices into a flowchart.
+
+### Layer 1: Targeting and uplift {#sec-ch10-targeting}
+
+**The mechanism.** A consumer-lending stack rarely contacts every reachable consumer with the same offer. A propensity-to-respond or uplift model decides who sees a credit-card prescreen, who gets a personal-loan email, who receives a push notification on a banking app, who is shown a "you are pre-approved" tile in a budgeting app, who is targeted by a paid-acquisition campaign on a social platform. Call this the targeting layer with selection indicator $S_M$ ("marketed") and propensity $\pi_M(W) = P(S_M = 1 \mid W)$, where $W$ is the targeting feature set. $W$ is typically richer than the application feature set $X$ because it includes browsing, app-usage, and prescreen-bureau features the underwriter never sees again. The booked book is therefore a *doubly* selected slice: $S_M = 1$ and $S_U = 1$.
+
+**Why it bites.** Targeting models are trained to maximize response (or uplift in profit), not to produce a representative sample. They tilt the marketed pool toward consumers whose features predict response, and response correlates with default at every empirical lender we have seen: rate-sensitive consumers are more likely to respond and are also more likely to be cash-flow-constrained; channel-specific responders (push-notification responders on a budgeting app, for example) skew younger, thinner-file, and higher-default than the underlying customer base. The targeting propensity therefore moves both selection and the outcome.
+
+**Observability profile.** Digital channels (email, push, paid acquisition) usually log the propensity $\hat \pi_M(W_i)$ at decision time because the targeting platform writes it back to the data warehouse. Branch and dealer channels typically do not log it. Cross-sell campaigns through internal customer lists almost always log it (the campaign-management system stores the inclusion rule). Pre-approval lists from credit bureaus are an intermediate case: the bureau supplies a list with a documented score cut, but the lender does not see the bureau's underlying selection.
+
+**Identification strategies.**
+
+1.  *Logged propensity (the cleanest case).* Read $\hat \pi_M(W_i)$ from the campaign log. The estimator is exact-propensity AIPW from @sec-ch10-observable, applied at the marketing layer instead of the underwriting layer. The unit changes (now we estimate $P(Y \mid X)$ over the *target* population, not the applicant pool), but the math is the same.
+2.  *Randomized holdout (the gold standard).* Most mature direct-marketing programs reserve 1 to 5 percent of the targetable pool as a no-treatment control. The control arm is unbiased for $P(Y \mid X)$ on the target pool restricted to the underwriting stage. When this exists, the AIPW estimator anchors on the holdout and uses the marketed slice for variance reduction.
+3.  *No log, no holdout (the common case).* The marketing layer is then MNAR with no within-data identification. The correction has to come from outside: a look-alike audit (compare marketed-pool feature distribution to a representative third-party panel), a Manski bounds analysis, or a sensitivity analysis that varies the unobserved targeting bias parameter.
+
+```{python}
+#| label: targeting-layer
+# Targeting layer as exact-propensity AIPW.
+# DGP: a targeting platform exposes consumers with logged probability pi_M.
+# Default depends on X and on a latent factor that also predicts response,
+# so the marketed pool is enriched in higher-default consumers (MNAR
+# without W, MAR conditional on W).
+rng_m = np.random.default_rng(2026)
+n_pop = 20_000
+W_pop = rng_m.standard_normal((n_pop, 4))
+X_pop = np.column_stack([
+    W_pop[:, 0] + 0.3 * rng_m.standard_normal(n_pop),
+    W_pop[:, 1] + 0.3 * rng_m.standard_normal(n_pop),
+])
+
+# Targeting platform logs the response propensity
+beta_m = np.array([0.6, 0.4, -0.2, 0.5])
+pi_M_log = 1.0 / (1.0 + np.exp(-(W_pop @ beta_m)))
+S_M_pop = (rng_m.uniform(size=n_pop) < pi_M_log).astype(int)
+
+# True default depends on X plus a latent factor shared with response
+y_star_m = (-1.0 + 0.5 * X_pop[:, 0] + 0.3 * X_pop[:, 1]
+            + 0.6 * W_pop[:, 0] + rng_m.standard_normal(n_pop))
+y_pop = (y_star_m > 0).astype(int)
+
+oracle_pd  = y_pop.mean()
+naive_pd   = y_pop[S_M_pop == 1].mean()
+w_ipw      = S_M_pop / pi_M_log
+ipw_pd     = (w_ipw * y_pop).sum() / w_ipw.sum()
+
+# AIPW: fit g_hat on the marketed slice, plug in known pi_M
+from sklearn.linear_model import LogisticRegression
+g_fit = LogisticRegression(max_iter=400).fit(
+    np.column_stack([W_pop, X_pop])[S_M_pop == 1],
+    y_pop[S_M_pop == 1],
+)
+g_hat_pop = g_fit.predict_proba(np.column_stack([W_pop, X_pop]))[:, 1]
+aipw_pd = (g_hat_pop + (S_M_pop / pi_M_log)
+           * (y_pop.astype(float) - g_hat_pop)).mean()
+
+print(f"oracle through-the-target PD = {oracle_pd:.3f}")
+print(f"naive (marketed-only)       = {naive_pd:.3f}")
+print(f"IPW with logged pi_M        = {ipw_pd:.3f}")
+print(f"AIPW with logged pi_M       = {aipw_pd:.3f}")
+```
+
+The IPW and AIPW estimators recover the target-population PD; the naive marketed-only mean overstates default by roughly the response-default correlation that the targeting model induced.
+
+**Production guidance.** The cheapest operational change a lender can make at this layer is to mandate that every targeting platform writes its decision-time propensity to a single feature-store column. The column costs negligible storage and converts the marketing layer from MNAR to MAR-with-known-weights. Without it, every downstream PD model is fit on a sample whose marginal distribution is shaped by the targeting model, and the bias has no cap. Banks running cross-sell programs already have this column; the gap is usually on paid acquisition and push-notification channels where the data sits in a martech vendor's silo.
+
+**Interpretation.** When the marketing-layer correction is applied, the through-the-door population the model represents shifts from "applicants the underwriter saw" (which is what classical reject inference recovers) to "consumers the bank could reach" (which is what a CFO actually wants for portfolio sizing). Banks pricing for growth need the second; banks pricing for marginal-applicant defense need the first. Both are valid; the model documentation should name which one is being produced. Mixing the two without naming it is the root cause of the perennial "the model under-predicts on new campaigns" complaint from marketing.
+
+### Layer 2: Application self-selection and abandonment {#sec-ch10-self-selection}
+
+**The mechanism.** Receiving an offer does not mean filing a complete application. A consumer who clicks through an email starts a multi-step form, may abandon at the income page, may drop off at the document upload, may bounce after seeing the indicative APR, may finish but never submit. Call the indicator $S_A$ ("application completed") with propensity $\pi_A(W, X_{\text{partial}})$, where $X_{\text{partial}}$ is whatever the applicant entered before abandoning. The lender often retains the partial form (the analytics team almost always does) so $X_{\text{partial}}$ exists in the warehouse even when the applicant never finished.
+
+**Why it bites.** Abandonment is selection on perceived terms. The classic pattern: consumers who see an indicative rate and abandon are disproportionately rate-sensitive, and rate-sensitive consumers default at a higher rate (they are already shopping for liquidity). The applicant pool is therefore enriched in rate-insensitive consumers, who are the ones with higher reservation rates, which compresses the observed PD-to-rate slope on the booked book. The compression is exactly the @karlan2010expanding finding: lowering the offered rate brings in marginal applicants whose default rate is higher than the inframarginal pool, even at the lower rate.
+
+**Observability profile.** Web and app applications log every keystroke; abandonment is fully observable down to the form field. Branch applications log only completion. Broker applications log whatever the broker chooses to forward, which is heavily endogenous to the broker's commission structure.
+
+**Identification strategies.** This layer is closer to MAR than the underwriting layer because $X_{\text{partial}}$ is typically rich, but the rate-shown channel is a textbook MNAR violation (the applicant's reservation rate is unobserved). Two production fixes: a Heckman two-step where the indicative rate is the exclusion restriction in the abandonment equation (it shifts $S_A$ but, conditional on the booked rate, does not directly enter the default model); and AIPW with a richly-fit $\hat \pi_A$ on the partial form features, accepting MAR.
+
+```{python}
+#| label: abandonment-layer
+# Abandonment as Heckman selection with indicative rate as the IV.
+# DGP: among the marketed cohort, abandonment depends on partial features
+# plus the indicative rate. Default depends on partial features plus a
+# latent rate-sensitivity factor correlated with the abandonment error.
+rng_a = np.random.default_rng(2027)
+mask_m = (S_M_pop == 1)
+n_mk = int(mask_m.sum())
+X_part = X_pop[mask_m]
+W_part = W_pop[mask_m]
+
+Z_rate = 2.0 + 0.5 * rng_a.standard_normal(n_mk)
+rho_a = 0.5
+u_a = rng_a.standard_normal(n_mk)
+v_a = rho_a * u_a + np.sqrt(1 - rho_a**2) * rng_a.standard_normal(n_mk)
+
+linpred_a = -0.4 + 0.3 * X_part[:, 0] - 0.6 * (Z_rate - 2.0) + v_a
+S_A = (linpred_a > 0).astype(int)
+
+y_star_a = -0.7 + 0.6 * X_part[:, 0] + 0.4 * W_part[:, 0] + u_a
+y_full   = (y_star_a > 0).astype(int)
+
+# Naive on completers only
+naive_pd_a = y_full[S_A == 1].mean()
+
+# Heckman two-step with Z_rate as the exclusion restriction
+import statsmodels.api as sm
+W_sel = sm.add_constant(np.column_stack([X_part[:, 0], W_part[:, 0],
+                                          Z_rate - 2.0]))
+sel_a = sm.Probit(S_A, W_sel).fit(disp=False)
+imr_a = inverse_mills_ratio(W_sel @ sel_a.params)
+
+X_outc = sm.add_constant(np.column_stack([
+    X_part[S_A == 1, 0], W_part[S_A == 1, 0], imr_a[S_A == 1],
+]))
+y_outc = sm.Probit(y_full[S_A == 1], X_outc).fit(disp=False)
+# Through-the-marketed PD: predict without IMR
+params_no_imr = y_outc.params.copy()
+params_no_imr[-1] = 0.0
+X_pred = sm.add_constant(np.column_stack([X_part[:, 0], W_part[:, 0],
+                                           np.zeros(n_mk)]))
+pd_heck = stats.norm.cdf(X_pred @ params_no_imr).mean()
+
+print(f"oracle marketed-pop PD       = {y_full.mean():.3f}")
+print(f"naive on completers          = {naive_pd_a:.3f}")
+print(f"Heckman with rate-as-IV      = {pd_heck:.3f}")
+print(f"IMR coefficient              = {y_outc.params[-1]:.3f} "
+      f"(t = {y_outc.params[-1] / y_outc.bse[-1]:.2f})")
+```
+
+A nonzero IMR coefficient with a $|t| > 1.96$ is the diagnostic that the abandonment layer is moving the outcome through unobservables, not just through observables. If $|t| < 1$, AIPW with a flexible $\hat \pi_A$ is a cleaner correction than Heckman.
+
+**Production guidance.** Tag the indicative rate at every step of the application flow and store it as a versioned column. When the bank changes its rate sheet, the variation across applicants becomes the exclusion restriction for free, and the abandonment selection is identifiable without an explicit experiment. A common operational mistake is to overwrite the indicative-rate column in place when the rate sheet changes, which destroys the pre-change variation and silently kills the IV.
+
+### Layer 3: Channel mix and gating {#sec-ch10-channel}
+
+**The mechanism.** Consumer lenders source applications through several channels in parallel: branch, broker, dealer (auto), digital direct, paid acquisition, partner-app referral, prescreen mail, cross-sell from existing customers. Each channel has a different conditional distribution $P(Y \mid X, \text{channel})$, and the channel mix changes month to month with the macro environment, the marketing budget, and the broker network. A scorecard fit on a single pooled population learns the channel-weighted average, which extrapolates badly the moment the mix shifts. Layered on top of channel are KYC, fraud, eligibility, and document-completeness gates that filter applications before they ever reach the underwriter; each is a deterministic gate whose pass-rate depends on channel.
+
+**Why it bites.** Brokers are paid on funding volume and have an incentive to send marginal applicants their internal network would not fund directly. Auto dealers tilt toward back-end profit and accept higher-risk paper. Cross-sell populations are pre-screened on internal-customer behavior and underperform the headline default rate. Push-notification responders on a fintech app are younger and thinner-file. Branch walk-ins skew older and richer in employment history. The channel indicator is not just a feature; it is a selection variable that conditions the joint distribution of every other feature with the outcome.
+
+**Observability profile.** The channel is always observed; the puzzle is what to do with it. Brokers who route applications to multiple lenders create a *cross-lender adverse-selection* problem (the lender sees an application that other lenders have already declined), which is observable only via bureau pulls.
+
+**Identification strategies.** Three options, in increasing order of structure:
+
+1.  *Stratified scorecards.* Fit a separate PD per channel. Avoids cross-channel pooling but loses statistical power on small channels. Acceptable for two or three big channels; impractical for the long tail.
+2.  *Hierarchical / partial pooling.* Fit a Bayesian hierarchical scorecard with channel-specific intercepts and feature-by-channel interactions. Borrows strength from big channels to stabilize small ones.
+3.  *AIPW with channel as the propensity stratifier.* Fit $\hat \pi_C(W, \text{channel})$ to predict $S_M$ within each channel, reweight to a target through-the-door mix, and use AIPW. This is the right answer when the lender wants to project portfolio PD under a forward-looking channel-mix forecast.
+
+```{python}
+#| label: channel-layer
+# Channel mix shift: a single pooled scorecard is miscalibrated under
+# a mix change; channel-stratified PD is robust.
+rng_c = np.random.default_rng(2028)
+n_each = 6_000
+ch = np.concatenate([np.zeros(n_each), np.ones(n_each), 2 * np.ones(n_each)])
+X_ch = rng_c.standard_normal(int(3 * n_each))
+
+# Three channels with different baseline default and different slope
+beta_ch = np.array([
+    [-1.4, 0.4],   # digital: low baseline, mild slope
+    [-0.5, 0.7],   # broker:  high baseline, steep slope
+    [-1.0, 0.5],   # branch:  middle
+])
+linpred = beta_ch[ch.astype(int), 0] + beta_ch[ch.astype(int), 1] * X_ch
+y_ch = (rng_c.uniform(size=len(X_ch))
+        < 1.0 / (1.0 + np.exp(-linpred))).astype(int)
+
+# Train mix: 60 percent digital, 30 percent branch, 10 percent broker
+mix_train = np.array([0.60, 0.10, 0.30])
+mix_prod  = np.array([0.30, 0.40, 0.30])
+
+def sample_mix(mix, n=6_000, seed=0):
+    rng = np.random.default_rng(seed)
+    counts = (mix * n).astype(int)
+    pieces_X, pieces_c, pieces_y = [], [], []
+    for k, cnt in enumerate(counts):
+        idx = np.where(ch == k)[0]
+        sub = rng.choice(idx, size=cnt, replace=False)
+        pieces_X.append(X_ch[sub]); pieces_c.append(ch[sub])
+        pieces_y.append(y_ch[sub])
+    return (np.concatenate(pieces_X), np.concatenate(pieces_c).astype(int),
+            np.concatenate(pieces_y))
+
+X_tr, c_tr, y_tr_ch = sample_mix(mix_train, seed=1)
+X_pr, c_pr, y_pr    = sample_mix(mix_prod,  seed=2)
+
+# Pooled PD (no channel feature)
+pool_mod = LogisticRegression(max_iter=400).fit(X_tr.reshape(-1, 1), y_tr_ch)
+pd_pool_pr = pool_mod.predict_proba(X_pr.reshape(-1, 1))[:, 1].mean()
+
+# Channel-stratified PD with a shared X slope, channel-specific intercept
+strat_mods = {k: LogisticRegression(max_iter=400).fit(
+    X_tr[c_tr == k].reshape(-1, 1), y_tr_ch[c_tr == k]) for k in (0, 1, 2)}
+pd_strat = np.zeros(len(X_pr))
+for k in (0, 1, 2):
+    m = c_pr == k
+    pd_strat[m] = strat_mods[k].predict_proba(X_pr[m].reshape(-1, 1))[:, 1]
+pd_strat_pr = pd_strat.mean()
+
+print(f"production observed default = {y_pr.mean():.3f}")
+print(f"pooled PD on production mix = {pd_pool_pr:.3f}")
+print(f"stratified PD               = {pd_strat_pr:.3f}")
+```
+
+The pooled scorecard underpredicts on the production mix because the broker share rose. The stratified version is robust because each channel's calibration is independent of the mix.
+
+**Production guidance.** Record the application channel as a hard-coded categorical at decision time, not as a free-text broker name; broker IDs collapse and rename across vintages, and a free-text column is unusable for stratification three years later. Add a "channel mix" panel to the model-monitoring dashboard: the AUC of a fixed scorecard against a moving channel mix is the cleanest early warning of vintage-level miscalibration. When a new channel goes live, treat it as a new vintage and refuse to score from it until the policy team has signed off on a channel-specific PD.
+
+### Layer 4a: Take-up and counter-offer selection {#sec-ch10-takeup}
+
+**The mechanism.** The underwriter's accept decision is not the end of layer 4. The lender presents a set of terms (limit, rate, fees, tenor); the applicant accepts or refuses. If the lender priced the offer using the applicant's score, the applicant's accept/reject decision is itself a selection step: applicants who reject the offer are systematically the ones whose outside options are better, which correlates with default. Call the take-up indicator $S_T$ with propensity $\pi_T(\text{terms}, X)$. Banks that run risk-based pricing run a *de facto* counter-offer process at every application; counter-offer take-up is layer 4a, distinct from underwriter accept (layer 4b).
+
+**Why it bites.** A higher-risk applicant gets a higher offered rate; if they accept anyway, they are revealing that their outside options are even worse than the rate suggests. This is the textbook adverse-selection-on-rate channel of @stiglitz1981credit. The booked-book PD curve is therefore steeper than the through-the-door PD curve at the same offered rate, and a model that ignores the take-up step will underprice the high-rate slice and overprice the low-rate slice.
+
+**Observability profile.** Take-up is always observed (the loan either funds or it does not). The offered rate is always observed. The applicant's outside option is never observed. The lender's own counter-offer (if multiple terms are presented sequentially) is logged in mature stacks and not in legacy ones.
+
+**Identification strategies.** Heckman two-step with the offered rate as the (partial) exclusion restriction, or AIPW with $\hat \pi_T(\text{terms}, X)$ on the underwritten cohort. The Heckman variant is fragile because the rate enters both equations (it shifts default through the payment-burden channel, not just take-up); the AIPW variant under MAR is the more honest production answer. The cleanest identification comes from rate-sheet experiments: a small randomized perturbation of the offered rate gives an exact propensity for take-up at the perturbed slice and recovers the take-up correction without parametric assumptions.
+
+```{python}
+#| label: takeup-layer
+# Adverse selection on rate: higher offered rate causes lower take-up,
+# but conditional on take-up the surviving pool is enriched in higher-risk.
+rng_t = np.random.default_rng(2029)
+n_under = 8_000
+X_u = rng_t.standard_normal(n_under)
+# Score-based offered rate: higher score (lower X here) gets lower rate
+rate_offered = 0.10 + 0.05 * X_u + 0.01 * rng_t.standard_normal(n_under)
+
+# Take-up: lower rate, higher take-up; but also depends on outside option
+outside = 0.5 * X_u + rng_t.standard_normal(n_under)
+linpred_t = 0.5 - 8.0 * (rate_offered - 0.10) + 0.3 * outside
+S_T = (rng_t.uniform(size=n_under) < 1.0 / (1.0 + np.exp(-linpred_t))).astype(int)
+
+# Default: depends on X plus latent outside option (correlated with take-up)
+y_star_t = -1.0 + 0.6 * X_u + 0.4 * outside + 0.1 * rng_t.standard_normal(n_under)
+y_u = (y_star_t > 0).astype(int)
+
+# Naive booked-only PD curve vs through-the-door PD curve
+import pandas as pd
+bins_x = np.linspace(-2.5, 2.5, 11)
+mid_x  = 0.5 * (bins_x[:-1] + bins_x[1:])
+def by_band(mask):
+    out = np.full(len(mid_x), np.nan)
+    for i in range(len(mid_x)):
+        m = mask & (X_u >= bins_x[i]) & (X_u < bins_x[i + 1])
+        if m.sum() > 50: out[i] = y_u[m].mean()
+    return out
+pd_book   = by_band(S_T == 1)
+pd_door   = by_band(np.ones(n_under, dtype=bool))
+print("X-band   booked PD    through-door PD")
+for x, b, d in zip(mid_x, pd_book, pd_door):
+    if not (np.isnan(b) or np.isnan(d)): continue
+print(pd.DataFrame({"X_band": mid_x, "booked": pd_book,
+                    "through_door": pd_door}).round(3))
+```
+
+The booked-only PD curve is steeper than the through-the-door PD curve on the high-$X$ side: among high-risk applicants, the ones who accept the offer are the ones with worst outside options, who default at a higher rate than even the average high-risk applicant. A scorecard fit on the booked-only sample and deployed on the underwritten pool will systematically underprice the high-rate band.
+
+**Production guidance.** Log the offered rate, the offered limit, and the offered tenor at decision time as separate columns. Run a 1 to 5 percent rate-sheet randomization to give the take-up correction an exact propensity. When the rate sheet is fully deterministic on the score, the take-up step is not separately identified from the underwriting step and the AIPW correction collapses into the @sec-ch10-observable observable-engine treatment with the take-up indicator absorbed into $\pi_U \cdot \pi_T$.
+
+### Layer 4b: Manual override and the judgmental layer {#sec-ch10-override}
+
+**The mechanism.** Almost every consumer lender runs a judgmental override layer on top of the policy score. Underwriters approve applicants whose score is below the cutoff (positive override), decline applicants whose score is above the cutoff (negative override), and apply soft policy adjustments based on signals the score does not capture (a manager's call, a documentation flag, a recent fraud-alert pattern). Call the override indicator $O \in \{-1, 0, +1\}$ for negative, none, and positive override. The booked book is then $\{S_U^{\text{policy}} = 1\} \cup \{O = +1\} \setminus \{O = -1\}$.
+
+**Why it bites.** Override is selection on information the score does not capture. Positive overrides are typically rare (banks are risk averse) and skew toward applicants with documentable mitigating factors (relationship history, collateral, employer letter), which are negatively correlated with default. Negative overrides are more common and skew toward applicants with documentable risk factors the score does not see (recent fraud flag, compliance hit, unverified employment), which are positively correlated with default. Treating overrides as if they were policy-driven is a textbook MNAR error: the override decision uses information that is in the underwriter's notes but never makes it into the feature store.
+
+**Observability profile.** The override flag is always logged (regulators require it). The information the underwriter used to make the override is rarely logged in structured form. Some banks store the underwriter's note as free text, which is recoverable with NLP but typically not used in the production scorecard.
+
+**Identification strategies.** When the override flag is logged but the underwriter's information is not, the cleanest identification comes from override-rate experiments: an underwriter team randomly assigned a "no-override" rule for a fraction of applicants gives a within-bank instrument. Absent that, treat the score-plus-override as a composed-propensity gate (@sec-ch10-observable, multi-stage gates) where the score gate is observable and the override gate is estimated. The override propensity is fit on the structured features the underwriter sees plus any extracted-text features the bank can produce.
+
+```{python}
+#| label: override-layer
+# Override as a second-stage gate on top of the policy score.
+# DGP: policy score from X; override depends on a latent factor V the
+# scorecard does not see. Override raises booking on positives and
+# lowers booking on negatives, both correlated with default.
+rng_o = np.random.default_rng(2030)
+n_un = 10_000
+X_o = rng_o.standard_normal(n_un)
+score = -X_o
+V = 0.3 * X_o + rng_o.standard_normal(n_un)
+S_pol = (score > 0).astype(int)
+ovr_pos = ((S_pol == 0) & (V < -1.5)).astype(int)
+ovr_neg = ((S_pol == 1) & (V > 1.5)).astype(int)
+S_U = ((S_pol + ovr_pos - ovr_neg) > 0).astype(int)
+
+y_star_o = -0.6 + 0.5 * X_o + 0.6 * V + 0.4 * rng_o.standard_normal(n_un)
+y_o = (y_star_o > 0).astype(int)
+
+print(f"policy accept rate = {S_pol.mean():.3f}, "
+      f"final accept rate (with override) = {S_U.mean():.3f}")
+print(f"PD on policy-only accepts  = {y_o[S_pol == 1].mean():.3f}")
+print(f"PD on overridden accepts   = {y_o[(ovr_pos == 1) & (S_U == 1)].mean():.3f}")
+print(f"PD on overridden declines  = {y_o[ovr_neg == 1].mean():.3f}")
+print(f"Naive booked-only PD       = {y_o[S_U == 1].mean():.3f}")
+print(f"Through-the-door PD        = {y_o.mean():.3f}")
+```
+
+Positive overrides have a lower default rate than the policy-accept pool (the underwriter is using mitigating-factor information the score does not see). Negative overrides have a higher default rate than the policy-accept pool. The naive booked-only mean still overstates the through-the-door PD, but the gap is now driven by both the policy gate *and* the override gate; ignoring the override gate gives a biased Heckman fit because the implied selection equation is misspecified.
+
+**Production guidance.** Always log the override flag with three values (none / positive / negative) and the underwriter ID; the underwriter ID becomes a fixed effect that absorbs idiosyncratic risk preferences. Build a "override consistency" panel on the monitoring dashboard: when the override rate moves outside the historical band, the override propensity is shifting and the AIPW fit is no longer the same model that was validated. Banks running ECOA fair-lending exams will be asked for override-rate parity across protected classes (@sec-ch16); the same logging that supports the AIPW correction supports the fair-lending exam.
+
+### Layer 5: Behavioral re-rating and line management {#sec-ch10-behavioral}
+
+**The mechanism.** Once a loan is booked, the lender does not stop scoring it. Behavioral scorecards re-rate every account every month based on payment history, utilization, balance dynamics, transaction patterns, bureau-attribute drift, and product usage. The behavioral score drives credit-limit increases (CLI), credit-limit decreases (CLD), authorization decisions on each transaction, line freezes, forced closure, repricing, and loss-mitigation outreach. Each of these is a *managed* censoring mechanism on the application-time PD label: the account that gets a CLD utilizes less and defaults less, not because the borrower is safer but because the bank made it harder to default.
+
+**Why it bites.** A scorecard fit on observed default outcomes from accounts that experienced active line management estimates the *post-management* default rate, not the application-time PD. The bias is not small in production card portfolios; banks running aggressive CLD programs see a 10 to 30 percent reduction in observed default rate that is partly driven by limit suppression rather than by borrower behavior. The booked-book observed default rate is therefore a function of the *behavioral policy*, not just the borrower pool. When the behavioral policy changes (regulatory pressure on CLD, a CFPB enforcement action, a strategic decision to grow the book), the historical default rate is no longer a valid training target for the new behavioral regime.
+
+**Observability profile.** Every behavioral score, every CLI, every CLD, every authorization decision is logged in card systems (regulators require it). The trick is reconstructing the time-varying propensity $\pi_B(t)$ of "still active without management intervention" from a behavioral-event log.
+
+**Identification strategies.** This is exactly the survival censoring problem of @sec-ch09. The behavioral policy is the censoring mechanism. The observed default time is right-censored at the moment of CLD, line freeze, or forced closure. The right correction is IPCW or AIPCW with the behavioral propensity as the censoring hazard. The connection table at @sec-ch10-survival-link maps the reject-inference toolbox to the survival toolbox; for the behavioral layer, the mapping is exact.
+
+```{python}
+#| label: behavioral-layer
+# Behavioral re-rating: among booked accounts, line management censors the
+# default outcome. Naive default rate vs. IPCW-corrected default rate.
+rng_b = np.random.default_rng(2031)
+n_book = 6_000
+X_b = rng_b.standard_normal(n_book)
+# Latent default time and latent line-management time
+T_def = -np.log(rng_b.uniform(size=n_book)) / np.exp(-2.0 + 0.6 * X_b)
+T_mgmt = -np.log(rng_b.uniform(size=n_book)) / np.exp(-2.5 + 0.4 * X_b)
+horizon = 1.0
+T_obs = np.minimum(np.minimum(T_def, T_mgmt), horizon)
+delta_def  = (T_def  <= np.minimum(T_mgmt, horizon)).astype(int)
+delta_mgmt = (T_mgmt < np.minimum(T_def,  horizon)).astype(int)
+
+# Naive: 12-month default rate ignoring management
+naive_pd_b = delta_def.mean()
+
+# IPCW: estimate censoring (management) hazard, weight default observations
+# by 1 / S_C(t_i) at observation time
+from sklearn.linear_model import LogisticRegression
+# Discretize into monthly intervals
+months = np.linspace(0, 1, 13)
+hazard_grid = np.zeros(len(months) - 1)
+S_C = np.ones(n_book)
+for k in range(len(months) - 1):
+    at_risk = T_obs >= months[k]
+    censored_in_bin = at_risk & (delta_mgmt == 1) & \
+                      (T_obs > months[k]) & (T_obs <= months[k + 1])
+    if at_risk.sum() > 0:
+        hazard_grid[k] = censored_in_bin.sum() / at_risk.sum()
+    S_C *= np.where(T_obs > months[k + 1], 1 - hazard_grid[k], 1.0)
+
+# Inverse weights for default observations
+w_ipcw = np.where(delta_def == 1, 1.0 / np.clip(S_C, 0.05, 1.0), 0.0)
+ipcw_pd = w_ipcw.sum() / n_book
+
+# Oracle: 12-month default rate with no management
+T_def_only = np.minimum(T_def, horizon)
+oracle_pd_b = (T_def_only < horizon).mean()
+
+print(f"oracle 12m default (no management) = {oracle_pd_b:.3f}")
+print(f"naive 12m default (with management)= {naive_pd_b:.3f}")
+print(f"IPCW-corrected                     = {ipcw_pd:.3f}")
+```
+
+The naive rate understates the through-the-borrower default rate because the management censored some accounts before they defaulted. IPCW restores the underlying application-time PD by reweighting surviving observations by their inverse censoring survival.
+
+**Production guidance.** For credit cards and revolving products, *every* PD model that trains on booked-book outcomes needs an IPCW correction whenever the bank runs active line management. Banks that historically did not run CLD (most installment-loan portfolios) can usually skip this layer. The correction is a one-line change to the loss function in any survival or discrete-time hazard model: weight the default contributions by $1 / \hat S_C(t_i)$ where $\hat S_C$ is fit from the management-event log. Without it, every behavioral-regime change invalidates the previous model's calibration without warning.
+
+### Layer 5b: Forbearance, modification, and collections {#sec-ch10-forbearance}
+
+**The mechanism.** A second post-booking selection is the loss-mitigation layer: forbearance, modification, payment-deferral, hardship plans, debt-management-plan enrollment, charge-off policy, collections handoff. Each changes either the definition of default or the observed payment behavior. Forbearance pauses delinquency clocks (an account that would have rolled to 90+ DPD is held at 60 DPD for the forbearance window). Modifications restructure the loan and reset the delinquency status. Charge-off policy decides when a delinquent account is written off; banks with a 180 DPD charge-off rule and banks with a 120 DPD rule see different observed default rates on the same population. Collections handoff changes payment behavior because the borrower now receives different communication.
+
+**Why it bites.** This layer is small in volume but large in label noise during stress periods. The COVID-19 forbearance wave is the canonical example: every booked-book PD model fit on 2020 to 2021 vintages saw an artificially compressed default rate because of the CARES-Act forbearance requirements. Banks that did not correct for it overstated portfolio quality entering 2022. The same pattern recurs at smaller scale around every macroeconomic stress event and every regulatory accommodation.
+
+**Observability profile.** Forbearance, modification, and charge-off events are logged exhaustively (accounting requires it). The challenge is mapping them to a single censoring mechanism for the survival model.
+
+**Identification strategies.** Multi-state survival (active → delinquent → forbearance → cure-or-charge-off) with state-specific transition hazards is the right framework. The reject-inference analog is to treat forbearance entry as a competing risk and report two PDs: a "managed" PD (the observed rate including forbearance survival) and an "unmanaged" PD (the cause-specific rate that ignores the forbearance pause). Regulatory IRB calibration (@sec-ch08) typically wants the second; portfolio-loss forecasting wants the first; both are valid, both must be named.
+
+**Production guidance.** Maintain the cause-specific transition log as a first-class artifact in the data warehouse. When the bank changes its charge-off policy or its forbearance-eligibility rule, version the model. The COVID-era models that did not version on the CARES-Act effective date are the textbook case study of why.
+
+### Layer 6: Outcome-definition selection {#sec-ch10-outcome-def}
+
+**The mechanism.** "Default" is not a single thing. The bank can label an account as defaulted at 30, 60, 90, or 120 days past due; at first charge-off; at first bankruptcy filing; at first cure-then-redefault. Each definition produces a different $Y$, and the relationship between definitions is itself a selection. An account that hits 30 DPD and cures has $Y_{30} = 1, Y_{90} = 0$; an account that goes straight to charge-off has $Y_{30} = 1, Y_{90} = 1, Y_{co} = 1$. Performance window length is a parallel selection: $Y$ over 12 months is not the same as $Y$ over 24 months.
+
+**Why it bites.** Banks routinely train on a 12-month $Y_{90}$ and deploy in a regulatory framework that asks for a lifetime $Y_{co}$ (Basel IRB, IFRS 9). The conversion between the two requires a state-transition model, not a constant multiplier. Vendors who quote "the model has AUC 0.81" are silent on which $Y$; cross-vendor benchmarks are uninterpretable without it.
+
+**Identification strategies.** Fit the model on the cleanest, earliest definition (typically $Y_{60}$ or $Y_{90}$ at 12 months) and project to the regulatory definition with a state-transition layer (@sec-ch09). The reject-inference correction operates on the application-time selection regardless of which $Y$ is chosen, but the calibration must be done on the regulatory $Y$.
+
+**Production guidance.** Document the $Y$ definition in the model card as a first-class artifact: DPD threshold, performance window, charge-off rule, cure-redefault rule, treatment of forbearance accounts, treatment of bankruptcy accounts. SR 11-7 model risk reviews will ask for it; ECOA fair-lending exams will ask for it; IFRS 9 audits will ask for it. Cross-team disagreements about model performance almost always trace back to two teams using two different $Y$ definitions on the same scorecard.
+
+### Stacking corrections across layers {#sec-ch10-stacking}
+
+When multiple layers are active simultaneously (the common case), the corrections compose. The composed propensity is the product
+
+$$
+\pi(W, X, Z) = \pi_M(W) \cdot \pi_A(W, X) \cdot \pi_C(W, X) \cdot \pi_U(X, Z) \cdot \pi_T(X, \text{terms}),
+$$ {#eq-stacked-propensity}
+
+and the AIPW pseudo-outcome at the booked-book stage takes $\pi$ from @eq-stacked-propensity rather than the single-layer propensity. The composed estimator is unbiased under the union of MAR assumptions for each layer plus an overlap assumption on the composed propensity (every applicant has positive composed propensity, which fails fast when any single layer is near-deterministic).
+
+```{python}
+#| label: stacked-correction
+# Stacking layers 1 (targeting) and 4 (underwriting) with logged propensities
+# and applying AIPW at the booked stage.
+rng_s = np.random.default_rng(2032)
+n_s = 12_000
+W_s = rng_s.standard_normal((n_s, 3))
+X_s = W_s[:, 0] + 0.5 * rng_s.standard_normal(n_s)
+Z_s = rng_s.standard_normal(n_s)
+
+# Layer 1: targeting, logged
+pi_M_s = 1.0 / (1.0 + np.exp(-(0.4 * W_s[:, 0] + 0.3 * W_s[:, 1])))
+S_M_s = (rng_s.uniform(size=n_s) < pi_M_s).astype(int)
+
+# Layer 4: underwriting, logged among marketed
+pi_U_s = np.where(
+    S_M_s == 1,
+    1.0 / (1.0 + np.exp(-(0.5 - 0.6 * X_s + 0.4 * Z_s))),
+    0.0,
+)
+S_U_s = ((S_M_s == 1)
+         & (rng_s.uniform(size=n_s) < pi_U_s)).astype(int)
+
+# Outcome
+y_s = ((-0.6 + 0.5 * X_s + 0.4 * W_s[:, 0]
+        + rng_s.standard_normal(n_s)) > 0).astype(int)
+
+pi_stack = pi_M_s * pi_U_s
+pi_stack = np.clip(pi_stack, 0.02, 1.0)
+
+# Outcome model on the booked slice
+g_s = LogisticRegression(max_iter=400).fit(
+    np.column_stack([W_s, X_s.reshape(-1, 1)])[S_U_s == 1],
+    y_s[S_U_s == 1],
+).predict_proba(np.column_stack([W_s, X_s.reshape(-1, 1)]))[:, 1]
+
+aipw_stack = (g_s + (S_U_s / pi_stack)
+              * (y_s.astype(float) - g_s)).mean()
+
+print(f"oracle target-pop PD          = {y_s.mean():.3f}")
+print(f"naive booked-only PD          = {y_s[S_U_s == 1].mean():.3f}")
+print(f"AIPW with single-layer pi_U   = "
+      f"{(g_s + (S_U_s / np.clip(pi_U_s, 0.02, 1.0)) * (y_s.astype(float) - g_s)).mean():.3f}")
+print(f"AIPW with composed pi_M*pi_U  = {aipw_stack:.3f}")
+```
+
+The single-layer correction recovers the marketed-population PD; the stacked correction recovers the target-population PD. Which one a given downstream consumer needs depends on the question they are asking; both should be reported in the model documentation.
+
+**Operational note.** The composed propensity has a finite-sample variance that scales with the maximum density ratio, and the maximum compounds across layers. Five layers of mild selection (each with a 2x density ratio at the worst applicant) compose into a 32x density ratio, which blows up the AIPW variance. The right production response is propensity clipping at every layer (typically a 1 to 5 percent floor), reporting of the clipped share, and falling back to a Heckman-style joint when the clipped share grows. The cleanest reject inference is still the one you do not have to do, and the strongest version of that recommendation is to randomize 1 to 5 percent at every layer the bank controls, which converts the entire composed correction from a parametric stack into a weighted regression with known weights.
+
+### A decision tree for method choice {#sec-ch10-decision-tree}
+
+The full chapter is one long answer to a single question: given the data the lender has logged, which reject-inference method is identifiable, defensible to a model risk reviewer, and operationally feasible? @fig-ch10-method-tree compresses the answer into a flowchart. Each terminal node points at a section of the chapter and a one-line operational summary.
+
+```{mermaid}
+%%| label: fig-ch10-method-tree
+%%| fig-cap: "Decision tree for selecting a reject-inference method. Each branch asks a single yes/no question about the data the lender has logged. Terminal nodes point at the chapter section that develops the method and a one-line operational summary. The tree is read top-down: identify the layer, ask whether the engine is observable, ask whether an exclusion restriction is available, and so on. The methods at the bottom are not mutually exclusive; in production stacks, each terminal method becomes one input to a sensitivity analysis."
+flowchart TD
+    classDef question fill:#fff8e1,stroke:#b58900,color:#111;
+    classDef method fill:#c8e6c9,stroke:#2e7d32,color:#111;
+    classDef warn fill:#ffe0b2,stroke:#ef6c00,color:#111;
+    classDef bad fill:#ffcdd2,stroke:#c62828,color:#111;
+
+    Q1["Which selection layer<br/>is the binding constraint?"]:::question
+    Q1 --> L1Q["Pre-application:<br/>targeting / uplift"]:::question
+    Q1 --> L2Q["Application:<br/>self-selection / abandonment"]:::question
+    Q1 --> L3Q["Channel / KYC / fraud gate"]:::question
+    Q1 --> L4Q["Underwriting + take-up"]:::question
+    Q1 --> L5Q["Post-booking:<br/>behavioral / forbearance / collections"]:::question
+
+    L1Q --> L1A{"Logged propensity?"}:::question
+    L1A -->|Yes| M1A["Exact-propensity IPW / AIPW<br/>(@sec-ch10-targeting)"]:::method
+    L1A -->|No, but RCT holdout| M1B["Holdout-anchored AIPW<br/>(@sec-ch10-targeting)"]:::method
+    L1A -->|No| M1C["Look-alike audit + Manski bounds<br/>+ sensitivity analysis"]:::warn
+
+    L2Q --> L2A{"Indicative-rate variation logged?"}:::question
+    L2A -->|Yes| M2A["Heckman with rate as IV<br/>(@sec-ch10-self-selection)"]:::method
+    L2A -->|No| M2B["AIPW under MAR<br/>on partial-form features"]:::method
+
+    L3Q --> M3["Channel-stratified or hierarchical PD<br/>(@sec-ch10-channel)"]:::method
+
+    L4Q --> L4A{"Engine observable?"}:::question
+    L4A -->|Deterministic cutoff| M4A["RDD<br/>(@sec-ch10-rdd)"]:::method
+    L4A -->|Stochastic logging| M4B["Exact-propensity AIPW<br/>(@sec-ch10-observable)"]:::method
+    L4A -->|No| L4B{"Exclusion restriction?"}:::question
+    L4B -->|Yes| M4C["Heckman two-step<br/>(@sec-ch10-heckman-selection-correction)"]:::method
+    L4B -->|No, rich features| M4D["AIPW + DML on (X, Z)<br/>(@sec-ch10-modern)"]:::method
+    L4B -->|No, thin features| L4C{"Bureau outcome on rejects?"}:::question
+    L4C -->|Yes| M4E["Bureau augmentation<br/>(@sec-ch10-bureau-extrapolation)"]:::method
+    L4C -->|No| M4F["Hand-Henley regime:<br/>report bounds, not a point estimate"]:::bad
+
+    L5Q --> L5A{"Mechanism?"}:::question
+    L5A -->|Behavioral re-rating / line management| M5A["IPCW on management-event log<br/>(@sec-ch10-behavioral, @sec-ch09)"]:::method
+    L5A -->|Forbearance / modification| M5B["Multi-state survival;<br/>report managed and unmanaged PD<br/>(@sec-ch10-forbearance)"]:::method
+    L5A -->|Forced closure / charge-off| M5C["Cause-specific competing risks<br/>(@sec-ch10-forbearance, @sec-ch09)"]:::method
+```
+
+The cheat sheet in the table below pairs the most common production scenarios with the right method and the data prerequisite. A lender starting from scratch can read it as a roadmap for the data-engineering investments that unlock each method.
+
+| Scenario | Right method | Data prerequisite |
+|---|---|---|
+| Direct-marketing PD with logged uplift score | Exact IPW / AIPW (@sec-ch10-targeting) | Decision-time $\hat\pi_M$ written to feature store |
+| Direct-marketing PD with no log | Look-alike + Manski bounds (@sec-ch10-targeting) | Third-party panel for distribution audit |
+| Web/app application with abandonment | Heckman with indicative rate as IV (@sec-ch10-self-selection) | Versioned indicative-rate column |
+| Multi-channel scorecard | Channel-stratified or hierarchical (@sec-ch10-channel) | Hard-coded channel categorical |
+| Risk-based-pricing book | AIPW on take-up + 1-5% rate randomization (@sec-ch10-takeup) | Logged offered terms; rate-sheet experiment |
+| Override-heavy underwriting | Composed-propensity AIPW (@sec-ch10-override, @sec-ch10-observable) | Three-value override flag + underwriter ID |
+| Card portfolio with active CLD | IPCW on management log (@sec-ch10-behavioral) | Behavioral-event log keyed by account-time |
+| COVID-era / forbearance vintages | Multi-state survival; managed vs unmanaged PD (@sec-ch10-forbearance) | Cause-specific transition log |
+| Cross-vendor PD benchmark | Match $Y$ definition first (@sec-ch10-outcome-def) | Documented DPD threshold and window |
+| Deterministic cutoff with bureau pulls on rejects | RDD + bureau augmentation (@sec-ch10-rdd, @sec-ch10-bureau-extrapolation) | Cutoff value + bureau pull on declines |
+| Stochastic logging with random override | Exact-propensity AIPW (@sec-ch10-observable) | Logged $\pi_i$ at decision time |
+| Thin features, no IV, no bureau | Hand-Henley impossibility regime (@sec-ch10-impossibility) | Report bounds; do not report a point estimate |
+
+Two cross-cutting principles run through the tree. First, the operational work that makes reject inference *easy* is upstream of the model: logging the decision-time propensity, versioning the indicative rate, hard-coding the channel categorical, recording the override flag, retaining the management-event log. Banks that invest in this data engineering can use the simplest exact-propensity AIPW; banks that do not are forced into the parametric Heckman and copula machinery, which is harder to defend at SR 11-7 review. Second, no single layer is decisive: a clean Heckman correction at layer 4 is biased by an uncorrected layer 1, and a clean IPCW at layer 5 is biased by an uncorrected layer 4. The composed-propensity stacking of @sec-ch10-stacking is the production target; the per-layer methods are the building blocks.
 
 ## A method-agnostic framework {#sec-ch10-meta}
 
@@ -2786,7 +3373,10 @@ Governance cadence. Reject inference is one of the few modeling areas where the 
 -   When the decision engine is observable (@sec-ch10-observable), the propensity is exact: AIPW becomes a one-stage weighted regression, RDD identifies local PD at the cutoff, multi-stage gates compose into an exact joint propensity, and CFRM evaluates counterfactual policies from logged data. A 1 to 5 percent random-override quota in production turns reject inference from a parametric correction into a weighted regression with known weights; this is the cheapest operational change a lender can make.
 -   AIPW is the method-agnostic master template (@sec-ch10-meta). Specializing the target functional yields PD, LGD, lifetime PD, and survival estimands. The wrapper translates one-for-one to the IPCW and competing-risks machinery in @sec-ch09 and to the meta-learners in @sec-ch11.
 -   Self-training, EM, and fuzzy-$\tau=1$ without an exclusion restriction cannot escape selection-on-unobservables. They are valid under MAR but not MNAR. Use them as a robustness check, not as a primary correction.
--   Regulatory documentation should name the reject inference method, its identifying assumptions, and a sensitivity analysis. SR 11-7 validation will test the exclusion restriction directly.
+-   The underwriting layer is one of at least five selection layers in a real consumer-lending stack (@sec-ch10-full-funnel). Targeting (@sec-ch10-targeting), application self-selection (@sec-ch10-self-selection), channel mix (@sec-ch10-channel), take-up and override (@sec-ch10-takeup, @sec-ch10-override), and post-booking management (@sec-ch10-behavioral, @sec-ch10-forbearance) each create their own missingness with their own observability profile. The AIPW master template applies at every layer with a different propensity; the composed correction (@sec-ch10-stacking) is the production target, and the layer-by-layer methods are the building blocks.
+-   The cheapest reject-inference investment is upstream of the model. Logging the decision-time propensity, versioning the indicative rate, hard-coding the channel categorical, recording the override flag, retaining the management-event log, and reserving 1 to 5 percent random holdouts at every layer the bank controls turns the entire composed correction from a parametric stack into a weighted regression with known weights.
+-   The decision tree at @sec-ch10-decision-tree pairs each common production scenario with the right method and the data prerequisite that unlocks it. Use it as a roadmap for the data-engineering investments the model team should ask for *before* the modeling investments.
+-   Regulatory documentation should name the reject inference method, its identifying assumptions, the layer of the funnel it addresses, and a sensitivity analysis. SR 11-7 validation will test the exclusion restriction directly. ECOA fair-lending review will ask for override-rate parity. IFRS 9 audit will ask for the $Y$ definition (@sec-ch10-outcome-def).
 
 ## Further reading
 
