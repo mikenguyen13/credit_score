@@ -131,6 +131,14 @@ A related but distinct pitfall is *left truncation*. Suppose the analytic window
 
 The fix is *delayed entry*, not deletion. Drop the rows and you discard valid follow-up at ages $a \ge a_0$, throwing away exactly the data the older vintages contribute (and biasing toward young vintages, which themselves bias toward early defaulters). Instead, re-define each row's at-risk window: enter the risk set at age $a_0$, exit at age $a_0 + \text{follow-up}$, with the event indicator unchanged. The Kaplan-Meier and Cox estimators then form $\mathcal{R}(t) = \{i : a_0^{(i)} \le t \le \text{exit}^{(i)}\}$ and the math goes through. The `lifelines` `entry` argument and the counting-process $(\text{start}, \text{stop}, \text{event})$ formulation of @andersen1982cox implement this directly. @sec-ch09-truncation-demo shows the bias and the fix on simulated data.
 
+The mirror-image pitfall is *right truncation*. It is structurally distinct from right *censoring* and the two are routinely confused in the credit-risk literature. Right censoring means a loan is alive at the analysis cutoff and we will eventually see whether it defaults; the row is in the dataset, the event time is bounded below. Right truncation means the row is in the dataset *only because* the event has already happened by some calendar bound. Three concrete sources in production:
+
+-   *Defaulted-only extracts.* The data team hands you a chargeoff table joined to origination, on the grounds that "good loans don't need a default-time field". Every row is a defaulter; the never-defaulted population is silently absent.
+-   *Reporting-lag truncation in incident data.* Fraud, first-payment-default, or recovery feeds arrive at the warehouse only once a case file is closed. The cohort assembled at calendar time $\tau_{\text{end}}$ contains case $i$ iff $t_{\text{event}}^{(i)} + \ell^{(i)} \le \tau_{\text{end}}$, where $\ell$ is the random reporting lag. Long-lag events for recently-originated loans are not yet visible.
+-   *Recovery-time studies.* Loss-given-default analyses that retain only loans whose recovery completed by $\tau_{\text{end}}$ truncate exactly the long-lag, low-recovery tail.
+
+Naively fitting Kaplan-Meier on a right-truncated sample biases the survival curve *upward at the tail* (long-failing loans are over-represented) and *downward at the head* (short-failing loans are over-represented relative to the full origination cohort). The standard fixes invert the time axis and run KM on $\tau - t$ [@lagakos1988nonparametric] or use the @efron1999nonparametric self-consistent NPMLE. In `lifelines` the practical handle is `KaplanMeierFitter.fit_left_truncation_right_censoring` for the symmetric case; for retrospective right-truncation only, the reverse-time KM is a half-page of NumPy. @sec-ch09-right-truncation-demo shows both the bias and the fix on simulated data, and `survival_diagnostics.truncation` ships a production guard that flags when an incoming cohort looks event-only.
+
 ### Why not just classification?
 
 A naive approach frames default as a binary outcome: over the horizon $H$, did the borrower default? Fit a logistic regression [@thomas2000survey]. That works when $H$ is fixed and the portfolio composition is stable. It fails in three ways:
@@ -228,7 +236,7 @@ report = pd.DataFrame({
 report.round(4)
 ```
 
-The modeler touched only $k$, $\lambda$, $\beta$. Everything the report shows, the curves and the two PDs, follows from @eq-triplet. Swapping the Weibull for a Cox baseline plus the same $\beta x$ would change the *shape* of $h$ but leave the pipeline (hazard $\to$ $H$ $\to$ $S$ $\to$ horizon PD) identical; that is the payoff of treating the hazard as the primitive. The remaining sections of this chapter populate the *specify* $h$ step with progressively richer estimators, but the *report* $S$ step never changes.
+The modeler touched only $k$, $\lambda$, $\beta$. Everything the report shows, the curves and the two PDs, follows from @eq-triplet. Swapping the Weibull for a Cox baseline plus the same $\beta x$ would change the *shape* of $h$, but leave the pipeline (hazard $\to$ $H$ $\to$ $S$ $\to$ horizon PD) identical; that is the payoff of treating the hazard as the primitive. The remaining sections of this chapter populate the *specify* $h$ step with progressively richer estimators, but the *report* $S$ step never changes.
 
 ### Informative censoring: a numerical demo {#sec-ch09-informative-censoring-demo}
 
@@ -569,6 +577,126 @@ for h_mark in (6, 24):
 ```
 
 The naive PD sits well below the truth at both horizons; the bias is biggest at the youngest ages, where the truncation removes proportionally more of the early defaulters. The entry-corrected fit closes essentially all of the bias by 24 months and most of it even at 6 months (the residual gap there reflects the fact that vintages with $a_0 > 6$ contribute no information at age 6 by construction; nothing the estimator does can synthesize that). The same correction extends to Cox: pass an `entry` column (or use the start/stop counting-process layout) and the partial-likelihood risk set $\mathcal{R}(t)$ is built from $\{i : a_0^{(i)} \le t \le \text{exit}^{(i)}\}$ instead of $\{i : \text{exit}^{(i)} \ge t\}$. Both fixes cost a single column in the input frame.
+
+### Right truncation: a numerical demo {#sec-ch09-right-truncation-demo}
+
+Right truncation has a different fingerprint and a different fix. We simulate the *defaulted-only extract* case: a Weibull cohort is generated from origination, the analysis cutoff is $\tau_{\text{end}}$ months after the earliest origination, and we keep only the loans that have already defaulted by the cutoff. The pretend-it-is-complete sample is what arrives in the warehouse when a chargeoff team hands you "the default file" without the at-risk denominator.
+
+A clarification on what is identifiable. With right truncation alone the data identify the *conditional* event-time distribution on the observed support $[0, t^*]$ where $t^* = \max_i R_i$ and $R_i = \tau_{\text{end}} - v_i$ is the per-row truncation bound, that is, $F_T(t)/F_T(t^*)$. The marginal $F_T$ on the full support is unidentifiable from the truncated sample alone; recovering it requires either an external estimate of $F_T(t^*)$ (e.g. a known portfolio default rate) or a parametric tail. The simulation below is calibrated so $F_T(t^*) \approx 1$, which lets us read the conditional and unconditional CDFs as essentially the same number; the production code reports the conditional CDF and flags whenever $t^*$ is materially below the credit-policy horizon.
+
+@fig-ch09-right-truncation overlays three curves. (i) The oracle KM, fit on the full origination cohort with administrative right-censoring at $\tau_{\text{end}}$, is the truth we are trying to recover. (ii) The naive KM, fit on the defaulted-only subsample as if it were complete, is biased: every observation is an event, so the estimator collapses to the empirical CDF of $\{T_i \mid T_i \le R_i\}$, which over-represents short failure times. (iii) The reverse-time delayed-entry KM applies the @lagakos1988nonparametric construction: with $X_i = t^* - T_i$ and $B_i = t^* - R_i$, the right-truncation constraint $T_i \le R_i$ becomes the left-truncation constraint $B_i \le X_i$, and forward-time delayed-entry KM on $(B_i, X_i)$ with all-event indicator gives $\widehat F_T(t)/\widehat F_T(t^*) = \widehat S_X(t^* - t)$. Curves (i) and (iii) overlap to within Monte Carlo noise; curve (ii) does not.
+
+```{python}
+#| label: fig-ch09-right-truncation
+#| fig-cap: "Right truncation and the reverse-time delayed-entry fix. A Weibull cohort ($k=2.0$, $\\lambda=18$) is generated from origination over 18 calendar months and observed until calendar cutoff $\\tau_{\\text{end}}=36$. The scale is calibrated so $F_T(t^*) \\approx 0.98$, which lets us compare the reverse-time correction (which identifies $F_T/F_T(t^*)$) to the oracle without separately re-scaling. Black: oracle KM on the full origination cohort with administrative right-censoring at the cutoff. Red dashed: naive KM on the defaulted-only subsample treating it as if it were complete. Blue: reverse-time delayed-entry KM (Lagakos 1988) on the truncated sample, which inverts the time axis so the right truncation becomes left truncation and the standard delayed-entry KM applies. The naive curve overstates early-age PD because the truncated sample concentrates the mass on short failure times."
+
+n3 = 12000
+v3 = rng.uniform(0, 18, size=n3)
+T3 = 18.0 * rng.weibull(2.0, size=n3)
+tau_end = 36.0
+R3 = tau_end - v3                # per-row right-truncation bound
+
+# (i) Oracle: full cohort, admin censoring at calendar cutoff.
+Y_oracle = np.minimum(T3, R3)
+E_oracle = (T3 <= R3).astype(int)
+kmf_oracle = KaplanMeierFitter().fit(Y_oracle, E_oracle,
+                                     label='oracle (full cohort, admin censored)')
+
+# (ii) Right-truncated sample: keep only loans whose default landed
+# before the cutoff. Every retained row is a defaulter.
+trunc = T3 <= R3
+T_obs = T3[trunc]
+R_obs = R3[trunc]
+kmf_naive_rt = KaplanMeierFitter().fit(
+    T_obs, np.ones_like(T_obs, dtype=int),
+    label='truncated, naive (defaulted-only as complete)',
+)
+
+# (iii) Reverse-time delayed-entry KM (Lagakos 1988).
+#   X_i = t* - T_i (reversed-time exit), B_i = t* - R_i (reversed-time entry).
+#   The right-truncation constraint becomes a left-truncation constraint;
+#   delayed-entry KM with entry=B and all-event indicator gives
+#   F_T(t)/F_T(t*) = S_X(t* - t).
+t_star = float(R_obs.max())
+X_rev = t_star - T_obs
+B_rev = t_star - R_obs
+kmf_rev = KaplanMeierFitter().fit(
+    X_rev, np.ones_like(X_rev, dtype=int), entry=B_rev,
+)
+ages = np.linspace(0.0, tau_end, 256)
+s_rev_back = 1.0 - kmf_rev.survival_function_at_times(
+    np.maximum(t_star - ages, 0.0)
+).values
+
+fig, ax = plt.subplots(1, 1, figsize=(6.0, 3.6))
+kmf_oracle.plot_survival_function(ax=ax, ci_show=False, color='black', lw=2)
+kmf_naive_rt.plot_survival_function(ax=ax, ci_show=False, color='crimson', linestyle='--')
+ax.plot(ages, s_rev_back, color='steelblue',
+        label='truncated, reverse-time delayed-entry KM')
+ax.set_xlabel('age $a$ (months)'); ax.set_ylabel('$\\hat S(a)$')
+ax.set_xlim(0, tau_end); ax.set_ylim(0, 1)
+ax.legend(loc='lower left', fontsize=8)
+fig.tight_layout(); plt.show()
+
+def _s_rev(a: float) -> float:
+    return 1.0 - float(kmf_rev.survival_function_at_times(
+        np.array([max(t_star - a, 0.0)])).values[0])
+
+rt_rows = []
+for h_mark in (6, 12, 24):
+    truth = 1.0 - float(kmf_oracle.predict(h_mark))
+    naive = 1.0 - float(kmf_naive_rt.predict(h_mark))
+    fix   = 1.0 - _s_rev(h_mark)
+    rt_rows.append({'horizon_m': h_mark,
+                    'oracle_PD': truth,
+                    'naive_PD': naive,
+                    'reverse_time_PD': fix,
+                    'naive_minus_oracle_bps': (naive - truth) * 1e4,
+                    'reverse_minus_oracle_bps': (fix - truth) * 1e4})
+rt_df = pd.DataFrame(rt_rows).round(4)
+print(rt_df.to_string(index=False))
+```
+
+Three things to read off the printed table. First, the naive estimator overstates PD at every horizon: the defaulted-only sample is dominated by short failure times, so the empirical CDF climbs too fast. Second, the bias is largest at the youngest ages and shrinks with $h$, because by $h \approx t^*$ the naive empirical CDF is forced to one (every retained row defaulted by then) regardless of cohort. Third, the reverse-time delayed-entry KM matches the oracle to within tens of basis points across all three horizons, which is the practical demonstration that the fix is the right one. Lifelines' `KaplanMeierFitter.fit_left_truncation_right_censoring` covers the symmetric case where both biases are present at once; for retrospective extracts the construction above is the production path.
+
+The production lesson is that the *first* check on any incoming cohort should be whether the event indicator is degenerate. If `event.mean() == 1` the cohort is event-only and a right-truncation correction is mandatory; if `event.mean() < 0.001` the cohort may have lost the defaulter join, which is the mirror failure mode and equally damaging. `survival_diagnostics.truncation` wraps both checks, fits the appropriate corrected KM, and emits an artifact field that the validation pipeline blocks on when the corrected and naive lifetime PDs disagree by more than the configured basis-point threshold.
+
+### Truncation diagnostics in production {#sec-ch09-truncation-prod}
+
+The chapter demos and the production code share a single implementation path. `detect_truncation(duration, event, entry=..., vintage_age_at_cutoff=...)` ingests exactly the columns each correction needs, fits the delayed-entry KM (left truncation) and the reverse-time delayed-entry KM (right truncation) under the hood, and returns a typed result with bias deltas in basis points. The summary table below is the same artifact field the FastAPI service writes into the validation pack JSON.
+
+```{python}
+#| label: tbl-ch09-truncation-prod
+#| tbl-cap: "Production truncation artifact for the two simulated cohorts above. `delta_bps` is corrected minus naive PD at each horizon, in basis points; `blocks=True` means the truncation gap exceeds 50 bps at one or more horizons and the validation pipeline halts the run."
+
+from survival_diagnostics import (
+    TruncationConfig, detect_truncation, truncation_summary_table,
+)
+
+# (a) Left-truncated cohort: re-use the entry-time setup from earlier.
+cfg = TruncationConfig(horizons_months=(6, 12, 24, 36), bias_block_bps=50.0)
+left_res = detect_truncation(Y_tr, E_tr, entry=a0_tr, config=cfg)
+left_tbl = truncation_summary_table(left_res).round(4)
+print("=== left-truncation production artifact ===")
+print(f"flags = needs_left={left_res.flags.needs_left_truncation_fix} "
+      f"blocks={left_res.blocks}")
+print(left_tbl.to_string(index=False))
+
+# (b) Right-truncated cohort: re-use the defaulted-only extract.
+cfg2 = TruncationConfig(horizons_months=(6, 12, 24), bias_block_bps=50.0)
+right_res = detect_truncation(
+    T_obs, np.ones_like(T_obs, dtype=int),
+    vintage_age_at_cutoff=R_obs, config=cfg2,
+)
+right_tbl = truncation_summary_table(right_res).round(4)
+print("\n=== right-truncation production artifact ===")
+print(f"flags = event_only={right_res.flags.looks_event_only} "
+      f"needs_right={right_res.flags.needs_right_truncation_fix} "
+      f"blocks={right_res.blocks}")
+print(right_tbl.to_string(index=False))
+```
+
+Two points worth restating. The artifact is non-fatal by design: the pipeline records `blocks=True` and stops the validation run, but it preserves the rest of the diagnostic so reviewers see *which* check fired. And the `entry_age_months` and `vintage_age_at_cutoff_months` columns on the FastAPI request body are optional: a cohort assembled from a clean origination snapshot needs neither, but a cohort assembled from a calendar-window snapshot or a chargeoff feed needs at least one, and the model card escalation rule is the audit-side enforcement of that requirement.
 
 ## Kaplan-Meier and Cox {#sec-ch09-km-cox}
 
@@ -1944,7 +2072,7 @@ What to read off the chart in production:
 -   *Plateau level.* Where the curve flattens approximates the lifetime default rate for that cohort. This number feeds lifetime PD for IFRS 9 stage-2 / stage-3 transfers and CECL pool-level expected credit loss.
 -   *Crossovers.* If cohort $A$ starts above cohort $B$ but $B$ overtakes later, the cohorts have different timing structure (front-loaded fraud or first-payment default in one, back-loaded affordability stress in the other), not just different levels.
 
-Two cautions before reading the picture as truth. First, right truncation: young cohorts have a shorter maximum observable age, so their tails are not estimable past $\tau_{\text{end}} - v$. Compare cohorts only at ages where every cohort in the comparison has been observed, otherwise the youngest curves look artificially clean because their late-defaulters have not yet had time to default. Second, the curves indexed by vintage and plotted against age confound vintage with calendar, because $\text{calendar} = v + a$. If origination quality is constant but a macro shock hit at a particular calendar month, every cohort that was alive then will show a kink at age $a = \text{shock month} - v$, and the kinks will trace a diagonal across the family of curves rather than a horizontal shift. Disentangling that diagonal is the job of the age-vintage-calendar decomposition that follows.
+Two cautions before reading the picture as truth. First, *right-side administrative censoring* (loosely, and incorrectly, often called "right truncation" in the credit-risk literature): young cohorts have a shorter maximum observable age $\tau_{\text{end}} - v$, so their tails are not estimable past that bound. Compare cohorts only at ages where every cohort in the comparison has been observed, otherwise the youngest curves look artificially clean because their late-defaulters have not yet had time to default. The genuine right-truncation case (rows present only because they have already defaulted) is a different bias and is treated in @sec-ch09-right-truncation-demo. Second, the curves indexed by vintage and plotted against age confound vintage with calendar, because $\text{calendar} = v + a$. If origination quality is constant but a macro shock hit at a particular calendar month, every cohort that was alive then will show a kink at age $a = \text{shock month} - v$, and the kinks will trace a diagonal across the family of curves rather than a horizontal shift. Disentangling that diagonal is the job of the age-vintage-calendar decomposition that follows.
 
 @fig-ch09-vintage-triangle stacks the same curves into the canonical vintage triangle that retail credit risk teams ship to monthly review committees. Rows are cohorts, columns are months on book, colour is cumulative default rate, and the upper-right wedge is empty because a young vintage has not yet been observed at long ages. The triangle is the *single* artifact a portfolio-monitoring meeting will spend ten minutes on, every month.
 

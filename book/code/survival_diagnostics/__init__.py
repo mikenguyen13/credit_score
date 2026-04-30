@@ -8,6 +8,7 @@ tipping      Tipping-point sensitivity sweep over the censored-cohort hazard mul
 holdout      Clean-cohort vs prepay-heavy vintage comparison.
 overlap      Covariate-distribution overlap (KS, SMD) across censoring causes.
 competing    Aalen-Johansen cumulative incidence and Fine-Gray subdistribution Cox.
+truncation   Left- and right-truncation detection, delayed-entry KM, reverse-time KM.
 pipeline     Orchestrator: cohort -> diagnostics artifact -> validation pack JSON.
 model_card   Markdown card generator for the survival-diagnostics report.
 
@@ -29,6 +30,16 @@ from .competing import (
     fine_gray_admin_censoring,
     cause_specific_cox,
 )
+from .truncation import (
+    TruncationConfig,
+    TruncationFlags,
+    TruncationCorrection,
+    TruncationResult,
+    detect_truncation,
+    left_truncated_km,
+    right_truncated_km,
+    truncation_summary_table,
+)
 from .pipeline import DiagnosticsConfig, DiagnosticsArtifact, run_diagnostics
 from .model_card import SurvivalDiagnosticsCard, render_card
 
@@ -40,6 +51,9 @@ __all__ = [
     "CauseOverlapResult", "cause_overlap",
     "AalenJohansenResult", "aalen_johansen",
     "fine_gray_admin_censoring", "cause_specific_cox",
+    "TruncationConfig", "TruncationFlags", "TruncationCorrection",
+    "TruncationResult", "detect_truncation", "left_truncated_km",
+    "right_truncated_km", "truncation_summary_table",
     "DiagnosticsConfig", "DiagnosticsArtifact", "run_diagnostics",
     "SurvivalDiagnosticsCard", "render_card",
 ]

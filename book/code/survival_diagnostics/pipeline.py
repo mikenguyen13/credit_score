@@ -28,6 +28,7 @@ from .tipping import TippingConfig, tipping_point_sweep
 from .holdout import cohort_holdout_compare
 from .overlap import cause_overlap
 from .competing import aalen_johansen, fine_gray_admin_censoring
+from .truncation import TruncationConfig, detect_truncation
 
 
 @dataclass
@@ -36,11 +37,14 @@ class DiagnosticsConfig:
     lifetime_horizon_months: Optional[int] = None
     ipcw: IpcwConfig = field(default_factory=IpcwConfig)
     tipping: TippingConfig = field(default_factory=TippingConfig)
+    truncation: TruncationConfig = field(default_factory=TruncationConfig)
     smd_threshold: float = 0.2
     ks_p_threshold: float = 0.01
     fit_fine_gray: bool = True
     fit_aalen_johansen: bool = True
     clean_cohort_mask: Optional[np.ndarray] = None
+    entry_age_months: Optional[np.ndarray] = None
+    vintage_age_at_cutoff_months: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -53,6 +57,7 @@ class DiagnosticsArtifact:
     competing_risks: dict[str, Any]
     holdout: Optional[dict[str, Any]]
     fine_gray_default_coefs: Optional[dict[str, float]]
+    truncation: Optional[dict[str, Any]]
     errors: dict[str, str]
 
     def to_json(self) -> str:
@@ -105,6 +110,23 @@ def run_diagnostics(
 
     pd_naive = ipcw_kaplan_meier(Y, E_def, np.ones_like(Y, dtype=float),
                                  list(cfg.horizons_months) + [lt_h])
+
+    trunc_cfg = cfg.truncation
+    if trunc_cfg.horizons_months != tuple(cfg.horizons_months):
+        trunc_cfg = TruncationConfig(
+            horizons_months=tuple(cfg.horizons_months),
+            event_share_high=cfg.truncation.event_share_high,
+            event_share_low=cfg.truncation.event_share_low,
+            entry_age_min_months=cfg.truncation.entry_age_min_months,
+            bias_block_bps=cfg.truncation.bias_block_bps,
+        )
+    trunc_res = _safe(
+        "truncation", errors, detect_truncation,
+        Y, E_def,
+        entry=cfg.entry_age_months,
+        vintage_age_at_cutoff=cfg.vintage_age_at_cutoff_months,
+        config=trunc_cfg,
+    )
 
     overlap_res = _safe("cause_overlap", errors, cause_overlap, cause, X,
                         cfg.smd_threshold, cfg.ks_p_threshold)
@@ -178,6 +200,14 @@ def run_diagnostics(
         "stabilised": ipcw_res.config.stabilise if ipcw_res else None,
     }
 
+    truncation_payload = trunc_res.to_dict() if trunc_res is not None else None
+    if truncation_payload and truncation_payload.get("blocks"):
+        errors.setdefault(
+            "truncation_block",
+            "truncation correction differs from naive PD by more than "
+            f"{trunc_cfg.bias_block_bps} bps at one or more horizons",
+        )
+
     return DiagnosticsArtifact(
         cohort={
             "n": int(cohort.n),
@@ -194,5 +224,6 @@ def run_diagnostics(
         competing_risks=cr,
         holdout=holdout,
         fine_gray_default_coefs=fg_coefs,
+        truncation=truncation_payload,
         errors=errors,
     )

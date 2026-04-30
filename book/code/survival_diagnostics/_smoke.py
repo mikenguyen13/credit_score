@@ -100,6 +100,12 @@ def main() -> None:
     print(f"any imbalance    = {artifact.cause_overlap['any_imbalanced']}")
     print(f"ipcw cap value   = {artifact.ipcw_weights['cap_value']:.2f}  "
           f"share>cap = {artifact.ipcw_weights['cap_share']:.4f}")
+    if artifact.truncation:
+        flags = artifact.truncation["flags"]
+        print(f"truncation flags = event_only={flags['looks_event_only']} "
+              f"event_missing={flags['looks_event_missing']} "
+              f"has_entry={flags['has_entry_column']} "
+              f"blocks={artifact.truncation['blocks']}")
     print(f"errors           = {artifact.errors}")
 
 

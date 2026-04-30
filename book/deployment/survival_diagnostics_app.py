@@ -41,6 +41,7 @@ from survival_diagnostics import (
     DiagnosticsConfig,
     IpcwConfig,
     TippingConfig,
+    TruncationConfig,
     SurvivalDiagnosticsCard,
     render_card,
     run_diagnostics,
@@ -65,6 +66,21 @@ class RunRequest(BaseModel):
         default=None,
         description="pandas query string flagging the clean cohort (lifetime holdout)",
     )
+    entry_age_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "column name (months) for delayed entry; if present and any row has "
+            "entry > 0, the truncation diagnostic fits the left-truncated KM"
+        ),
+    )
+    vintage_age_at_cutoff_col: Optional[str] = Field(
+        default=None,
+        description=(
+            "column name (months) for tau_end - vintage; required to run the "
+            "reverse-time KM correction when the cohort looks event-only"
+        ),
+    )
+    truncation_bias_block_bps: float = Field(default=50.0, ge=0.0)
 
 
 app = FastAPI(title="survival-diagnostics", version=PACKAGE_VERSION)
@@ -106,6 +122,21 @@ def run(req: RunRequest) -> dict:
         except Exception as exc:
             raise HTTPException(400, f"bad clean_cohort_query: {exc}")
 
+    entry_arr = None
+    if req.entry_age_col:
+        if req.entry_age_col not in df.columns:
+            raise HTTPException(400, f"entry_age_col not in cohort: {req.entry_age_col}")
+        entry_arr = df[req.entry_age_col].astype(float).to_numpy()
+
+    cutoff_arr = None
+    if req.vintage_age_at_cutoff_col:
+        if req.vintage_age_at_cutoff_col not in df.columns:
+            raise HTTPException(
+                400,
+                f"vintage_age_at_cutoff_col not in cohort: {req.vintage_age_at_cutoff_col}",
+            )
+        cutoff_arr = df[req.vintage_age_at_cutoff_col].astype(float).to_numpy()
+
     cfg = DiagnosticsConfig(
         horizons_months=tuple(req.horizons_months),
         ipcw=IpcwConfig(
@@ -113,9 +144,15 @@ def run(req: RunRequest) -> dict:
             cap_quantile=req.cap_quantile,
         ),
         tipping=TippingConfig(),
+        truncation=TruncationConfig(
+            horizons_months=tuple(req.horizons_months),
+            bias_block_bps=req.truncation_bias_block_bps,
+        ),
         fit_fine_gray=req.fit_fine_gray,
         fit_aalen_johansen=req.fit_aalen_johansen,
         clean_cohort_mask=clean_mask,
+        entry_age_months=entry_arr,
+        vintage_age_at_cutoff_months=cutoff_arr,
     )
 
     artifact = run_diagnostics(cohort, cfg)
@@ -135,6 +172,10 @@ def run(req: RunRequest) -> dict:
                  artifact.pd_lifetime["tipping"]["decision_band_max"]]
                 if artifact.pd_lifetime.get("tipping") else None
             ),
+            "truncation": {
+                "blocks": (artifact.truncation or {}).get("blocks"),
+                "flags": (artifact.truncation or {}).get("flags"),
+            } if artifact.truncation else None,
         },
     }
 

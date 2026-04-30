@@ -38,6 +38,9 @@ class SurvivalDiagnosticsCard:
         "Clean-cohort holdout vs prepay-heavy vintage.",
         "Aalen-Johansen cumulative incidence per cause.",
         "Fine-Gray subdistribution Cox under administrative censoring.",
+        "Truncation guard: detect event-only or no-defaulter cohorts; emit "
+        "delayed-entry KM (left truncation) and reverse-time KM (right "
+        "truncation, Lagakos 1988) with bias deltas in basis points.",
     ])
     escalation_rules: list[str] = field(default_factory=lambda: [
         "Naive vs IPCW 12m PD gap > 50 bps -> widen covariate set or escalate.",
@@ -45,6 +48,7 @@ class SurvivalDiagnosticsCard:
         "Cause-overlap any_imbalanced=true on a covariate not in the survival model -> retrain with that covariate or run IPCW with it included.",
         "Clean-cohort lifetime PD differs from full-cohort by more than 25% relative -> investigate vintage selection bias.",
         "IPCW p99 weight > 10 -> check for positivity violations; consider widening cap or trimming the censoring tail.",
+        "Truncation block triggered (corrected vs naive PD gap > 50 bps at any horizon) -> stop the validation run and re-extract the cohort with the at-risk denominator restored.",
     ])
     references: list[str] = field(default_factory=lambda: [
         "Robins, J.M. and Rotnitzky, A. (1992). Recovery of information and adjustment for dependent censoring using surrogate markers.",
@@ -53,6 +57,8 @@ class SurvivalDiagnosticsCard:
         "Tsiatis, A.A. (1975). A nonidentifiability aspect of the problem of competing risks.",
         "Cole, S.R. and Hernan, M.A. (2008). Constructing inverse probability weights for marginal structural models.",
         "Austin, P.C. (2009). Balance diagnostics for comparing the distribution of baseline covariates between treatment groups.",
+        "Lagakos, S.W., Barraj, L.M., De Gruttola, V. (1988). Nonparametric analysis of truncated survival data.",
+        "Andersen, P.K. and Gill, R.D. (1982). Cox's regression model for counting processes.",
     ])
 
 
