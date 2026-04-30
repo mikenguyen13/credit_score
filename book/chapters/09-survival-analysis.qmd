@@ -31,7 +31,7 @@ This chapter develops the machinery, end to end, from nonparametric product-limi
 -   $S(t) = \Pr(T > t) = 1 - F(t)$: survival function.
 -   $h(t) = \lim_{\Delta \downarrow 0} \Pr(t \le T < t+\Delta \mid T \ge t)/\Delta = f(t)/S(t)$: hazard rate.
 -   $H(t) = \int_0^t h(u)du = -\log S(t)$: cumulative hazard.
--   $C$: right-censoring time, often administrative. We observe $Y = \min(T, C)$ and $\delta = \mathbf{1}\{T \le C\}$.
+-   $C$: right-censoring time, often administrative. We observe $Y = \min(T, C)$ and $\delta = \mathbf{1}\{T \le C\}$ (true default time seen), while $\delta= 0$: censored ($T >C$) (Loan still alive at cutoff $C$; default time unknown, only know $T > C$).
 -   $x \in \mathbb{R}^p$: time-fixed covariates (e.g., application attributes). $x(t)$: time-varying (e.g., unemployment rate in month $t$).
 -   $\beta \in \mathbb{R}^p$: regression coefficients in proportional hazards or AFT form.
 -   Vintage $v$: the origination period of a cohort. Age $a$: months since origination. Calendar $c = v + a$.
@@ -79,13 +79,17 @@ The hazard is the natural modeling primitive. It is local in time (unlike $S$ or
 
 Right censoring is the defining feature of survival data. In retail credit, the most common form is administrative: the observation window ends at calendar time $\tau_{\text{end}}$, so a loan originated in month $v$ has follow-up $\tau_{\text{end}} - v$. Loans still current at $\tau_{\text{end}}$ contribute only their realized duration, not their (unobserved) default time.
 
-Assume independent censoring: $T \perp C \mid x$. In words: among loans that share the same covariate vector $x$, the ones whose follow-up gets cut short carry no extra information about default timing beyond what their $x$ already says. Equivalently, the censoring mechanism is allowed to depend on $x$ (and on calendar time, since that is the same for everyone) but not on the latent $T$ once $x$ is conditioned on. If the assumption holds, the at-risk set $\mathcal{R}(t) = \{i : Y_i \ge t\}$ is a random sample of the population still at risk at age $t$, and the partial-likelihood and product-limit estimators treat each censored observation as "alive on its last seen day, future unknown" without bias.
+Assume independent censoring: $T \perp C \mid x$. In words, among loans that share the same covariate vector $x$, the ones whose follow-up gets cut short carry no extra information about default timing beyond what their $x$ already says. Equivalently, the censoring mechanism is allowed to depend on $x$ (and on calendar time, since that is the same for everyone) but not on the latent $T$ once $x$ is conditioned on. If the assumption holds, the at-risk set $\mathcal{R}(t) = \{i : Y_i \ge t\}$ is a random sample of the population still at risk at age $t$, and the partial-likelihood and product-limit estimators treat each censored observation as "alive on its last seen day, future unknown" without bias.
 
 Is the assumption realistic in retail credit? It is partly enforced by design and partly violated in practice. Three patterns matter:
 
-1.  *Administrative cutoff at $\tau_{\text{end}}$ is the safe case.* The data extraction date is exogenous to any individual loan's risk. Conditional on origination month $v$ and the covariate vector, the censoring time $C = \tau_{\text{end}} - v$ is deterministic, so $T \perp C \mid x, v$ holds by construction. This is why most credit-survival papers simply state "all censoring is administrative" and stop there.^[Even the safe case has corner cases. Suppose the bank truncates the data extract at $\tau_{\text{end}}$ but a separate IT pipeline drops loans that have been "inactive" for three months ahead of extraction. Now $C$ depends on payment behavior, which depends on $T$. The fix is to use the original servicing snapshot, not a cleaned downstream copy.]
-2.  *Prepayment is the dangerous case.* Walk through the mechanism. A 36-month auto loan booked at month $v$ with covariates $x$ has a latent default time $T$ drawn from $h(t \mid x)$. At month 18 the borrower's credit improves (a fact not in $x$ unless you instrument refreshed scores), and a competitor offers a lower rate; the borrower refinances, so the loan is closed at $C = 18$ with $\delta_i = 0$. The naive likelihood treats this row as "survived 18 months, future unknown, average risk going forward" via the $S(18 \mid x)$ factor in @eq-liki. But the row was *not* average: it was a future low-risk borrower, removed from the risk set precisely because that information leaked through the refinance offer. Multiply across thousands of similar prepayments. After month 18 the surviving cohort is enriched in high-risk borrowers, the Kaplan-Meier drop rate over each subsequent interval rises, and the estimated baseline hazard $\hat{h}(t)$ for $t > 18$ tilts upward. Lifetime $\hat{F}(M \mid x) = 1 - \hat{S}(M \mid x)$ inherits the bias and the bank over-reserves on a portfolio that, if anything, is healthier than reported. Fix: do not call refinance "censoring." Treat it as a competing event with its own cause-specific hazard $h_{\text{prepay}}(t \mid x)$, fit jointly, and use Aalen-Johansen or Fine-Gray for the report (see @sec-ch09-competing).
-3.  *Lender-initiated closure (line cuts, charge-off short of default, forced refinance) is the intermediate case.* The decision is made by the bank using information about the account that may or may not be in $x$. If risk-driver scores, behavior, and macro covariates are all in $x$, conditional independence is plausible; if not, censoring is informative.^[Three concrete examples. (a) *Hardship programs* in the 2020 pandemic re-amortized millions of mortgages. The eligibility rule (recent unemployment, payment hardship attestation) used information about the borrower that the application-time $x$ did not contain. Loans that entered hardship were closed in the analytic record at the modification date; they were the ones most likely to default. Treating them as censored biases the default hazard *down*. (b) *Credit-line reductions* on revolving products. The bank cuts the limit on accounts whose utilization is climbing or whose external bureau score has fallen, and the account either pays out or transitions to a different product, ending its observation. Censoring depends on a behavior covariate that is rarely in the application-time $x$. (c) *Dealer recourse on indirect auto loans.* Loans bought with recourse can be sold back to the dealer when the dealer suspects payment trouble; those exits look like prepayments in the servicer's record but track future default better than prepayment does.]
+1.  *Administrative cutoff at* $\tau_{\text{end}}$ is the safe case. The data extraction date is exogenous to any individual loan's risk. Conditional on origination month $v$ and the covariate vector, the censoring time $C = \tau_{\text{end}} - v$ is deterministic, so $T \perp C \mid x, v$ holds by construction. This is why most credit-survival papers simply state "all censoring is administrative" and stop there.[^09-survival-analysis-1]
+2.  *Prepayment is the dangerous case.* A 36-month auto loan booked at month $v$ with covariates $x$ has a latent default time $T$ drawn from $h(t \mid x)$. At month 18, the borrower's credit improves (a fact not in $x$, unless you instrument refreshed scores), and a competitor offers a lower rate; the borrower refinances, so the loan is closed at $C = 18$ with $\delta_i = 0$. The naive likelihood treats this row as "survived 18 months, future unknown, average risk going forward" via the $S(18 \mid x)$ factor in @eq-liki. But the row was *not* average: it was a future low-risk borrower, removed from the risk set precisely because that information leaked through the refinance offer. Multiply across thousands of similar prepayments. After month 18, the surviving cohort is enriched in high-risk borrowers, the Kaplan-Meier drop rate over each subsequent interval rises, and the estimated baseline hazard $\hat{h}(t)$ for $t > 18$ tilts upward. Lifetime $\hat{F}(M \mid x) = 1 - \hat{S}(M \mid x)$ inherits the bias and the bank over-reserves on a portfolio that, if anything, is healthier than reported. **Fix**: do not call refinance "censoring." Treat it as a competing event with its own cause-specific hazard $h_{\text{prepay}}(t \mid x)$, fit jointly, and use Aalen-Johansen or Fine-Gray for the report (see @sec-ch09-competing).
+3.  *Lender-initiated closure (line cuts, charge-off short of default, forced refinance) is the intermediate case.* The decision is made by the bank using information about the account that may or may not be in $x$. If risk-driver scores, behavior, and macro covariates are all in $x$, conditional independence is plausible; if not, censoring is informative.[^09-survival-analysis-2]
+
+[^09-survival-analysis-1]: Even the safe case has corner cases. Suppose the bank truncates the data extract at $\tau_{\text{end}}$ but a separate IT pipeline drops loans that have been "inactive" for three months ahead of extraction. Now $C$ depends on payment behavior, which depends on $T$. The fix is to use the original servicing snapshot, not a cleaned downstream copy.
+
+[^09-survival-analysis-2]: Three concrete examples. (a) *Hardship programs* in the 2020 pandemic re-amortized millions of mortgages. The eligibility rule (recent unemployment, payment hardship attestation) used information about the borrower that the application-time $x$ did not contain. Loans that entered hardship were closed in the analytic record at the modification date; they were the ones most likely to default. Treating them as censored biases the default hazard *down*. (b) *Credit-line reductions* on revolving products. The bank cuts the limit on accounts whose utilization is climbing or whose external bureau score has fallen, and the account either pays out or transitions to a different product, ending its observation. Censoring depends on a behavior covariate that is rarely in the application-time $x$. (c) *Dealer recourse on indirect auto loans.* Loans bought with recourse can be sold back to the dealer when the dealer suspects payment trouble; those exits look like prepayments in the servicer's record but track future default better than prepayment does.
 
 Independent censoring is *not* fully testable from observed data: $T$ is unobserved precisely when $C$ is observed, so the joint distribution $(T, C)$ is not identified without further assumptions [@tsiatis1975nonidentifiability]. What can be done is to gather evidence:
 
@@ -94,7 +98,15 @@ Independent censoring is *not* fully testable from observed data: $T$ is unobser
 -   *Sensitivity / tipping-point analysis.* Assume censored borrowers default at rate $\rho \cdot \hat{h}(t \mid x)$ for $\rho \in [0.5, 2]$ and re-estimate $S$. Report the range. If the 12m PD is stable across the range, the report is robust; if it flips sign on a key decision, escalate.
 -   *Holdout against a clean cohort.* Where possible, fit on a vintage with mostly administrative censoring and compare the implied hazard to a vintage with heavy prepay. Persistent disagreement past what covariates explain is informative-censoring evidence.
 
-The honest position: $T \perp C \mid x$ is a working assumption that you make defensible by (a) including the covariates that drive censoring, (b) modeling prepayment as a competing event rather than independent censoring, and (c) reporting the IPCW or tipping-point sensitivity alongside the headline survival curve. @sec-ch09-defensibility runs all four diagnostics in code on the simulated cohort.
+> $T \perp C \mid x$ is a working assumption that you make defensible by
+>
+> \(a\) including the covariates that drive censoring,
+>
+> \(b\) modeling prepayment as a competing event rather than independent censoring, and
+>
+> \(c\) reporting the IPCW or tipping-point sensitivity alongside the headline survival curve.
+>
+> @sec-ch09-defensibility runs all four diagnostics in code on the simulated cohort.
 
 Then the contribution of observation $i$ to the likelihood is
 
@@ -113,7 +125,9 @@ Total log-likelihood is $\ell(\theta) = \sum_i \delta_i \log h(y_i \mid x_i; \th
 
 A related but distinct pitfall is *left truncation*. Suppose the analytic window opens at calendar time $\tau_{\text{start}}$ and a loan was originated earlier, at $v < \tau_{\text{start}}$. The loan only enters the dataset because it was *still alive* at $\tau_{\text{start}}$, that is, at age $a_0 = \tau_{\text{start}} - v > 0$. What is wrong with treating it as if it had been observed from age 0? Two things, both about selection.
 
-First, the cohort of "loans alive at $\tau_{\text{start}}$" excludes every loan from the same vintage that already defaulted before $\tau_{\text{start}}$. Pretending the observation started at age 0 puts a survivor in the risk set at every young age $0 \le t < a_0$ where they were *not actually observable*, so $n_k$ in the KM denominator is inflated for early time bins. Early hazards come out biased *downward*. Second, the at-risk indicator inside the partial likelihood becomes wrong: at event time $t < a_0$, this loan should not be in $\mathcal{R}(t)$ at all, because we would never have seen it had it failed before $\tau_{\text{start}}$. Including it pretends we had information we did not.
+-   First, the cohort of "loans alive at $\tau_{\text{start}}$" excludes every loan from the same vintage that already defaulted before $\tau_{\text{start}}$. Pretending the observation started at age 0 puts a survivor in the risk set at every young age $0 \le t < a_0$ where they were *not actually observable*, so $n_k$ in the KM denominator is inflated for early time bins. Early hazards come out biased *downward*.
+
+-   Second, the at-risk indicator inside the partial likelihood becomes wrong: at event time $t < a_0$, this loan should not be in $\mathcal{R}(t)$ at all, because we would never have seen it had it failed before $\tau_{\text{start}}$. Including it pretends we had information we did not.
 
 The fix is *delayed entry*, not deletion. Drop the rows and you discard valid follow-up at ages $a \ge a_0$, throwing away exactly the data the older vintages contribute (and biasing toward young vintages, which themselves bias toward early defaulters). Instead, re-define each row's at-risk window: enter the risk set at age $a_0$, exit at age $a_0 + \text{follow-up}$, with the event indicator unchanged. The Kaplan-Meier and Cox estimators then form $\mathcal{R}(t) = \{i : a_0^{(i)} \le t \le \text{exit}^{(i)}\}$ and the math goes through. The `lifelines` `entry` argument and the counting-process $(\text{start}, \text{stop}, \text{event})$ formulation of @andersen1982cox implement this directly. @sec-ch09-truncation-demo shows the bias and the fix on simulated data.
 
@@ -121,9 +135,9 @@ The fix is *delayed entry*, not deletion. Drop the rows and you discard valid fo
 
 A naive approach frames default as a binary outcome: over the horizon $H$, did the borrower default? Fit a logistic regression [@thomas2000survey]. That works when $H$ is fixed and the portfolio composition is stable. It fails in three ways:
 
-1.  Horizons are not fixed. IFRS 9 stage-2 uses lifetime. Scenario testing uses 3-year. Pricing uses 5-year. A single logistic cannot produce all three without refitting.
-2.  Censoring is ignored. A loan booked 3 months ago with 33 months to go is treated as a non-default. It gives the same evidence as a loan that survived 36 months. The first is mostly missing.
-3.  The time profile is informative. Early defaults cluster around affordability shocks; late defaults track adverse selection and macro shocks [@duffie2007multi; @bellotti2009credit]. A hazard curve carries that signature.
+1.  **Horizons are not fixed**. IFRS 9 stage-2 uses lifetime. Scenario testing uses 3-year. Pricing uses 5-year. A single logistic cannot produce all three without refitting.
+2.  **Censoring is ignored**. A loan booked 3 months ago with 33 months to go is treated as a non-default. It gives the same evidence as a loan that survived 36 months. The first is mostly missing.
+3.  **The time profile is informative**. Early defaults cluster around affordability shocks; late defaults track adverse selection and macro shocks [@duffie2007multi; @bellotti2009credit]. A hazard curve carries that signature.
 
 The rest of the chapter shows how to extract it.
 
@@ -214,7 +228,7 @@ report = pd.DataFrame({
 report.round(4)
 ```
 
-The modeler touched only $k$, $\lambda$, $\beta$. Everything the report shows, the curves and the two PDs, follows from @eq-triplet. Swapping the Weibull for a Cox baseline plus the same $\beta x$ would change the *shape* of $h$ but leave the pipeline (hazard $\to$ $H$ $\to$ $S$ $\to$ horizon PD) identical; that is the payoff of treating the hazard as the primitive. The remaining sections of this chapter populate the *specify $h$* step with progressively richer estimators, but the *report $S$* step never changes.
+The modeler touched only $k$, $\lambda$, $\beta$. Everything the report shows, the curves and the two PDs, follows from @eq-triplet. Swapping the Weibull for a Cox baseline plus the same $\beta x$ would change the *shape* of $h$ but leave the pipeline (hazard $\to$ $H$ $\to$ $S$ $\to$ horizon PD) identical; that is the payoff of treating the hazard as the primitive. The remaining sections of this chapter populate the *specify* $h$ step with progressively richer estimators, but the *report* $S$ step never changes.
 
 ### Informative censoring: a numerical demo {#sec-ch09-informative-censoring-demo}
 
@@ -431,6 +445,89 @@ print(out.resolve())
 
 Four numbers reach the validation pack: the 12m PD under naive vs IPCW, the lifetime PD range across $\rho \in [0.5, 2]$, the clean-cohort lifetime PD, and the KS distance on $Z$ across cause cohorts. No single number is dispositive: the naive-vs-IPCW gap detects mis-specification of $x$, the tipping range bounds decision robustness, the clean-cohort vintage probes for confounding the model never sees, and the KS column triggers all three when it is large. A model card that reports only the headline survival curve has not earned the right to call its censoring independent.
 
+### From script to production: the `survival_diagnostics` package {#sec-ch09-defensibility-production}
+
+The scratch block above is the right shape for a chapter, but the validation cycle is not "run a notebook once." A bank pulls a fresh cohort every quarter, refits the headline survival model, and needs the four diagnostics rebuilt without rewriting any of them. The package `book/code/survival_diagnostics/` factors the same logic into versioned modules and exposes a single entry point `run_diagnostics(cohort, config)` that returns a JSON-serialisable artifact suitable for the SR 11-7 / IFRS 9 model-validation pack. A FastAPI wrapper at `book/deployment/survival_diagnostics_app.py` serves the artifact on demand.
+
+The package layout mirrors the four diagnostics one-to-one: `overlap.py` runs the cause-cohort KS plus standardised mean differences, `ipcw.py` fits the censoring Cox with stabilised and capped weights, `tipping.py` runs the $\rho$ sweep, `holdout.py` compares the clean and prepay-heavy cohorts, and `competing.py` adds Aalen-Johansen cumulative incidence and a Fine-Gray fit under the Geskus reduction. `pipeline.py` orchestrates them, traps per-step failures into an `errors` block rather than failing the whole artifact, and serialises everything through `DiagnosticsArtifact.to_json()`.
+
+The same synthetic cohort that drove the scratch block, but routed through the production entry point:
+
+```{python}
+#| label: tbl-ch09-survival-diagnostics-pkg
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('../code').resolve()))
+
+import numpy as np
+import pandas as pd
+from survival_diagnostics import (
+    DiagnosticsConfig, IpcwConfig, TippingConfig,
+    run_diagnostics, validate_cohort,
+)
+
+rng_pkg = np.random.default_rng(11)
+n_pkg, term_pkg = 5000, 36
+Z_pkg = rng_pkg.normal(size=n_pkg)
+util_pkg = rng_pkg.beta(2, 5, size=n_pkg)
+T_pkg = 50.0 * np.exp(-0.6 * Z_pkg) * rng_pkg.weibull(1.4, size=n_pkg)
+P_pkg = 60.0 * np.exp(+0.6 * Z_pkg) * rng_pkg.weibull(1.4, size=n_pkg) * 0.6
+A_pkg = np.full(n_pkg, float(term_pkg))
+times_pkg = np.column_stack([T_pkg, P_pkg, A_pkg])
+which_pkg = np.argmin(times_pkg, axis=1)
+Y_pkg = times_pkg[np.arange(n_pkg), which_pkg]
+cause_pkg = np.where(which_pkg == 0, 'default',
+              np.where(which_pkg == 1, 'prepay', 'admin'))
+
+cohort_df = pd.DataFrame({
+    'loan_id': [f'L{i:06d}' for i in range(n_pkg)],
+    'duration': Y_pkg,
+    'event': (cause_pkg == 'default').astype(int),
+    'cause': cause_pkg,
+    'vintage': rng_pkg.choice(['2023-Q1', '2023-Q2', '2023-Q3'], size=n_pkg),
+    'Z': Z_pkg,
+    'util': util_pkg,
+})
+cohort = validate_cohort(cohort_df, ['Z', 'util'], term_months=term_pkg)
+clean_mask_pkg = (cohort_df['vintage'] == '2023-Q3').to_numpy()
+
+cfg = DiagnosticsConfig(
+    horizons_months=(12, 24, 36),
+    ipcw=IpcwConfig(censoring_cause='prepay', cap_quantile=0.99),
+    tipping=TippingConfig(),
+    fit_fine_gray=True, fit_aalen_johansen=True,
+    clean_cohort_mask=clean_mask_pkg,
+)
+artifact = run_diagnostics(cohort, cfg)
+out_pkg = Path('../deployment/artifacts/ch09_survival_diagnostics_pkg.json')
+artifact.write(out_pkg)
+
+print(f"naive    PD@12m = {artifact.pd_at_horizons['naive']['pd_12m']:.4f}")
+print(f"ipcw     PD@12m = {artifact.pd_at_horizons['ipcw']['pd_12m']:.4f}")
+print(f"AJ CIF   PD@12m = {artifact.pd_at_horizons['aalen_johansen']['pd_12m']:.4f}")
+print(f"lifetime naive  = {artifact.pd_lifetime['naive']:.4f}")
+print(f"lifetime ipcw   = {artifact.pd_lifetime['ipcw']:.4f}")
+print(f"tipping band on rho in [0.5, 2.0]: "
+      f"[{artifact.pd_lifetime['tipping']['decision_band_min']:.4f}, "
+      f"{artifact.pd_lifetime['tipping']['decision_band_max']:.4f}]")
+print(f"clean cohort PD = {artifact.holdout['pd_clean']:.4f} "
+      f"vs full {artifact.holdout['pd_full']:.4f}")
+print(f"any covariate imbalance across causes: "
+      f"{artifact.cause_overlap['any_imbalanced']}")
+print(f"ipcw cap value = {artifact.ipcw_weights['cap_value']:.2f} "
+      f"(p99 weight); share above cap = {artifact.ipcw_weights['cap_share']:.4f}")
+print(f"errors = {artifact.errors}")
+```
+
+The values reproduce the scratch block to two decimals: the IPCW correction closes most of the naive-vs-oracle gap, the tipping band brackets the lifetime PD over the conventional $\rho \in [0.5, 2]$ range, the clean-cohort vintage sits close to the full cohort because the simulated DGP does not have unmeasured confounders, and the cause-overlap test fires because $Z$ does discriminate prepay from default by construction. The Fine-Gray fit returns a default-cause subdistribution coefficient on $Z$ that an IFRS 9 stage-1 lifetime PD curve would consume directly.
+
+The FastAPI service is the contract between this package and a downstream validation system. A `POST /diagnostics/run` with a vintage tag, a covariate list, and an optional clean-cohort query string runs the same `run_diagnostics` call against a cohort Parquet at `$SD_COHORT_ROOT/<vintage>.parquet`, persists the artifact at `$SD_ARTIFACT_ROOT/<vintage>.json`, and returns a summary block. `GET /diagnostics/<vintage>` and `GET /diagnostics/<vintage>/card` serve the persisted artifact and the auto-generated model card. Two operational notes:
+
+-   The Cox censoring fit is the slow step. For vintages above \~200k loans, batch the diagnostics in Airflow / Dagster overnight and let the API serve cached artifacts; ad-hoc reruns then fall back to the on-demand path for slices that fit in seconds.
+-   The `errors` field is non-empty when one diagnostic fails (too few prepay events, positivity violations on a sub-cohort, sksurv's competing-risks routine refusing a degenerate cause vector). The pipeline records the error and returns the rest of the artifact: silence in a validation pack is worse than a partial result with an explicit failure mode.
+
+The package and the chapter block compute the same numbers off the same logic. The difference is reproducibility: the package is unit-testable, versionable through `__init__.py`, and the artifact JSON sits next to the headline KM in the validation pack with a SHA on the cohort file as provenance.
+
 ### Left truncation: a numerical demo {#sec-ch09-truncation-demo}
 
 @fig-ch09-truncation makes the selection issue concrete. A single Weibull cohort is generated and three KM curves are compared: (i) the oracle, observing every loan from origination; (ii) a left-truncated dataset where loans only enter when they are still alive at calendar window open ($\tau_{\text{start}}$), fit *naively* as if all observations started at age 0; and (iii) the same truncated dataset fit with delayed entry. Curves (i) and (iii) overlap; curve (ii) overstates survival at early ages because survivors are credited for time they never spent in the risk set.
@@ -541,9 +638,9 @@ The three curves separate almost monotonically in risk, with the weakest band lo
 
 In the simulation above the `risk` label is given by construction. Real portfolios do not arrive pre-bucketed by hazard. Bands come from one of three places.
 
-1. **Policy or regulatory grades.** Banks maintain a PD masterscale (for example seven to twenty-one grades aligned with rating-agency conventions). Each account is mapped to a grade by the application scorecard at booking. Kaplan-Meier by grade is then a *monitoring* chart: it tests whether the masterscale still separates survival as designed.
-2. **Operational segments.** Product, channel, vintage cohort, geography, or a coarse FICO bucket. These exist in the data because someone defined them upstream; KM by segment is a descriptive cut.
-3. **Data-driven binning of a fitted risk score.** When no grade exists, fit a hazard model on covariates and bin the predicted score. This is the standard construction inside model development.
+1.  **Policy or regulatory grades.** Banks maintain a PD masterscale (for example seven to twenty-one grades aligned with rating-agency conventions). Each account is mapped to a grade by the application scorecard at booking. Kaplan-Meier by grade is then a *monitoring* chart: it tests whether the masterscale still separates survival as designed.
+2.  **Operational segments.** Product, channel, vintage cohort, geography, or a coarse FICO bucket. These exist in the data because someone defined them upstream; KM by segment is a descriptive cut.
+3.  **Data-driven binning of a fitted risk score.** When no grade exists, fit a hazard model on covariates and bin the predicted score. This is the standard construction inside model development.
 
 The third path is the one a modeler builds. The recipe is: fit Cox (or any survival model) on covariates, take the linear predictor or partial hazard, and `qcut` it into deciles or tertiles. Cut points are frozen on the development sample so out-of-time accounts land in known buckets.
 
@@ -589,8 +686,8 @@ Band A corresponds to the lowest-score tertile (best credit), C to the highest. 
 
 Two refinements worth knowing:
 
-* **Survival trees** (`scikit-survival` `SurvivalTree`, R `rpart` with `method = "exp"`) produce data-driven bands by recursively splitting covariates to maximize log-rank separation. Useful when interactions matter and a single linear score under-fits.
-* **Optimal cutpoint search on a single covariate** (R `survminer::surv_cutpoint`, or a hand-rolled grid over `logrank_test`) finds a cut on a continuous variable that maximizes the log-rank statistic. Common in medical survival; less common in credit because masterscale grades are policy artifacts, not chosen to maximize separation post-hoc.
+-   **Survival trees** (`scikit-survival` `SurvivalTree`, R `rpart` with `method = "exp"`) produce data-driven bands by recursively splitting covariates to maximize log-rank separation. Useful when interactions matter and a single linear score under-fits.
+-   **Optimal cutpoint search on a single covariate** (R `survminer::surv_cutpoint`, or a hand-rolled grid over `logrank_test`) finds a cut on a continuous variable that maximizes the log-rank statistic. Common in medical survival; less common in credit because masterscale grades are policy artifacts, not chosen to maximize separation post-hoc.
 
 For the rest of this section we keep the synthetic `risk` label so the math stays clean.
 
@@ -749,21 +846,17 @@ The scratch estimator and `lifelines` differ by a tiny amount because `lifelines
 
 #### What the assumption says, in one picture
 
-Proportional hazards (PH) means the hazard ratio between any two borrowers is *constant in age*: a borrower with covariate $x$ runs $\exp((x - x')^\top \beta)$ times the hazard of a borrower with $x'$, today, in twelve months, and at month forty-eight. Equivalently, on the log-cumulative-hazard scale,
-$$
+Proportional hazards (PH) means the hazard ratio between any two borrowers is *constant in age*: a borrower with covariate $x$ runs $\exp((x - x')^\top \beta)$ times the hazard of a borrower with $x'$, today, in twelve months, and at month forty-eight. Equivalently, on the log-cumulative-hazard scale, $$
 \log H(t \mid x) = \log H_0(t) + x^\top \beta,
-$$ {#eq-ph-loglog}
-so the curves $\log H(t \mid x)$ for different covariate levels are parallel translations of each other; they never cross, narrow, or fan out. PH fails when an effect is strong early and fades (a high-utilization borrower defaults fast or not at all), when an effect builds with seasoning (a payment-shock variable that only matters after the teaser period), or when the population is mixed across regimes (origination year, product type, geography) so that the pooled "baseline" is itself a moving average of cohort-specific baselines. The diagnostics below detect each of these as a *time trend in residuals*.
+$$ {#eq-ph-loglog} so the curves $\log H(t \mid x)$ for different covariate levels are parallel translations of each other; they never cross, narrow, or fan out. PH fails when an effect is strong early and fades (a high-utilization borrower defaults fast or not at all), when an effect builds with seasoning (a payment-shock variable that only matters after the teaser period), or when the population is mixed across regimes (origination year, product type, geography) so that the pooled "baseline" is itself a moving average of cohort-specific baselines. The diagnostics below detect each of these as a *time trend in residuals*.
 
 #### Schoenfeld residuals and the Grambsch-Therneau test
 
 Recall from @eq-cox-score that at the MLE $\hat\beta$, the score contribution from event time $t_k$ is $r_k = x_{i_k} - \bar x(\hat\beta, R_k)$. This is the *Schoenfeld residual*: the difference between the failing subject's covariate and the risk-set-weighted mean. Under PH, $E[r_k] = 0$ at every event time, so a plot of $r_{kj}$ versus $t_k$ should be a horizontal cloud with no trend.
 
-@grambsch1994proportional sharpened this into a test by *scaling* the residual by the estimated covariance of the score at $t_k$:
-$$
+@grambsch1994proportional sharpened this into a test by *scaling* the residual by the estimated covariance of the score at $t_k$: $$
 r^*_k = d \cdot V(\hat\beta, R_k)^{-1} r_k,
-$$ {#eq-scaled-schoenfeld}
-where $d$ is the number of events. They show that if the true coefficient drifts as $\beta_j(t) = \beta_j + \theta_j g(t)$ for some known time function $g$ (e.g.\ $g(t) = \log t$ or the rank of $t$), then $E[r^*_{kj}] \approx \theta_j g(t_k)$. So *regressing the scaled residual on $g(t)$ and testing $\theta_j = 0$* is a direct test of constant-effect-in-time. `lifelines` reports this regression for each covariate and a global chi-squared.
+$$ {#eq-scaled-schoenfeld} where $d$ is the number of events. They show that if the true coefficient drifts as $\beta_j(t) = \beta_j + \theta_j g(t)$ for some known time function $g$ (e.g. $g(t) = \log t$ or the rank of $t$), then $E[r^*_{kj}] \approx \theta_j g(t_k)$. So *regressing the scaled residual on* $g(t)$ and testing $\theta_j = 0$ is a direct test of constant-effect-in-time. `lifelines` reports this regression for each covariate and a global chi-squared.
 
 #### Diagnostic on the simulated data (PH should hold)
 
@@ -800,11 +893,9 @@ On simulated data generated under proportional hazards, `lifelines` does not rej
 
 #### What violation looks like (constructive demo)
 
-To see what the test catches, build a dataset where the effect of one covariate *changes* at month $\tau = 12$. Concretely, simulate piecewise-constant hazards
-$$
+To see what the test catches, build a dataset where the effect of one covariate *changes* at month $\tau = 12$. Concretely, simulate piecewise-constant hazards $$
 h(t \mid x) = \lambda_0 \exp\!\big(\beta_1(t)\, x\big), \qquad \beta_1(t) = \begin{cases} 0.20, & t \le 12 \\ 1.20, & t > 12. \end{cases}
-$$ {#eq-ph-violator}
-This is the structural form behind "payment shock after teaser period": the same covariate behaves like a weak risk early, then a strong one after seasoning. Inverse-CDF sampling on the cumulative hazard gives exact times.
+$$ {#eq-ph-violator} This is the structural form behind "payment shock after teaser period": the same covariate behaves like a weak risk early, then a strong one after seasoning. Inverse-CDF sampling on the cumulative hazard gives exact times.
 
 ```{python}
 #| label: cox-ph-violator-sim
@@ -897,7 +988,7 @@ ctv = CoxTimeVaryingFitter(penalizer=1e-4).fit(
 print(ctv.summary[['coef', 'exp(coef)', 'p']].round(4))
 ```
 
-The `x` row recovers the pre-$\tau$ effect ($\beta_1 \approx 0.20$); summing `x` and `x_post` recovers the post-$\tau$ effect ($\beta_1 \approx 1.20$). When $\tau$ is unknown, replace the indicator with a smooth function of time (e.g.\ $x \cdot \log t$) and read off $\theta_j$ directly, as in @eq-scaled-schoenfeld.
+The `x` row recovers the pre-$\tau$ effect ($\beta_1 \approx 0.20$); summing `x` and `x_post` recovers the post-$\tau$ effect ($\beta_1 \approx 1.20$). When $\tau$ is unknown, replace the indicator with a smooth function of time (e.g. $x \cdot \log t$) and read off $\theta_j$ directly, as in @eq-scaled-schoenfeld.
 
 #### Fix 3: switch to AFT {#sec-ch09-ph-fix-aft}
 
@@ -1848,10 +1939,10 @@ Each thread is one cohort's loss curve: $\hat F_v(a) = 1 - \hat S_v(a)$, the Kap
 
 What to read off the chart in production:
 
-- *Ordering at a fixed age.* Slice the curves at, say, $a = 12$ to rank cohort risk holding seasoning constant. This is the workhorse vintage-quality KPI.
-- *Slope at a fixed age.* The local slope of $\hat F_v(a)$ approximates the discrete hazard $\hat h_v(a)$. Steepening across consecutive cohorts is early evidence of underwriting deterioration.
-- *Plateau level.* Where the curve flattens approximates the lifetime default rate for that cohort. This number feeds lifetime PD for IFRS 9 stage-2 / stage-3 transfers and CECL pool-level expected credit loss.
-- *Crossovers.* If cohort $A$ starts above cohort $B$ but $B$ overtakes later, the cohorts have different timing structure (front-loaded fraud or first-payment default in one, back-loaded affordability stress in the other), not just different levels.
+-   *Ordering at a fixed age.* Slice the curves at, say, $a = 12$ to rank cohort risk holding seasoning constant. This is the workhorse vintage-quality KPI.
+-   *Slope at a fixed age.* The local slope of $\hat F_v(a)$ approximates the discrete hazard $\hat h_v(a)$. Steepening across consecutive cohorts is early evidence of underwriting deterioration.
+-   *Plateau level.* Where the curve flattens approximates the lifetime default rate for that cohort. This number feeds lifetime PD for IFRS 9 stage-2 / stage-3 transfers and CECL pool-level expected credit loss.
+-   *Crossovers.* If cohort $A$ starts above cohort $B$ but $B$ overtakes later, the cohorts have different timing structure (front-loaded fraud or first-payment default in one, back-loaded affordability stress in the other), not just different levels.
 
 Two cautions before reading the picture as truth. First, right truncation: young cohorts have a shorter maximum observable age, so their tails are not estimable past $\tau_{\text{end}} - v$. Compare cohorts only at ages where every cohort in the comparison has been observed, otherwise the youngest curves look artificially clean because their late-defaulters have not yet had time to default. Second, the curves indexed by vintage and plotted against age confound vintage with calendar, because $\text{calendar} = v + a$. If origination quality is constant but a macro shock hit at a particular calendar month, every cohort that was alive then will show a kink at age $a = \text{shock month} - v$, and the kinks will trace a diagonal across the family of curves rather than a horizontal shift. Disentangling that diagonal is the job of the age-vintage-calendar decomposition that follows.
 
@@ -1894,8 +1985,7 @@ $$
 y_{v,a} = f(a) + g(v) + h(c) + \varepsilon_{v,a}, \qquad c = v + a.
 $$ {#eq-avc-additive}
 
-Because $c = v + a$ is a linear identity on the panel, the model is rank deficient. For any scalar $k$ the rotation
-$$
+Because $c = v + a$ is a linear identity on the panel, the model is rank deficient. For any scalar $k$ the rotation $$
 \bigl(f, g, h\bigr) \mapsto \bigl(f + k\,a,\, g + k\,v,\, h - k\,c\bigr)
 $$ {#eq-avc-rotation}
 
@@ -2217,12 +2307,12 @@ fig.tight_layout(); plt.show()
 
 The block above is a research artifact. It is concise, the math is right, and it is fine for a notebook. Six things stop it from being a production ECL component.
 
-1. *Per-vintage Weibull on small cohorts is unstable.* Each vintage gets its own two-parameter fit on a few thousand loans, almost all censored at the youngest vintages. Pooling with vintage covariates trades a little bias for a lot of variance.
-2. *The forward macro path is missing.* Ingredient (2) in the recipe never enters the code. The function takes no scenario; baseline and stress are indistinguishable.
-3. *PD is not loss.* IFRS 9 ECL is $\sum_i \mathrm{EAD}_i \cdot \mathrm{LGD}_i \cdot \mathrm{PD}_i$ summed over the horizon. The script reports a mean PD across vintages.
-4. *No exposure weighting.* The portfolio average uses `mean()` over vintages, not a balance-weighted aggregate.
-5. *No input validation, logging, or backtest.* A negative incremental PD is silently clipped to zero, hiding bad fits. There is no walk-forward check that the predicted 12-month rate matches realized.
-6. *No model card, no segmentation, no governance trail.* SR 11-7 [@sr117] requires conceptual soundness, ongoing monitoring, and effective challenge; IFRS 9 [@ifrs9] requires forward-looking information, lifetime ECL for stage 2 / stage 3, and overlay governance.
+1.  *Per-vintage Weibull on small cohorts is unstable.* Each vintage gets its own two-parameter fit on a few thousand loans, almost all censored at the youngest vintages. Pooling with vintage covariates trades a little bias for a lot of variance.
+2.  *The forward macro path is missing.* Ingredient (2) in the recipe never enters the code. The function takes no scenario; baseline and stress are indistinguishable.
+3.  *PD is not loss.* IFRS 9 ECL is $\sum_i \mathrm{EAD}_i \cdot \mathrm{LGD}_i \cdot \mathrm{PD}_i$ summed over the horizon. The script reports a mean PD across vintages.
+4.  *No exposure weighting.* The portfolio average uses `mean()` over vintages, not a balance-weighted aggregate.
+5.  *No input validation, logging, or backtest.* A negative incremental PD is silently clipped to zero, hiding bad fits. There is no walk-forward check that the predicted 12-month rate matches realized.
+6.  *No model card, no segmentation, no governance trail.* SR 11-7 [@sr117] requires conceptual soundness, ongoing monitoring, and effective challenge; IFRS 9 [@ifrs9] requires forward-looking information, lifetime ECL for stage 2 / stage 3, and overlay governance.
 
 The next three blocks rebuild the forecast as a production-shaped function: a pooled Weibull AFT with seasonality and macro-drift covariates, an `expected_credit_loss` function with schema validation and macro scenarios, and a walk-forward backtest. The intent is illustrative, not turnkey: a real shop adds a separate LGD model, prepayment as a competing risk (@sec-ch09-competing), segmentation, lifetime ECL for stage 2 / stage 3, and an MLflow / model-card trail.
 
@@ -2761,7 +2851,7 @@ print(f"Harrell's C (lifetime risk score) = {c_index:.4f}  "
 
 #### Population stability of inputs by vintage
 
-A model that is well-calibrated on training cohorts can drift if origination policy shifts the input distribution. The Population Stability Index (PSI) [@yurdakul2018statistical] flags this: PSI < 0.10 is stable, 0.10 to 0.25 is a watch zone, > 0.25 is a material shift that triggers a recalibration review. We compute PSI on `z` and on the macro covariate `u` between train and holdout, using train deciles as the reference bins. In this simulation `z` is i.i.d. across vintages (PSI close to zero) while `u` is a calendar-time AR(1) with a shock around month 18, so the holdout vintages land on the shock and PSI on `u` registers as a large material shift. That is exactly the situation the index is designed to flag: training calibration is intact, but the model is being asked to score loans whose macro environment was rare in the fit window, and the validation block above must be re-read with that warning in mind.
+A model that is well-calibrated on training cohorts can drift if origination policy shifts the input distribution. The Population Stability Index (PSI) [@yurdakul2018statistical] flags this: PSI \< 0.10 is stable, 0.10 to 0.25 is a watch zone, \> 0.25 is a material shift that triggers a recalibration review. We compute PSI on `z` and on the macro covariate `u` between train and holdout, using train deciles as the reference bins. In this simulation `z` is i.i.d. across vintages (PSI close to zero) while `u` is a calendar-time AR(1) with a shock around month 18, so the holdout vintages land on the shock and PSI on `u` registers as a large material shift. That is exactly the situation the index is designed to flag: training calibration is intact, but the model is being asked to score loans whose macro environment was rare in the fit window, and the validation block above must be re-read with that warning in mind.
 
 ```{python}
 #| label: shumway-psi
@@ -3719,11 +3809,11 @@ fig.tight_layout(); plt.show()
 
 A few interpretation notes:
 
-- **Sample size matters.** $n = 1,000$ on UCI German credit is two orders of magnitude smaller than the per-portfolio counts in @dirick2017time, so concordance differences within a few hundredths of a point are inside the bootstrap band shown in @fig-ch09-bench-metrics. The interest is the qualitative ordering of families, not the absolute numbers.
-- **Pseudo-survival caveat.** German-credit `duration` is the contractual term length recorded at observation, not an observed time-to-default in the calendar sense. The consumer-credit literature uses it as a benchmark anyway [@stepanova2002survival], with the understanding that the resulting numbers are not interpretable as production-grade calibrations.
-- **Why three flavors of metric.** C-index and time-dependent AUC summarize discrimination; IBS summarizes calibration plus discrimination jointly. A model that wins on C and loses on IBS has a rank-correct but mis-located survival curve, the dangerous failure mode for IFRS 9 ECL because rank-correct decisions still get priced off a wrong absolute level.
-- **What to expect.** The exponential AFT is consistently last because its constant hazard cannot bend to the early-life rise; Cox PH with splines tends to add a small but real edge over linear Cox when continuous covariates enter the log-hazard non-linearly; gradient-boosted survival typically wins on C and AUC at 12 months when the covariate set has interactions; AFTs win on IBS at long horizons when their parametric tail is the right shape.
-- **Out-of-scope on this file.** The multi-event mixture cure splits the susceptible component across competing terminations (default vs. prepayment); German credit has no prepayment indicator. The synthetic Vietnam-Tet panel at @sec-ch09-vietnam-code adds the prepayment cause and re-runs cause-specific Cox, Fine-Gray, and a multi-event cure end-to-end on data that carries the second cause.
+-   **Sample size matters.** $n = 1,000$ on UCI German credit is two orders of magnitude smaller than the per-portfolio counts in @dirick2017time, so concordance differences within a few hundredths of a point are inside the bootstrap band shown in @fig-ch09-bench-metrics. The interest is the qualitative ordering of families, not the absolute numbers.
+-   **Pseudo-survival caveat.** German-credit `duration` is the contractual term length recorded at observation, not an observed time-to-default in the calendar sense. The consumer-credit literature uses it as a benchmark anyway [@stepanova2002survival], with the understanding that the resulting numbers are not interpretable as production-grade calibrations.
+-   **Why three flavors of metric.** C-index and time-dependent AUC summarize discrimination; IBS summarizes calibration plus discrimination jointly. A model that wins on C and loses on IBS has a rank-correct but mis-located survival curve, the dangerous failure mode for IFRS 9 ECL because rank-correct decisions still get priced off a wrong absolute level.
+-   **What to expect.** The exponential AFT is consistently last because its constant hazard cannot bend to the early-life rise; Cox PH with splines tends to add a small but real edge over linear Cox when continuous covariates enter the log-hazard non-linearly; gradient-boosted survival typically wins on C and AUC at 12 months when the covariate set has interactions; AFTs win on IBS at long horizons when their parametric tail is the right shape.
+-   **Out-of-scope on this file.** The multi-event mixture cure splits the susceptible component across competing terminations (default vs. prepayment); German credit has no prepayment indicator. The synthetic Vietnam-Tet panel at @sec-ch09-vietnam-code adds the prepayment cause and re-runs cause-specific Cox, Fine-Gray, and a multi-event cure end-to-end on data that carries the second cause.
 
 ## Scalability
 
@@ -4023,7 +4113,7 @@ Operational concerns particular to survival models.
 -   Covariate vintaging. Time-varying covariates in the scoring time refer to their value at calendar time $v + a$. Serving those correctly requires a careful temporal join; a bug here leaks the future and inflates performance. The `metadata['feature_order']` list and a per-feature `as_of` field in the artifact are the contract that prevents the join from drifting.
 -   Survival PD vs point PD. A Basel or IFRS 9 report must report PD at specific horizons; a survival model's natural output is the full $S(t)$. The `/pd` endpoint above returns the point PD at one horizon for legacy consumers; the `/pd_curve` endpoint returns the full curve so downstream IFRS 9 ECL and Basel one-year IRB can pull from a single source of truth.
 
-@fig-ch09-monitoring is the minimum monitoring artifact a survival model owes its model-risk reviewer. The left panel is calibration: how close the predicted cumulative PD lands to the realized rate at each reporting horizon, vintage by vintage. The right panel is the same information as a bias bar chart, the format SR 11-7 reviewers prefer because the SLA threshold ($\pm$50 bp at 12 months on a representative cohort, for example) is a horizontal line on it. In production the same panel is regenerated under each macro scenario for IFRS 9 ECL and is the chart that triggers a model-risk re-review when bias drifts outside the SLA band.
+@fig-ch09-monitoring is the minimum monitoring artifact a survival model owes its model-risk reviewer. The left panel is calibration: how close the predicted cumulative PD lands to the realized rate at each reporting horizon, vintage by vintage. The right panel is the same information as a bias bar chart, the format SR 11-7 reviewers prefer because the SLA threshold (\$\pm\$50 bp at 12 months on a representative cohort, for example) is a horizontal line on it. In production the same panel is regenerated under each macro scenario for IFRS 9 ECL and is the chart that triggers a model-risk re-review when bias drifts outside the SLA band.
 
 ```{python}
 #| label: fig-ch09-monitoring
