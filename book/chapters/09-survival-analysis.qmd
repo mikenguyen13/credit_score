@@ -619,7 +619,7 @@ The naive PD sits below the truth at both horizons. Two readings of the same gap
 
 Right truncation has a different fingerprint and a different fix. We simulate the *defaulted-only extract* case: a Weibull cohort is generated from origination, the analysis cutoff is $\tau_{\text{end}}$ months after the earliest origination, and we keep only the loans that have already defaulted by the cutoff. The pretend-it-is-complete sample is what arrives in the warehouse when a chargeoff team hands you "the default file" without the at-risk denominator.
 
-A clarification on what is identifiable. With right truncation alone the data identify the *conditional* event-time distribution on the observed support $[0, t^*]$ where $t^* = \max_i R_i$ and $R_i = \tau_{\text{end}} - v_i$ is the per-row truncation bound, that is, $F_T(t)/F_T(t^*)$. The marginal $F_T$ on the full support is unidentifiable from the truncated sample alone; recovering it requires either an external estimate of $F_T(t^*)$ (e.g. a known portfolio default rate) or a parametric tail. The simulation below is calibrated so $F_T(t^*) \approx 1$, which lets us read the conditional and unconditional CDFs as essentially the same number; the production code reports the conditional CDF and flags whenever $t^*$ is materially below the credit-policy horizon.
+A clarification on what is identifiable. With right truncation alone, the data identify the *conditional* event-time distribution on the observed support $[0, t^*]$ where $t^* = \max_i R_i$ and $R_i = \tau_{\text{end}} - v_i$ is the per-row truncation bound, that is, $F_T(t)/F_T(t^*)$. The marginal $F_T$ on the full support is unidentifiable from the truncated sample alone; recovering it requires either an external estimate of $F_T(t^*)$ (e.g. a known portfolio default rate) or a parametric tail. The simulation below is calibrated so $F_T(t^*) \approx 1$, which lets us read the conditional and unconditional CDFs as essentially the same number; the production code reports the conditional CDF and flags whenever $t^*$ is materially below the credit-policy horizon.
 
 @fig-ch09-right-truncation overlays three curves. (i) The oracle KM, fit on the full origination cohort with administrative right-censoring at $\tau_{\text{end}}$, is the truth we are trying to recover. (ii) The naive KM, fit on the defaulted-only subsample as if it were complete, is biased: every observation is an event, so the estimator collapses to the empirical CDF of $\{T_i \mid T_i \le R_i\}$, which over-represents short failure times. (iii) The reverse-time delayed-entry KM applies the @lagakos1988nonparametric construction: with $X_i = t^* - T_i$ and $B_i = t^* - R_i$, the right-truncation constraint $T_i \le R_i$ becomes the left-truncation constraint $B_i \le X_i$, and forward-time delayed-entry KM on $(B_i, X_i)$ with all-event indicator gives $\widehat F_T(t)/\widehat F_T(t^*) = \widehat S_X(t^* - t)$. Curves (i) and (iii) overlap to within Monte Carlo noise; curve (ii) does not.
 
@@ -694,7 +694,13 @@ rt_df = pd.DataFrame(rt_rows).round(4)
 print(rt_df.to_string(index=False))
 ```
 
-Three things to read off the printed table. First, the naive estimator overstates PD at every horizon: the defaulted-only sample is dominated by short failure times, so the empirical CDF climbs too fast. Second, the bias is largest at the youngest ages and shrinks with $h$, because by $h \approx t^*$ the naive empirical CDF is forced to one (every retained row defaulted by then) regardless of cohort. Third, the reverse-time delayed-entry KM matches the oracle to within tens of basis points across all three horizons, which is the practical demonstration that the fix is the right one. Lifelines' `KaplanMeierFitter.fit_left_truncation_right_censoring` covers the symmetric case where both biases are present at once; for retrospective extracts the construction above is the production path.
+Three things to read off the printed table:
+
+-   First, the naive estimator overstates PD at every horizon: the defaulted-only sample is dominated by short failure times, so the empirical CDF climbs too fast.
+
+-   Second, the bias is largest at the youngest ages and shrinks with $h$, because by $h \approx t^*$ the naive empirical CDF is forced to one (every retained row defaulted by then) regardless of cohort.
+
+-   Third, the reverse-time delayed-entry KM matches the oracle to within tens of basis points across two horizons, which is the practical demonstration that the fix is the right one. Lifelines' `KaplanMeierFitter.fit_left_truncation_right_censoring` covers the symmetric case where both biases are present at once.
 
 The production lesson is that the *first* check on any incoming cohort should be whether the event indicator is degenerate. If `event.mean() == 1` the cohort is event-only and a right-truncation correction is mandatory; if `event.mean() < 0.001` the cohort may have lost the defaulter join, which is the mirror failure mode and equally damaging. `survival_diagnostics.truncation` wraps both checks, fits the appropriate corrected KM, and emits an artifact field that the validation pipeline blocks on when the corrected and naive lifetime PDs disagree by more than the configured basis-point threshold.
 
@@ -747,13 +753,66 @@ $$
 \widehat{S}(t) = \prod_{k: t_k \le t} \frac{n_k - d_k}{n_k}.
 $$ {#eq-km}
 
-The derivation is direct. Under independent censoring and no ties, the empirical hazard at time $t_k$ is $\widehat{h}_k = d_k/n_k$, the discrete conditional probability of event at $t_k$ given at-risk status. Survival is the product of $1 - \widehat{h}_k$ across the event times traversed. @kaplan1958nonparametric prove that $\widehat{S}(t)$ is the nonparametric maximum likelihood estimator of $S(t)$ under independent right-censoring, with pointwise variance given by Greenwood's formula:
+The derivation is direct. Under independent censoring[^09-survival-analysis-3] and no ties[^09-survival-analysis-4], the empirical hazard at time $t_k$ is $\widehat{h}_k = d_k/n_k$, the discrete conditional probability of event at $t_k$ given at-risk status. Survival is the product of $1 - \widehat{h}_k$ across the event times traversed. @kaplan1958nonparametric prove that $\widehat{S}(t)$ is the nonparametric maximum likelihood estimator of $S(t)$ under independent right-censoring, with pointwise variance given by Greenwood's formula:
+
+[^09-survival-analysis-3]: **Independent censoring** (a.k.a. non-informative censoring)
+
+    Censoring time $C$ and event time $T$ independent given covariates. Operationally, borrower still at risk at $t$ has same hazard whether or not they will be censored later.
+
+    Examples:
+
+    -   **OK**: administrative censoring at 48-month observation cutoff. Cutoff date unrelated to borrower default risk.
+
+    -   **Violates**: borrower prepays because credit improved (so default risk dropped). Their censoring (prepay) carries information about $T$. KM treats them like a random dropout, biases $\widehat{S}(t)$ upward.
+
+    -   **Violates**: lender pulls high-risk loans off book early (sells distressed). Censoring correlated with hidden default propensity.
+
+    Why KM needs it: derivation treats $n_k$ (at-risk count) as if censored borrowers had the *same* future hazard as those still observed. If censoring is informative, that's false and $\widehat{h}_k = d_k/n_k$ is biased.
+
+[^09-survival-analysis-4]: **No ties**
+
+    Distinct event times $t_1 < t_2 < \ldots < t_K$. Only one default per time point.
+
+    In continuous time, $P(\text{tie}) = 0$, so the assumption is automatic in theory. In practice, loan data is discretized to month, so ties are common (multiple defaults in the same month).
+
+    Why the derivation invokes it: the simple $\widehat{h}_k = d_k/n_k$ reading as a discrete conditional probability is cleanest when one event happens at a time. With ties, the product-limit form *still works* (it's what the formula does: collapses all $d_k$ events at $t_k$ into one factor), but the Cox partial likelihood gets ambiguous (which event came first?) and needs Breslow/Efron/exact corrections.
+
+    So for KM: ties are fine, the formula handles them. The "no ties" caveat in the sentence is about the *clean derivation* of $\widehat{h}_k = d_k/n_k$ as a per-event hazard, not a usage restriction.
 
 $$
 \widehat{\mathrm{Var}}\left[\widehat{S}(t)\right] = \widehat{S}(t)^2 \sum_{k: t_k \le t} \frac{d_k}{n_k(n_k - d_k)}.
 $$ {#eq-greenwood}
 
-The product-limit form is robust to ties and gracefully handles censoring: censored observations stay in the denominator $n_k$ until they drop out between events. No assumption is made about the functional form of $S(t)$, the shape of the hazard, or the distribution of covariates.
+The product-limit form is robust to ties and gracefully handles censoring: censored observations stay in the denominator $n_k$ until they drop out between events. No assumption is made about the functional form of $S(t)$, the shape of the hazard[^09-survival-analysis-5], or the distribution of covariates.
+
+[^09-survival-analysis-5]: "Shape of hazard" = functional form of $h(t)$ as a function of $t$.
+
+    Recall the identity: $$
+    h(t) = -\frac{d}{dt} \log S(t), \qquad S(t) = \exp!\left(-\int_0^t h(u), du\right).
+    $$
+
+    So $S(t)$ and $h(t)$ are mathematically equivalent: fix one, the other is determined. Writing both in the sentence is mild redundancy, but they emphasize different things:
+
+    | Assumption being denied | What a parametric model would impose |
+    |----|----|
+    | Functional form of $S(t)$ | $S(t) = e^{-\lambda t}$ (exponential), $S(t) = e^{-(\lambda t)^k}$ (Weibull), etc. |
+    | Shape of the hazard | $h(t) = \lambda$ (constant, exponential), $h(t) = \lambda k (\lambda t)^{k-1}$ (monotone, Weibull), $h(t) = \lambda_0 \exp(\beta_0 + \beta_1 \log t)$ (log-logistic, hump-shaped) |
+
+    Concrete shapes the phrase is ruling out:
+
+    -   **Constant**: $h(t) = \lambda$. Memoryless. Default rate same at month 3 and month 36.
+
+    -   **Monotone increasing**: $h(t) \uparrow$. Risk grows with age on book.
+
+    -   **Monotone decreasing**: $h(t) \downarrow$. Front-loaded risk, survivors get safer.
+
+    -   **Bathtub**: $h(t)$ down then up. Burn-in then aging.
+
+    -   **Hump / unimodal**: $h(t)$ up then down. Classic for unsecured consumer credit, peak default hazard around month 9-15.
+
+    KM imposes none of these. $\widehat{h}_k = d_k/n_k$ is just whatever the data shows at each event time. The estimator can trace a hump, a spike, a flat line, anything.
+
+    Contrast with parametric AFT/PH where you write down $h(t; \theta)$ as a specific function of $t$ before fitting. Cox sits in between: arbitrary baseline $h_0(t)$ (no shape assumed), but $h(t \mid x) = h_0(t) e^{x^\top \beta}$ (proportional shift across covariates).
 
 ### Simulated loan cohort
 
@@ -801,7 +860,7 @@ The three curves separate almost monotonically in risk, with the weakest band lo
 
 ### Where do the bands come from? {#sec-ch09-bands-in-practice}
 
-In the simulation above the `risk` label is given by construction. Real portfolios do not arrive pre-bucketed by hazard. Bands come from one of three places.
+In the simulation above, the `risk` label is given by construction. Real portfolios do not arrive pre-bucketed by hazard. Bands come from one of three places.
 
 1.  **Policy or regulatory grades.** Banks maintain a PD masterscale (for example seven to twenty-one grades aligned with rating-agency conventions). Each account is mapped to a grade by the application scorecard at booking. Kaplan-Meier by grade is then a *monitoring* chart: it tests whether the masterscale still separates survival as designed.
 2.  **Operational segments.** Product, channel, vintage cohort, geography, or a coarse FICO bucket. These exist in the data because someone defined them upstream; KM by segment is a descriptive cut.
@@ -886,9 +945,13 @@ assert abs(S_lib - S_scratch) < 1e-8
 
 The scratch curve reproduces `lifelines` to numerical precision. The implementation is 20 lines because Kaplan-Meier is that simple. Two situations push the bookkeeping past what these 20 lines handle.
 
-The first is *ties*. Loan data is recorded in months, so several borrowers routinely default in the same period. Kaplan-Meier in its textbook form assumes events happen one at a time, which forces a choice about the order in which the tied borrowers leave the at-risk set. Two conventions are common. The Breslow approximation pretends all tied events happen simultaneously, which keeps the denominator constant across the tied group and is fast but biased when ties are heavy. The Efron approximation [@efron1977efficiency] is the more accurate alternative: it averages the contribution of each tied event over the possible orderings, so the denominator is shrunk by half a tie's worth for the second event, two-thirds for the third, and so on. With monthly cohorts and dozens of defaults per month, the Efron correction is the default choice and is what `lifelines` uses unless told otherwise.
+-   The first is *ties*. Loan data is recorded in months, so several borrowers routinely default in the same period. Kaplan-Meier in its textbook form assumes events happen one at a time, which forces a choice about the order in which the tied borrowers leave the at-risk set. Two conventions are common.
 
-The second is *delayed entry*. A borrower observed only from month 6 onward, because the data feed started late or the loan was acquired mid-life from another lender, should not sit in the denominator before month 6 even though the survival clock began at origination. Including such records from $t=0$ inflates the at-risk set with subjects who could not yet have been observed defaulting, and biases the survival curve upward. `lifelines` accepts an `entry` column for exactly this case. The scratch code above ignores it; production curves on acquired or merged portfolios should not.
+    -   The Breslow approximation pretends all tied events happen simultaneously, which keeps the denominator constant across the tied group and is fast but biased when ties are heavy.
+
+    -   The Efron approximation [@efron1977efficiency] is the more accurate alternative: it averages the contribution of each tied event over the possible orderings, so the denominator is shrunk by half a tie's worth for the second event, two-thirds for the third, and so on. With monthly cohorts and dozens of defaults per month, the Efron correction is the default choice and is what `lifelines` uses unless told otherwise.
+
+-   The second is *delayed entry*. A borrower observed only from month 6 onward, because the data feed started late or the loan was acquired mid-life from another lender, should not sit in the denominator before month 6 even though the survival clock began at origination. Including such records from $t=0$ inflates the at-risk set with subjects who could not yet have been observed defaulting, and biases the survival curve upward. `lifelines` accepts an `entry` column for exactly this case. The scratch code above ignores it; production curves on acquired or merged portfolios should not.
 
 ### Cox proportional hazards
 
@@ -898,7 +961,7 @@ $$
 h(t \mid x) = h_0(t) \exp(x^\top \beta),
 $$ {#eq-ch09-cox}
 
-where $h_0(t)$ is an unspecified baseline hazard shared by all subjects. The hazard ratio for a one-unit change in $x_j$ is $\exp(\beta_j)$, independent of $t$ and of other covariates. Proportional hazards is a strong assumption; we test it at the end of this section.
+where $h_0(t)$ is an unspecified baseline hazard shared by all subjects. The hazard ratio for a one-unit change in $x_j$ is $\exp(\beta_j)$, independent of $t$ and of other covariates. Proportional hazards is a strong assumption; we test it in @sec-ch09-ph-diagnostics.
 
 ### Partial likelihood derivation
 
@@ -922,7 +985,7 @@ $$
 \ell_{\text{P}}(\beta) = \sum_{k=1}^K \left[ x_{i_k}^\top \beta - \log \sum_{j \in R_k} \exp(x_j^\top \beta) \right].
 $$ {#eq-cox-logplik}
 
-Cox [@cox1975partial] later formalized partial likelihood as a valid likelihood in its own right. The score and information are
+@cox1975partial later formalized partial likelihood as a valid likelihood in its own right. The score and information are
 
 $$
 U(\beta) = \sum_{k=1}^K \left[ x_{i_k} - \bar x(\beta, R_k) \right], \qquad I(\beta) = \sum_{k=1}^K V(\beta, R_k),
@@ -930,7 +993,13 @@ $$ {#eq-cox-score}
 
 where $\bar x(\beta, R_k) = \sum_{j \in R_k} w_j(\beta) x_j$ is the weighted mean of covariates over the risk set with weights $w_j(\beta) = e^{x_j^\top \beta} / \sum_{\ell \in R_k} e^{x_\ell^\top \beta}$, and $V(\beta, R_k)$ is the corresponding weighted covariance matrix. Under standard regularity conditions, @andersen1982cox and @tsiatis1981large show that $\hat\beta$ is consistent and asymptotically normal with $\mathrm{Cov}(\hat\beta) \to I(\beta)^{-1}$.
 
-Ties among event times are handled by one of three methods. Breslow [@breslow1974covariance] treats tied events as if the risk set is shared. Efron [@efron1977efficiency] averages over the possible orderings and is more accurate when ties are common. The exact method computes the permutation probability directly and is used rarely because of cost. In retail credit with monthly reporting, ties are everywhere and Efron's correction is strongly preferred.
+Ties among event times are handled by one of three methods.
+
+1.  @breslow1974covariance treats tied events as if the risk set is shared.
+2.  @efron1977efficiency averages over the possible orderings and is more accurate when ties are common.
+3.  The exact method computes the permutation probability directly and is used rarely because of cost.
+
+> In retail credit with monthly reporting, ties are everywhere and Efron's correction is strongly preferred.
 
 ### Cox from scratch and `lifelines`
 
@@ -1005,15 +1074,21 @@ print('scratch beta:   ', np.round(beta_scratch, 4))
 print('lifelines beta: ', cph.params_.values.round(4))
 ```
 
-The scratch estimator and `lifelines` differ by a tiny amount because `lifelines` defaults to Efron, which is slightly more efficient under ties [@efron1977efficiency]. The point is that the partial likelihood in @eq-cox-plik is a handful of lines of NumPy once you sort by time and loop over event times.
+Read the three numbers in column order: they are $\hat\beta_1, \hat\beta_2, \hat\beta_3$ for utilization, income, and the homeowner flag. The data were generated with true values $(0.50, -0.40, 0.30)$, so the estimates $(0.5085, -0.3706, 0.361)$ recover the truth to within roughly one standard error on a sample of $n = 1{,}500$ with about a third of the borrowers defaulting before the 48-month horizon. Translating to hazard ratios: a one-standard-deviation rise in utilization multiplies the default hazard by $\exp(0.508) \approx 1.66$, a one-standard-deviation rise in income multiplies it by $\exp(-0.371) \approx 0.69$ (a 31% protective effect), and homeowners face a hazard $\exp(0.361) \approx 1.43$ times that of non-homeowners after controlling for the other two. The signs match the data-generating process and the magnitudes are stable to four decimals across both estimators, which is the validation we wanted: the scratch optimizer and `lifelines` are solving the same partial likelihood up to tie handling.
+The remaining gap of one to two units in the fourth decimal is *not* numerical noise. The scratch code uses Breslow ties (denominator shared across all events at $t_k$), while `lifelines` defaults to Efron, which averages over the possible orderings of tied events and is slightly more efficient when ties are common [@efron1977efficiency]. With monthly-reported credit data, ties are the rule rather than the exception, so production code should use Efron; the takeaway here is that the partial likelihood in @eq-cox-plik is a handful of lines of NumPy once you sort by time and loop over event times, and that the choice of tie correction is the only methodological lever between a textbook fit and a library fit.
 
 ### Proportional hazards diagnostics {#sec-ch09-ph-diagnostics}
 
 #### What the assumption says, in one picture
 
-Proportional hazards (PH) means the hazard ratio between any two borrowers is *constant in age*: a borrower with covariate $x$ runs $\exp((x - x')^\top \beta)$ times the hazard of a borrower with $x'$, today, in twelve months, and at month forty-eight. Equivalently, on the log-cumulative-hazard scale, $$
+Proportional hazards (PH) is the assumption that *the relative riskiness of two borrowers does not change as the loan ages*. Pick any two borrowers, A and B, and write down the ratio of their hazards: $$
+\frac{h(t \mid x_A)}{h(t \mid x_B)} = \frac{h_0(t)\,\exp(x_A^\top \beta)}{h_0(t)\,\exp(x_B^\top \beta)} = \exp\!\big((x_A - x_B)^\top \beta\big).
+$$ The shared baseline $h_0(t)$ cancels, so the right-hand side has *no* $t$ in it. That is what "proportional" means: whatever multiplier separates A's hazard from B's hazard at month one is the *same* multiplier at month twelve and at month forty-eight. If borrower A has triple the default hazard of borrower B today, PH says A still has triple the hazard four years from now, even if both borrowers' absolute hazards have risen or fallen with seasoning.
+A concrete reading. Suppose A and B differ only in utilization, with $x_{A,1} - x_{B,1} = 1$ standard deviation, and $\beta_1 = 0.50$. Then A's hazard is $\exp(0.50) \approx 1.65$ times B's at every age. The two hazard curves $h(t \mid x_A)$ and $h(t \mid x_B)$ may rise, fall, or wiggle as the loan seasons (that is the job of $h_0(t)$), but they move *in lockstep*: their ratio is pinned at 1.65.
+The same statement on the log-cumulative-hazard scale is often easier to plot. Integrating $h(t \mid x) = h_0(t) \exp(x^\top \beta)$ from 0 to $t$ gives $H(t \mid x) = H_0(t) \exp(x^\top \beta)$, and taking logs gives $$
 \log H(t \mid x) = \log H_0(t) + x^\top \beta,
-$$ {#eq-ph-loglog} so the curves $\log H(t \mid x)$ for different covariate levels are parallel translations of each other; they never cross, narrow, or fan out. PH fails when an effect is strong early and fades (a high-utilization borrower defaults fast or not at all), when an effect builds with seasoning (a payment-shock variable that only matters after the teaser period), or when the population is mixed across regimes (origination year, product type, geography) so that the pooled "baseline" is itself a moving average of cohort-specific baselines. The diagnostics below detect each of these as a *time trend in residuals*.
+$$ {#eq-ph-loglog} which is a straight-line decomposition: a common shape $\log H_0(t)$ plus a constant vertical shift $x^\top \beta$ that depends only on the covariates. So if you plot $\log H(t \mid x)$ for, say, low- versus high-utilization borrowers, PH predicts two curves of the *same shape* offset by a constant gap. They are parallel translations: they never cross, narrow, or fan out as $t$ increases. Crossing curves, a gap that grows with seasoning, or a gap that shrinks toward zero are all visual signatures of PH failure.
+PH fails for three recurring reasons in retail credit. First, an effect can be *strong early and fade*: a high-utilization borrower either defaults fast or stabilizes, so the hazard ratio is large in the first year and drifts toward one by year three. Second, an effect can *build with seasoning*: a payment-shock variable (e.g. teaser-rate expiry) is irrelevant before the shock and dominant after, so the hazard ratio grows with $t$. Third, the population can be a *mixture across regimes* (origination year, product type, geography), so the pooled baseline $h_0(t)$ is itself a weighted average of cohort-specific baselines and the "constant" coefficients are an artifact of pooling. The diagnostics below detect each of these as a *time trend in residuals*: under PH the residuals scatter flat around zero, and any of the three failure modes shows up as slope.
 
 #### Schoenfeld residuals and the Grambsch-Therneau test
 
@@ -1037,24 +1112,34 @@ print(ph_test.summary.round(4))
 
 To see *why* the test passes, plot the scaled Schoenfeld residuals against event time. A flat smoother is the visual analogue of "$\theta_j g(t) \approx 0$".
 
+Why plot against *time* and not against $x_j$? Because the question PH asks is "does the effect of $x_j$ drift as the loan ages?" The Schoenfeld residual at event time $t_k$ is constructed to have mean zero *if* $\beta_j$ is constant; it acquires a non-zero mean *as a function of* $t$ if $\beta_j(t) = \beta_j + \theta_j g(t)$. So the diagnostic axis is age-on-book, not the value of the covariate. A residuals-vs-$x_j$ plot would diagnose a different problem (functional-form misspecification of the linear predictor), not PH.
+
 ```{python}
 #| label: fig-ch09-schoenfeld
-#| fig-cap: "Scaled Schoenfeld residuals against event time, one panel per covariate. Under proportional hazards, residuals scatter around zero with no trend. The red curve is a centered rolling mean over event times; a clear upward or downward slope flags a coefficient that drifts with age, which calls for a time interaction $x_j \\cdot \\log t$, a stratified Cox, or a switch to a fully parametric model. On simulated data generated under PH, all three panels are flat by construction."
+#| fig-cap: "Scaled Schoenfeld residuals plotted against actual event time (months), one panel per covariate. Under proportional hazards, residuals scatter around zero with no trend. The red curve is a centered rolling mean over event times; a clear upward or downward slope flags a coefficient that drifts with age, which calls for a time interaction $x_j \\cdot \\log t$, a stratified Cox, or a switch to a fully parametric model. The $x_3$ panel shows three horizontal bands, which is structural for a binary covariate (see text), not a violation; the smoother on $x_3$ wanders within $\\pm 0.7$ but has no monotone trend across the 48-month window. On simulated data generated under PH, all three smoothers are flat by construction."
 
 sch = cph.compute_residuals(sim, kind='scaled_schoenfeld').sort_index()
+event_time = sim.loc[sch.index, 'duration'].to_numpy()
+order = np.argsort(event_time)
+event_time_sorted = event_time[order]
 fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.2), sharey=False)
 for ax, col in zip(axes, ['x1', 'x2', 'x3']):
-    ax.scatter(sch.index, sch[col], s=8, alpha=0.30, color='steelblue')
-    win = max(20, len(sch) // 20)
-    ax.plot(sch.index, sch[col].rolling(win, center=True, min_periods=1).mean(),
-            color='crimson', lw=1.6)
+    r = sch[col].to_numpy()[order]
+    ax.scatter(event_time_sorted, r, s=8, alpha=0.30, color='steelblue')
+    win = max(20, len(r) // 20)
+    smooth = pd.Series(r).rolling(win, center=True, min_periods=1).mean().to_numpy()
+    ax.plot(event_time_sorted, smooth, color='crimson', lw=1.6)
     ax.axhline(0, color='black', lw=0.5)
     ax.set_xlabel('event time (months)')
     ax.set_title(f'scaled Schoenfeld: {col}')
 fig.tight_layout(); plt.show()
 ```
 
-On simulated data generated under proportional hazards, `lifelines` does not reject and the rolling-mean curves stay near zero.
+How to read each panel. For $x_1$ and $x_2$ (continuous standard normals), the blue dots form a roughly symmetric cloud around zero spanning the full vertical range, and the red rolling mean hugs the zero line across the full 48-month window. That is the picture of a constant coefficient: the average residual is zero everywhere on the time axis, so there is no evidence that $\beta_1$ or $\beta_2$ drifts with age.
+
+The $x_3$ panel looks visually different and deserves its own reading. $x_3$ is a binary homeowner flag, $x_3 \in \{0, 1\}$, so the residual $r_{k3} = x_{3,i_k} - \bar x_3(\hat\beta, R_k)$ can take only two values at each event time: roughly $-\bar x_3$ when the failing borrower is a non-homeowner and $1 - \bar x_3$ when she is a homeowner. After the Grambsch-Therneau scaling by $V^{-1}$, those two values become the upper band near $+2.3$ and the lower band near $-1.8$ that you see in the plot, plus a thin middle stripe from the few event times where the risk set is nearly all-zero or all-one. *This bimodal banding is structural for any binary covariate and is not a PH violation*. The signal lives entirely in the smoother, which weights the two bands by the local share of homeowner failures: if the smoother is flat, the homeowner share among failers is stable in time and PH holds; if it slopes up or down, homeowners are over- or under-represented among failers at certain ages and PH fails. Here the red curve wanders inside roughly $\pm 0.7$ with no monotone direction across months 0 to 48, which matches the non-significant Grambsch-Therneau $p$-value above. The lesson is to *always* trust the smoother over the scatter for binary or low-cardinality covariates.
+
+On simulated data generated under proportional hazards, `lifelines` does not reject and the rolling-mean curves stay near zero on all three panels.
 
 #### What violation looks like (constructive demo)
 
@@ -1092,22 +1177,28 @@ The pooled estimate splits the difference between the pre- and post-$\tau$ effec
 
 ```{python}
 #| label: fig-ch09-schoenfeld-violator
-#| fig-cap: "Scaled Schoenfeld residual for the violator covariate. The rolling-mean trend across the follow-up window is the visual signature of an effect that grows with age; the dashed gray line marks the data-generating breakpoint $\\tau=12$."
+#| fig-cap: "Scaled Schoenfeld residual for the violator covariate, plotted against actual event time in months. The dashed gray line marks the data-generating breakpoint $\\tau=12$. Under PH the rolling mean would be flat at zero across the full 0--48 month window; here the smoother sits visibly *below* zero before $\\tau$ and rises *above* zero after $\\tau$, exactly the visual signature of an effect that jumps from $\\beta=0.20$ to $\\beta=1.20$ at month twelve."
 sch_v = cph_v.compute_residuals(viol, kind='scaled_schoenfeld').sort_index()
+event_time_v = viol.loc[sch_v.index, 'duration'].to_numpy()
+order_v = np.argsort(event_time_v)
+t_v_sorted = event_time_v[order_v]
+r_v_sorted = sch_v['x'].to_numpy()[order_v]
+win_v = max(20, len(r_v_sorted) // 20)
+smooth_v = pd.Series(r_v_sorted).rolling(win_v, center=True, min_periods=1).mean().to_numpy()
+
 fig, ax = plt.subplots(figsize=(6.4, 3.2))
-ax.scatter(sch_v.index, sch_v['x'], s=10, alpha=0.30, color='steelblue')
-win = max(20, len(sch_v) // 20)
-ax.plot(sch_v.index, sch_v['x'].rolling(win, center=True, min_periods=1).mean(),
-        color='crimson', lw=1.6, label='rolling mean')
-ax.axvline(tau, color='gray', lw=0.8, ls='--', label=r'true breakpoint $\tau=12$')
+ax.scatter(t_v_sorted, r_v_sorted, s=10, alpha=0.30, color='steelblue')
+ax.plot(t_v_sorted, smooth_v, color='crimson', lw=1.8, label='rolling mean')
+ax.axvline(tau, color='gray', lw=1.0, ls='--', label=r'true breakpoint $\tau=12$')
 ax.axhline(0, color='black', lw=0.5)
+ax.set_xlim(0, horizon)
 ax.set_xlabel('event time (months)')
 ax.set_ylabel(r'$r^*_{k}$ for $x$')
-ax.legend()
+ax.legend(loc='upper right')
 fig.tight_layout(); plt.show()
 ```
 
-The smoother is non-flat and shifts near the true breakpoint $\tau$, which is exactly where the data-generating $\beta_1(t)$ jumps.
+How to read this against the previous (well-behaved) figure. There the red smoothers hugged zero across all 48 months; here the smoother is the opposite of flat. Before $\tau = 12$ the average residual sits below zero, meaning that high-$x$ borrowers are *under-represented* among early failers relative to what a constant $\beta = 0.62$ (the pooled fit) would predict, because the true early effect is only $\beta_{\text{pre}} = 0.20$. After $\tau$ the average residual rises above zero, meaning that high-$x$ borrowers are *over-represented* among later failers, because the true late effect $\beta_{\text{post}} = 1.20$ is much stronger than the pooled coefficient. The crossover near month twelve is the visual fingerprint of the data-generating jump in $\beta_1(t)$, and it is what the small Grambsch-Therneau $p$-value above is detecting.
 
 #### Fix 1: stratification {#sec-ch09-ph-fix-strata}
 
@@ -3993,25 +4084,25 @@ This section answers both. First, a static assumption matrix for every family co
 
 The columns are the assumption levers a survival model can pull. `Y` means the family handles the lever natively. `N` means it does not. `partial` means it can be coaxed into handling the lever by an extension (stratification, time interaction, frailty term, EM wrapper) that changes the implementation but keeps the family name. The last two columns are operational: `lifetime PD` is whether the family extrapolates $S(t \mid x)$ past the longest training time without a separate parametric scaffold, and `compute` is the fit-time order on a six-figure-row long table.
 
-| family                | hazard shape           | covariate effect   | PH          | TVC         | competing risks | cure fraction | left truncation | lifetime PD                | compute |
-|-----------------------|------------------------|--------------------|-------------|-------------|-----------------|---------------|-----------------|-----------------------------|---------|
-| Kaplan-Meier          | nonparametric          | none (marginal)    | n/a         | N           | N (use AJ)      | N             | Y (entry time)  | N (flat past max obs)       | low     |
-| Cox PH (linear)       | nonparametric baseline | log-linear         | assumed Y   | partial     | partial (cause-specific) | N    | Y               | partial (Breslow + extrap)  | medium  |
-| Cox PH + strata       | nonparametric, stratum-specific | log-linear within stratum | assumed within stratum | partial | partial | N | Y          | partial                     | medium  |
-| Cox PH + TVC          | nonparametric baseline | time-varying log-linear | partial Y | Y          | partial         | N             | Y               | partial                     | medium  |
-| Frailty Cox           | nonparametric baseline | log-linear + random effect | assumed Y conditional | partial | partial | N      | Y               | partial                     | medium  |
-| Weibull AFT           | monotone parametric    | scale shift        | Y (and PH)  | N (without extension) | N      | N             | Y               | Y                           | low     |
-| LogNormal AFT         | hump-shaped parametric | scale shift        | N           | N           | N               | N             | Y               | Y                           | low     |
-| LogLogistic AFT       | hump-shaped parametric | scale shift        | N           | N           | N               | N             | Y               | Y                           | low     |
-| Exponential AFT       | constant parametric    | scale shift        | Y           | N           | N               | N             | Y               | Y                           | low     |
-| Mixture cure (Weibull latency) | parametric latency on a fraction | logistic incidence + AFT latency | partial | N | partial via cause-specific cures | Y | Y         | Y                           | medium  |
-| Fine-Gray             | subdistribution baseline | log-linear on subdist hazard | N | partial    | Y (direct CIF)  | N             | Y (Geskus)      | Y (CIF)                     | medium  |
-| Aalen-Johansen        | nonparametric, multi-state | none (marginal) | n/a         | N           | Y               | N             | Y               | N (flat past max obs)       | low     |
-| Shumway discrete logit| flexible (period basis)| log-linear         | N           | Y (period basis covariates)  | partial (multinomial) | N | Y           | partial (extrapolate basis) | medium  |
-| Latent-class piecewise| piecewise-exponential per class | constant within class | N    | partial     | partial         | partial (class with zero hazard) | Y | Y                          | medium  |
-| Random Survival Forest| nonparametric          | tree splits        | N           | N (without long table) | N (use cause-specific tree) | N | partial (entry as feature) | N (flat past max obs)       | high    |
-| GB Survival (Cox loss)| nonparametric baseline | tree-additive risk | assumed Y   | N (without long table) | N           | N             | partial         | partial                     | high    |
-| Shifted Beta-Geometric| discrete geometric     | none (marginal)    | n/a         | N           | N               | implicit (heterogeneity) | N | Y                | low     |
+| family | hazard shape | covariate effect | PH | TVC | competing risks | cure fraction | left truncation | lifetime PD | compute |
+|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+| Kaplan-Meier | nonparametric | none (marginal) | n/a | N | N (use AJ) | N | Y (entry time) | N (flat past max obs) | low |
+| Cox PH (linear) | nonparametric baseline | log-linear | assumed Y | partial | partial (cause-specific) | N | Y | partial (Breslow + extrap) | medium |
+| Cox PH + strata | nonparametric, stratum-specific | log-linear within stratum | assumed within stratum | partial | partial | N | Y | partial | medium |
+| Cox PH + TVC | nonparametric baseline | time-varying log-linear | partial Y | Y | partial | N | Y | partial | medium |
+| Frailty Cox | nonparametric baseline | log-linear + random effect | assumed Y conditional | partial | partial | N | Y | partial | medium |
+| Weibull AFT | monotone parametric | scale shift | Y (and PH) | N (without extension) | N | N | Y | Y | low |
+| LogNormal AFT | hump-shaped parametric | scale shift | N | N | N | N | Y | Y | low |
+| LogLogistic AFT | hump-shaped parametric | scale shift | N | N | N | N | Y | Y | low |
+| Exponential AFT | constant parametric | scale shift | Y | N | N | N | Y | Y | low |
+| Mixture cure (Weibull latency) | parametric latency on a fraction | logistic incidence + AFT latency | partial | N | partial via cause-specific cures | Y | Y | Y | medium |
+| Fine-Gray | subdistribution baseline | log-linear on subdist hazard | N | partial | Y (direct CIF) | N | Y (Geskus) | Y (CIF) | medium |
+| Aalen-Johansen | nonparametric, multi-state | none (marginal) | n/a | N | Y | N | Y | N (flat past max obs) | low |
+| Shumway discrete logit | flexible (period basis) | log-linear | N | Y (period basis covariates) | partial (multinomial) | N | Y | partial (extrapolate basis) | medium |
+| Latent-class piecewise | piecewise-exponential per class | constant within class | N | partial | partial | partial (class with zero hazard) | Y | Y | medium |
+| Random Survival Forest | nonparametric | tree splits | N | N (without long table) | N (use cause-specific tree) | N | partial (entry as feature) | N (flat past max obs) | high |
+| GB Survival (Cox loss) | nonparametric baseline | tree-additive risk | assumed Y | N (without long table) | N | N | partial | partial | high |
+| Shifted Beta-Geometric | discrete geometric | none (marginal) | n/a | N | N | implicit (heterogeneity) | N | Y | low |
 
 A few observations from the matrix that show up later in the stress benchmark. The Cox family handles every lever **except** parametric extrapolation cleanly, but always with an extension. The AFT family is the only family that gives lifetime PD with no extension, but only the parametric shape it commits to. The cure model is the only family that handles a long-run immune fraction natively. Fine-Gray is the only single-fit family that gives a calibrated cumulative incidence function under competing risks. The tree ensembles win on flexibility and lose on extrapolation, which is the trade an IFRS 9 lifetime ECL pipeline cannot ignore.
 
