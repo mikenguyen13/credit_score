@@ -199,7 +199,7 @@ The bin boundaries matter. Three supervised binning recipes dominate production 
 
 1.  *Decision-tree binning.* A shallow CART on $(x_j, y)$ gives boundaries optimized for target split quality. Simple, but can over-fit if the tree depth is not bounded.
 2.  *Chi-merge.* Iteratively merge adjacent bins with low chi-square statistic on the event-rate contingency table [@thomas2017credit].
-3.  *Optimal binning via mixed-integer programming.* @navas2016optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what `optbinning` implements, and what we use below.
+3.  *Optimal binning via mixed-integer programming.* @navas2020optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what `optbinning` implements, and what we use below.
 
 In each case, the output is a list of bin boundaries plus the empirical WoE per bin. The sklearn `ColumnTransformer` plus custom transformer idiom is enough to industrialize any of the three.
 
@@ -230,7 +230,7 @@ IV is sensitive to sample size and binning choices, so treat it as a screen rath
 Several items worth flagging before we code.
 
 1.  *Rare events.* Under heavy imbalance (low base rate), MLE $\hat\beta_0$ is biased downward. @king2001logistic give a closed-form correction; @firth1993bias recommends Jeffreys prior penalization, which has become the default in modern credit practice. sklearn's L2 penalty (@sec-logistic-l2-ridge) with modest `C` achieves similar regularization in large-$n$ credit datasets without the small-sample closed-form. The full menu of resampling, cost-sensitive, and threshold-moving fixes for severe imbalance is treated in @sec-ch15.
-2.  *Separation.* Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin [@navas2016optimal] to prevent this before fitting.
+2.  *Separation.* Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin [@navas2020optimal] to prevent this before fitting.
 3.  *Prior corrections.* When a training set is stratified (over-sampled bads), the MLE intercept no longer reflects the deployment prior. The standard correction shifts $\hat\beta_0$ by $\log(\pi_{\text{pop}} / (1-\pi_{\text{pop}})) - \log(\pi_{\text{train}} / (1-\pi_{\text{train}}))$ [@king2001logistic]. All other coefficients are left unchanged; only the intercept carries the mismatch between training and deployment base rates. This is a one-line fix that many deployed scorecards get wrong when a sampling policy changes mid-year.
 4.  *Choice-based sampling.* When the sampling scheme itself is endogenous (e.g., the training set is only of accepted applicants), the logistic likelihood is mis-specified in a more fundamental way. Reject inference (@sec-ch10) addresses this directly. For the bulk of retail products where the sampling scheme is exogenous or rebuilt via weighted likelihood, the base-rate shift is the only correction needed.
 5.  *Interpreting* $\beta_j$. In a logit on WoE-encoded features, $\hat\beta_j$ close to 1.0 indicates the empirical WoE is a faithful summary of the feature's log-odds-ratio. Values substantially above 1 imply the binning under-resolves the feature (the WoE signal is being amplified by the linear coefficient to compensate). Values substantially below 1 suggest the binning over-resolves or is contaminated by noise. Senior scorecard modelers use this as a diagnostic: after fitting, inspect the distribution of $\hat\beta_j$ values. Most should live between 0.5 and 1.2. Outliers deserve a look.
@@ -346,7 +346,7 @@ Three patterns recur every time this comparison is run on a real portfolio, and 
 
 1.  *Equal-width is sensitive to skew.* `DTI` is gamma-distributed, so the two highest equal-width bins together hold under 10% of the portfolio. Bad rates are monotone on this seed but the tail bin counts are small enough that a typical 5% min-bin-size rule would force a merge, and on neighboring seeds the top bin's rate is noisy enough to invert against its neighbor.
 2.  *Equal-frequency stabilizes counts but not cuts.* Quantile cuts give every bin the same `n`, which is what makes IV and WoE estimates low-variance. Cuts land at population quantiles (here 0.142, 0.243, 0.355, 0.527), not at policy-relevant thresholds. A 36% DTI is a meaningful underwriting boundary; a 35.5% quantile is not.
-3.  *Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on `default`, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what `optbinning` does for a single feature, minus the mixed-integer monotone constraint [@navas2016optimal]. The CART splitting rule used here is derived in @sec-ch11-splits; the same impurity criterion underlies decision-tree binning in production.
+3.  *Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on `default`, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what `optbinning` does for a single feature, minus the mixed-integer monotone constraint [@navas2020optimal]. The CART splitting rule used here is derived in @sec-ch11-splits; the same impurity criterion underlies decision-tree binning in production.
 
 In production we would feed the supervised cuts into an optimizer that adds a monotone-event-rate constraint per feature, the way `optbinning` and `scorecardpy` do. For a one-feature walkthrough the supervised cuts are usually adequate; we use rounded, policy-readable boundaries instead so the WoE arithmetic in the next step stays legible.
 
@@ -700,7 +700,7 @@ Coefficient stability matters as much as accuracy. @meinshausen2010stability pro
 
 ### The Bayesian view
 
-Ridge logistic is the MAP estimate under a Gaussian prior: $\beta_j \sim \mathcal{N}(0, \sigma^2)$ with $\lambda = 1/\sigma^2$. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: @gelman2017prior show that a weakly informative Cauchy$(0, 2.5)$ prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through `pymc` or via sklearn's L2 with a modest `C`. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.
+Ridge logistic is the MAP estimate under a Gaussian prior: $\beta_j \sim \mathcal{N}(0, \sigma^2)$ with $\lambda = 1/\sigma^2$. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: @gelman2008prior show that a weakly informative Cauchy$(0, 2.5)$ prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through `pymc` or via sklearn's L2 with a modest `C`. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.
 
 ### Picking $\lambda$
 
@@ -731,7 +731,7 @@ sklearn offers several solvers. For credit-sized L2 problems (p \< 1000, n \< 10
 | Small WoE scorecard (20 features, 50k obs) | L2, `C = 1.0 - 4.0` |
 | Large raw-feature logistic (500+ candidates) | L1 then refit L2 on survivors |
 | Correlated behavioral signals | Elastic net |
-| Bayesian prior on coefficients | L2 with calibrated $\lambda$ [@gelman2017prior] |
+| Bayesian prior on coefficients | L2 with calibrated $\lambda$ [@gelman2008prior] |
 | Production with legal sign constraints | L2 + projection onto sign cone, or monotonic binning upstream |
 
 : Default penalty choice by credit-modeling regime. Triage rules at the start of @sec-ch07-regularization (bin sparsity, candidate pool size, OOT gap) decide *whether* to regularize; this table decides *which* penalty once the answer is yes. {#tbl-ch07-penalty-regimes}
@@ -2090,3 +2090,5 @@ Operational cadence. A Vietnamese retail scorecard should be revalidated at leas
 -   @ohlson1980financial and @shumway2001forecasting for the logit bankruptcy lineage.
 -   @dumitrescu2022machine for a modern benchmark that puts penalized LR on WoE features inside one percent of gradient-boosted trees for credit.
 -   @sr117, @basel2006international, @eba2017gl, and @occ2021model for the regulatory frame.
+
+The borrower side of the scorecard is increasingly informed by a behavioral-economics literature that treats the customer's repayment trajectory as a function of attention, present-bias, and exponential-growth comprehension as much as of liquidity or risk. @gathergood2019balancematching show with UK and US card data that consumers fail to allocate payments toward the highest-APR card, sacrificing several hundred dollars per year; @meier2010presentbiased and @kuchler2021sticking trace revolving behavior to time-preference structure; @stango2009exponential document widespread underestimation of compound interest. @agarwal2009ageofreason find a U-shape in financial sophistication by age, with mistakes concentrated at the 25-year and 75-year ends of the life cycle. The card-market backdrop in @ausubel1991failure, @gross2002doliquidity, @stango2016borrowing, @agarwal2015regulating and @agarwal2018dobanks supplies the institutional context for these mechanisms: switching costs, limit bunching, and incomplete pass-through of regulatory rate caps shape how a logistic scorecard's threshold translates into observed repayment.

@@ -280,7 +280,7 @@ The theoretical route maps DD to PD through the normal CDF, $$
 \widehat{\text{PD}} = \Phi(-\text{DD}).
 $$ {#eq-pd-phi-rn}
 
-This is exactly right if the asset-return distribution really is lognormal. It is badly wrong in the tails of real data. Empirically, actual default rates at high DD are nowhere near as small as the normal CDF predicts. The fix in KMV is to replace $\Phi$ with an empirical map built from a large proprietary default database. @crosbie2003modeling describes the procedure: group firms by DD bucket, compute the realized one-year default rate in each bucket, and smooth the bucket-level hazard to get a monotone decreasing function $\text{EDF}(\text{DD})$.
+This is exactly right if the asset-return distribution really is lognormal. It is badly wrong in the tails of real data. Empirically, actual default rates at high DD are nowhere near as small as the normal CDF predicts. The fix in KMV is to replace $\Phi$ with an empirical map built from a large proprietary default database: group firms by DD bucket, compute the realized one-year default rate in each bucket, and smooth the bucket-level hazard to get a monotone decreasing function $\text{EDF}(\text{DD})$.
 
 A useful stylized fact: for investment-grade firms the empirical EDF at a given DD sits roughly one to two orders of magnitude above $\Phi(-\text{DD})$. For a firm with DD equal to 4, the lognormal formula gives PD of about 3 bps; Moody's KMV EDF puts the same firm closer to 30 bps to 50 bps. This gap is one reason structural PDs cannot be used as-is for capital under a regulatory IRB model.
 
@@ -387,7 +387,7 @@ Here $\partial E / \partial V = \Phi(d_1)$ is the Black-Scholes delta of equity 
 
 ### The iterative KMV algorithm
 
-The standard KMV procedure from @crosbie2003modeling, as popularized by @vassalou2004default, is:
+The standard KMV procedure, popularized by @vassalou2004default, is:
 
 1.  Initialize $\sigma_V^{(0)} = \sigma_E \cdot E_t/(E_t + D)$ (the naive leverage adjustment) and $V_t^{(0)} = E_t + D$.
 2.  Holding $\sigma_V^{(k)}$ fixed, invert (@eq-merton-equity) pointwise across the equity time series to get $V_t^{(k+1)}$ for every $t$.
@@ -502,7 +502,7 @@ The naive estimate is biased low because $\Phi(d_1)$ is generally larger than $E
 
 A production KMV pipeline hits several non-obvious pitfalls that take years to surface.
 
-**Face value definition.** Merton's $D$ is the face of a single zero-coupon bond. Real firms have short-term debt, long-term debt, off-balance-sheet commitments, and operating leases. @crosbie2003modeling and @vassalou2004default use $D = \text{short-term debt} + \tfrac{1}{2} \cdot \text{long-term debt}$ as a pragmatic approximation. The factor $\tfrac{1}{2}$ reflects the average time to maturity of long-term debt and the coupons that will be paid before the notional. @bharath2008forecasting show that the choice of $D$ definition matters less than the KMV literature's own emphasis would suggest; several alternative definitions produce DDs that are rank-correlated at 0.95 or higher.
+**Face value definition.** Merton's $D$ is the face of a single zero-coupon bond. Real firms have short-term debt, long-term debt, off-balance-sheet commitments, and operating leases. @vassalou2004default uses $D = \text{short-term debt} + \tfrac{1}{2} \cdot \text{long-term debt}$ as a pragmatic approximation. The factor $\tfrac{1}{2}$ reflects the average time to maturity of long-term debt and the coupons that will be paid before the notional. @bharath2008forecasting show that the choice of $D$ definition matters less than the KMV literature's own emphasis would suggest; several alternative definitions produce DDs that are rank-correlated at 0.95 or higher.
 
 **Horizon** $T$. KMV uses $T = 1$ year. For capital purposes this matches the Basel one-year PD horizon. For bond pricing and credit-derivative applications, the horizon should match the instrument's maturity. The DD at $T = 5$ years and $T = 1$ year can differ substantially because the drift term $(\mu - \sigma_V^2/2) T$ scales linearly with $T$ while the noise scales with $\sqrt{T}$; for high-drift firms, longer horizons produce higher DDs.
 
@@ -859,7 +859,7 @@ For firms with liquid CDS, the CDS-implied PD is usually the preferred input for
 
 Three families of corporate-default models compete in the empirical literature.
 
-**Structural.** DD from @merton1974pricing and its commercial implementation in KMV [@crosbie2003modeling]. Inputs: equity price, equity volatility, leverage. Output: PD as $\Phi(-\text{DD})$ or a proprietary EDF map.
+**Structural.** DD from @merton1974pricing and its commercial implementation in KMV. Inputs: equity price, equity volatility, leverage. Output: PD as $\Phi(-\text{DD})$ or a proprietary EDF map.
 
 **Accounting-based.** @altman1968zscore (linear discriminant, @sec-ch06-discriminant), @ohlson1980financial (static logit), @shumway2001forecasting (hazard logit). Inputs: balance-sheet ratios. Output: default score, interpretable as log-odds of default.
 
@@ -976,7 +976,7 @@ Basel IRB rules require TTC PDs to avoid procyclical capital swings: if PD rises
 
 3.  **Rating anchoring.** Map PIT PDs to external rating categories, use historical long-run average default rates per rating as the TTC PD. This is the industry-standard approach for wholesale IRB and is documented in @pluto2005thinking.
 
-KMV EDF is explicitly PIT and must be converted for regulatory use. @korablev2009validation describes Moody's validation of the EDF model through the 2008-2009 crisis, where PIT EDFs rose dramatically and then reverted, while realized default rates lagged by six to twelve months. The lag is exactly what you expect from a forward-looking signal: markets price default risk before it materializes in accounting figures or defaults.
+KMV EDF is explicitly PIT and must be converted for regulatory use. Through the 2008-2009 crisis, PIT EDFs rose dramatically and then reverted while realized default rates lagged by six to twelve months. The lag is exactly what you expect from a forward-looking signal: markets price default risk before it materializes in accounting figures or defaults.
 
 ### The low-default portfolio problem
 
@@ -1253,7 +1253,7 @@ A Merton-KMV pipeline can fail in subtle ways that a simple "has the EDF number 
 
 **PD-to-spread reconciliation.** For firms with liquid bonds, the implied PD from the KMV model and the bond market should be rank-correlated at 0.7 or higher. A breakdown in this correlation, for example the KMV PDs fall while bond spreads widen, is a leading indicator that something is wrong, either in the pipeline or in the data feeds.
 
-**Back-testing.** Annual back-tests compare realized one-year default rates to the beginning-of-year EDF forecast. The Hosmer-Lemeshow test or the Binomial test by PD bucket give a disciplined way to measure miscalibration. @korablev2009validation describes Moody's internal protocol, which applies the same methodology to the public EDF model.
+**Back-testing.** Annual back-tests compare realized one-year default rates to the beginning-of-year EDF forecast. The Hosmer-Lemeshow test or the Binomial test by PD bucket give a disciplined way to measure miscalibration.
 
 **Sector drift.** Industry sectors have structurally different asset volatilities, drift rates, and leverage norms. A pipeline that ignores sector effects will over-estimate PD for utilities (stable, high leverage, low volatility) and under-estimate PD for tech (volatile, low leverage, high equity returns). A sector-level recalibration layer on top of the raw KMV EDF closes this gap.
 
@@ -1467,7 +1467,6 @@ A practical observation from the run above: Banks and RealEstate dominate the ta
 
 -   @merton1974pricing: the foundational paper. Indispensable.
 -   @black1973pricing: the option-pricing engine underneath.
--   @crosbie2003modeling: the KMV methodology memo.
 -   @vassalou2004default: DD as a priced risk factor in equity returns.
 -   @bharath2008forecasting: naive DD versus full KMV on US data.
 -   @duan1994maximum and @duan2004structural: MLE view of the KMV estimator.
@@ -1480,3 +1479,5 @@ A practical observation from the run above: Banks and RealEstate dominate the ta
 -   @shumway2001forecasting and @ohlson1980financial: accounting-based baselines to benchmark against.
 -   @leland1994corporate and @leland1996optimal: endogenous default with strategic debt service.
 -   @sundaresan2013review: review of the Merton framework and its extensions.
+
+A correspondent-bank or emerging-market credit team needs the sovereign tier on top of the corporate one. @arellano2008default and @aguiar2006defaultable supply the canonical strategic-default model in which countries default in bad income states; @longstaff2011sovereign decompose the risk premium in sovereign CDS spreads into US-equity and global-volatility components, and @borri2023sovereign extend the analysis with a richer set of global macro factors. These models are not direct PD estimators for sovereigns the way KMV is for corporates, but they pin down the pricing kernel that converts country-level distance-to-default analogues into spread quotes that desks actually trade.

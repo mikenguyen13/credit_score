@@ -1,6 +1,6 @@
 # Fabrication Audit: references.bib + refs/ch-*.bib
 
-Date: 2026-04-23
+Date: 2026-04-23 (original) / 2026-04-30 (cleanup pass)
 Method: 9 parallel AI-verification agents ran DOI / arXiv / WebFetch / WebSearch
 lookups across ~1,320 entries in `book/references.bib` and ~981 entries across the
 38 per-chapter / appendix bib files under `book/refs/`.
@@ -10,6 +10,57 @@ are not listed. Canonical classics (Fisher, Altman, Beaver, Merton, Cox 1972,
 Breiman, Hastie/Tibshirani/Friedman, Hand & Henley, Thomas, Friedman GBM,
 LeCun/Bengio/Hinton, Goodfellow, Rumelhart, Hochreiter, Pedregosa, Chen & Guestrin)
 were marked verified without lookup.
+
+## Status as of 2026-04-30
+
+- **All 32 LIKELY-FABRICATED entries**: deleted from `references.bib` and chapter bibs;
+  prose citations removed or replaced. Confirmed via grep across active files.
+- **42 UNCERTAIN entries**: 28 metadata-fixed in earlier passes; 14 misleading bibkeys
+  renamed to match real publication years/topics on 2026-04-30 (see "Renames" below).
+- **9 additional cleanup deletions on 2026-04-30**: `assef2024realtime`,
+  `chu2024vietnam`, `armstrong2013flow`, `breeden2024xai`, `breeden2012vintage`,
+  `kuck2003identifying`, `alonso2020emfintech`, `crosbie2003modeling`,
+  `korablev2009validation`. Plus duplicates `chen2019howvaluable`,
+  `jagtiani2019roles_alt`, `veldkamp2023valuing` removed.
+- **2 working-paper → published-version updates**: `bhutta2022how` now points to
+  Journal of Finance 2025; `babina2024customer` now points to JFE 2025.
+- **1 entry replaced**: `agarwal2020bandit` (mislabeled CACM 2022 paper) replaced with
+  two real Agarwal et al. NeurIPS bandit papers (`agarwal2020choicebandits`,
+  `agarwal2024network`).
+- **1 URL fix**: `gabaix2024llm` URL corrected from NBER w32768 to w32001.
+- **74 new top-journal entries** added across 13 chapter bibs and woven into chapter
+  prose ("Further reading" narrative paragraphs) on 2026-04-30. See changelog in
+  this commit's diff for the full enumeration.
+
+### Renames applied 2026-04-30 (bibkey now matches real year/title)
+
+| Old bibkey | New bibkey | Real venue |
+|------------|------------|------------|
+| `breeden2019survey` | `breeden2020survey` | J. Credit Risk 2020 |
+| `gelman2017prior` | `gelman2008prior` | AoAS 2008 |
+| `foster1989resolving` | `foster2004variable` | JASA 2004 |
+| `chen2023nonbank` | `chen2019fintech` | RFS 2019 |
+| `rona2021big` | `rona2020predicting` | SER 2020 |
+| `miller2017impact` | `miller2018privacy` | MS 2018 |
+| `goldfarb2023regulation` | `goldfarb2011privacy` | MS 2011 |
+| `lowry2020initial` | `lowry2017ipo` | FnT 2017 |
+| `firth2021readability` | `firth2015corporate` | MS 2015 |
+| `liu2021ptuning` | `liu2024gpt` | AI Open 2024 |
+| `kraus2013fairness` | `kraus2017decision` | DSS 2017 |
+| `navas2016optimal` | `navas2020optimal` | arXiv 2020 |
+| `bauguess2020role` | `bauguess2017role` | SEC 2017 |
+| `hamilton2024graphnn` | `liu2019geniepath` | AAAI 2019 |
+| `hue2023xper` | (kept, year 2025 → 2022) | arXiv 2022 |
+
+### Final bib counts as of 2026-04-30
+
+- `references.bib`: 1284 entries
+- per-chapter bibs total: 1400 entries
+- Orphan citation check: 0 unresolved `@key` references in chapter prose
+  (excluding crossref prefixes `fig-`, `tbl-`, `sec-`, `eq-`, `lst-`, etc.)
+
+The original lists below are preserved as historical record. They no longer reflect
+the live bib state; cross-reference against the cleanup status above.
 
 Per-agent reports:
 - references.bib: `citation_check_part{1..6}.md`
