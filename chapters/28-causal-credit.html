@@ -900,7 +900,7 @@ window.Quarto = {
 <p>Predictive inference and causal inference share a lot of machinery. Both use regression, both use cross-validation, both worry about bias and variance. They diverge on the target estimand and the identification assumptions. A scorecard’s target is an optimal ranker under the observed joint distribution; its identification assumption is iid sampling. A causal estimator’s target is a counterfactual contrast; its identification assumption is some form of unconfoundedness, exogeneity, or quasi-randomization. Confusing the two produces confident point estimates that collapse the moment the intervention is actually tried.</p>
 <p>Emerging markets sharpen the stakes. When the State Bank of Vietnam imposes a system-wide credit growth ceiling (the so-called credit-room tool) or caps nominal lending rates, every bank faces a policy intervention whose effect on default cannot be read off a scorecard. The identification problem is bigger than in the US because the instruments are coarser, the data are thinner, and the counterfactual is a year in which the policy did not exist. A credit team in Hanoi that treats its logistic PD as a causal summary of how an interest-rate cap changes default has already lost the argument with the supervisor <span class="citation" data-cites="imf2023vietnamart4">Bank for International Settlements (<a href="11-trees-rules.html#ref-bis_credit_em2022" role="doc-biblioref">2022</a>)</span>. The same causal toolkit, IV for officer assignment, DiD across provinces that bind differently, RDD at supervisory thresholds, DML for rich controls, is what survives the audit.</p>
 <p>A small worked example sets up the rest of the chapter.</p>
-<div id="be2bc99b" class="cell" data-execution_count="1">
+<div id="d8c2110b" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -962,7 +962,7 @@ True population default rate under blanket acceptance: 0.190</code></pre>
 <h3 data-number="32.2.2" class="anchored" data-anchor-id="feedback-amplification"><span class="header-section-number">32.2.2</span> Feedback amplification</h3>
 <p>The problem compounds over vintages. Vintage <span class="math inline">\(t\)</span>’s model trains on vintage <span class="math inline">\(t - 1\)</span>’s accepted book. The acceptance rule at vintage <span class="math inline">\(t\)</span> is a function of that model. Vintage <span class="math inline">\(t + 1\)</span>’s training data is the accepted subset of a population screened by vintage <span class="math inline">\(t\)</span>’s rule. Biases that produce conservative rejections of a subpopulation in year <span class="math inline">\(t\)</span> make that subpopulation vanish from the data in year <span class="math inline">\(t + 1\)</span>, so the next model has nothing to learn about it. A feedback loop does not converge to an unbiased estimator. It converges to a fixed point that depends on the initial bias.</p>
 <p>The next simulation makes this concrete. The true generative model is fixed. The bank retrains every quarter on its own accepted book and uses the current model to decide acceptance. Over eight quarters, watch what happens to the out-of-sample calibration error on the unselected population.</p>
-<div id="2070a31d" class="cell" data-execution_count="2">
+<div id="8909c137" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
@@ -1066,7 +1066,7 @@ True population default rate under blanket acceptance: 0.190</code></pre>
 <h3 data-number="32.3.2" class="anchored" data-anchor-id="two-worked-examples"><span class="header-section-number">32.3.2</span> Two worked examples</h3>
 <p>Two instruments show up repeatedly in credit research. The first is loan officer leniency <span class="citation" data-cites="arnold2018racial">Dobbie et al. (<a href="11-trees-rules.html#ref-dobbie2021measuring" role="doc-biblioref">2020</a>)</span>. Applications are quasi-randomly assigned to officers whose approval tendencies differ. The average approval rate of an applicant’s assigned officer, computed on that officer’s other cases (leave-one-out), is an instrument for the applicant’s own approval. The second is auto-decisioning assignment. A bank that routes marginal applications to an algorithmic engine for some geographies or time windows and to human underwriters elsewhere has, effectively, a randomized assignment of a decision technology. The difference in approval rates between the two arms identifies the causal effect of auto-decisioning conditional on the first-stage wedge.</p>
 <p>The simulation below builds a stylized version. Applicants are randomized to loan officers with heterogeneous leniency. Default is a function of a latent risk plus a causal effect of receiving credit.</p>
-<div id="b2ada458" class="cell" data-execution_count="3">
+<div id="faef885c" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> linearmodels.iv <span class="im">import</span> IV2SLS</span>
@@ -1161,7 +1161,7 @@ Y_{it} = \alpha_i + \gamma_t + \tau G_i T_t + \varepsilon_{it},
 <section id="simulated-policy-change" class="level3" data-number="32.4.3">
 <h3 data-number="32.4.3" class="anchored" data-anchor-id="simulated-policy-change"><span class="header-section-number">32.4.3</span> Simulated policy change</h3>
 <p>The following simulation builds a natural experiment. A state rolls out a disclosure requirement that forces subprime card issuers to show an annualized cost figure on every statement. The hypothesis is that the disclosure reduces delinquency. Other states keep the old rule. We simulate the default rate in both arms before and after the rollout.</p>
-<div id="c6647012" class="cell" data-execution_count="4">
+<div id="212d08ed" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">17</span>)</span>
@@ -1215,7 +1215,7 @@ True tau: -0.01500</code></pre>
 </div>
 </div>
 <p>The DiD estimate sits within a standard error of the true effect. The next step checks parallel trends in the pre-period, which is the only part of the identification assumption that is testable.</p>
-<div id="285f31cb" class="cell" data-execution_count="5">
+<div id="f2779e01" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>pre <span class="op">=</span> panel[panel[<span class="st">"t"</span>] <span class="op">&lt;</span> treat_start].copy()</span>
@@ -1244,7 +1244,7 @@ dtype: float64</code></pre>
 </div>
 </div>
 <p>Small and statistically indistinguishable from zero supports parallel trends in the pre-window. An event-study plot makes this visual.</p>
-<div id="1e5def3a" class="cell" data-execution_count="6">
+<div id="a338bd64" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>event <span class="op">=</span> panel.copy()</span>
@@ -1305,7 +1305,7 @@ dtype: float64</code></pre>
 </section>
 <section id="from-scratch-local-linear-rdd" class="level3" data-number="32.5.2">
 <h3 data-number="32.5.2" class="anchored" data-anchor-id="from-scratch-local-linear-rdd"><span class="header-section-number">32.5.2</span> From-scratch local linear RDD</h3>
-<div id="6f35c9ee" class="cell" data-execution_count="7">
+<div id="382f85a1" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">23</span>)</span>
@@ -1387,7 +1387,7 @@ RDD estimate: 0.0335  (true jump = 0.04)</code></pre>
 <section id="robust-nonparametric-rdd" class="level3" data-number="32.5.3">
 <h3 data-number="32.5.3" class="anchored" data-anchor-id="robust-nonparametric-rdd"><span class="header-section-number">32.5.3</span> Robust nonparametric RDD</h3>
 <p>The package <code>rdrobust</code> implements the <span class="citation" data-cites="calonico2014robust">Calonico et al. (<a href="11-trees-rules.html#ref-calonico2014robust" role="doc-biblioref">2014</a>)</span> robust bias-corrected confidence intervals. If the package is not installed, fall back on the implementation above.</p>
-<div id="1c9fa0da" class="cell" data-execution_count="8">
+<div id="7a2b3293" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
@@ -1405,7 +1405,7 @@ RDD estimate: 0.0335  (true jump = 0.04)</code></pre>
 <section id="mccrary-density-test" class="level3" data-number="32.5.4">
 <h3 data-number="32.5.4" class="anchored" data-anchor-id="mccrary-density-test"><span class="header-section-number">32.5.4</span> McCrary density test</h3>
 <p>The internal validity of RDD rests on the assumption that units cannot precisely manipulate the running variable around the cutoff. In credit, bureau scores and internal scorecards are not fully in the applicant’s control, but loan officers sometimes can nudge scores by re-classifying inputs at the margin. If they do, the density of <span class="math inline">\(X\)</span> will show a jump at the cutoff. <span class="citation" data-cites="mccrary2008manipulation">McCrary (<a href="11-trees-rules.html#ref-mccrary2008manipulation" role="doc-biblioref">2008</a>)</span> proposed a local polynomial density test for exactly this. <span class="citation" data-cites="cattaneo2020simple">Cattaneo et al. (<a href="11-trees-rules.html#ref-cattaneo2020simple" role="doc-biblioref">2020</a>)</span> improved it.</p>
-<div id="0e0e0cc9" class="cell" data-execution_count="9">
+<div id="309a8434" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mccrary_density_test(X, cutoff, bw<span class="op">=</span><span class="va">None</span>, grid<span class="op">=</span><span class="dv">41</span>):</span>
@@ -1522,7 +1522,7 @@ D = m(X) + V, \qquad \mathbb{E}[V \mid X] = 0,
 </section>
 <section id="from-scratch-dml" class="level3" data-number="32.6.4">
 <h3 data-number="32.6.4" class="anchored" data-anchor-id="from-scratch-dml"><span class="header-section-number">32.6.4</span> From-scratch DML</h3>
-<div id="ff9f4f94" class="cell" data-execution_count="10">
+<div id="b531b179" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> GradientBoostingRegressor, GradientBoostingClassifier</span>
@@ -1572,7 +1572,7 @@ True theta: -0.08</code></pre>
 </section>
 <section id="the-econml-call" class="level3" data-number="32.6.5">
 <h3 data-number="32.6.5" class="anchored" data-anchor-id="the-econml-call"><span class="header-section-number">32.6.5</span> The econml call</h3>
-<div id="273516e3" class="cell" data-execution_count="11">
+<div id="e9d664d9" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> econml.dml <span class="im">import</span> LinearDML</span>
@@ -1601,7 +1601,7 @@ True theta: -0.08</code></pre>
 <section id="dml-for-a-feature-shock-on-pd" class="level3" data-number="32.6.6">
 <h3 data-number="32.6.6" class="anchored" data-anchor-id="dml-for-a-feature-shock-on-pd"><span class="header-section-number">32.6.6</span> DML for a feature shock on PD</h3>
 <p>A concrete credit question: what is the causal effect of a 10 percent income shock on the probability of default, controlling for a high-dimensional bureau profile? The simulation below treats “log income” as a continuous treatment variable, controls for twenty bureau-style covariates, and estimates the effect on a binary default outcome. We model the outcome on the log-odds scale via a residualized regression on the debiased treatment.</p>
-<div id="b78bba1c" class="cell" data-execution_count="12">
+<div id="a36014e7" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">31</span>)</span>
@@ -1668,7 +1668,7 @@ Approx true marginal effect on PD: -0.1102</code></pre>
 \mathbb{E}_t[Y] = \int \Pr_t(Y = 1 \mid X = x) \, dF_t(x).
 \tag{32.15}\]</span></span></p>
 <p>Changes in <span class="math inline">\(\mathbb{E}_t[Y]\)</span> have two sources: changes in <span class="math inline">\(F_t(x)\)</span> (covariate drift) and changes in <span class="math inline">\(\Pr_t(Y = 1 \mid X = x)\)</span> (conditional drift). Reweighting the current-period PDs with the prior-period distribution <span class="math inline">\(F_{t-1}(x)\)</span> isolates the conditional-drift component.</p>
-<div id="636f448f" class="cell" data-execution_count="13">
+<div id="26d3e03c" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">37</span>)</span>
@@ -1717,7 +1717,7 @@ Conditional drift    : 0.0130</code></pre>
 <h3 data-number="32.7.2" class="anchored" data-anchor-id="counterfactual-calibration"><span class="header-section-number">32.7.2</span> Counterfactual calibration</h3>
 <p>A deployed model is calibrated if <span class="math inline">\(\Pr(Y = 1 \mid s(X) = s) = s\)</span> where <span class="math inline">\(s\)</span> is the predicted PD. Counterfactual calibration is the stronger requirement: if the acceptance rule changed and the model were exposed to applicants it currently rejects, it would still be calibrated. Counterfactual calibration is not testable directly on production data. It is testable on random-holdout trials, which some lenders run on a small slice of applications to preserve the ability to learn about the rejected margin <span class="citation" data-cites="khandani2010consumer">Kleinberg et al. (<a href="11-trees-rules.html#ref-kleinberg2018human" role="doc-biblioref">2018</a>)</span>.</p>
 <p>An honest practitioner runs a random-holdout slice: with probability <span class="math inline">\(\epsilon\)</span>, accept an applicant regardless of model score. This generates unbiased outcome data on the low-score tail that would otherwise be censored. The slice costs the expected loss on the unprofitable applications. The benefit is a stream of causally valid data that keeps the next vintage from collapsing into the feedback-loop fixed point of <a href="#sec-ch28-selection" class="quarto-xref"><span>Section 32.2</span></a>.</p>
-<div id="c78860d1" class="cell" data-execution_count="14">
+<div id="59a07b44" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">41</span>)</span>
@@ -1802,7 +1802,7 @@ bin
 <section id="feedback-loop-simulation-and-bias-amplification" class="level2" data-number="32.8">
 <h2 data-number="32.8" class="anchored" data-anchor-id="feedback-loop-simulation-and-bias-amplification"><span class="header-section-number">32.8</span> Feedback loop simulation and bias amplification</h2>
 <p><a href="#sec-ch28-selection" class="quarto-xref"><span>Section 32.2</span></a> showed drift over vintages. This section closes the loop by quantifying the counterfactual bias a naive retraining procedure accumulates, and by comparing a causally aware fix based on random-holdout data.</p>
-<div id="d82aecc2" class="cell" data-execution_count="15">
+<div id="860801eb" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">53</span>)</span>
@@ -1887,7 +1887,7 @@ Final AUC, random-holdout strategy: 0.759</code></pre>
 <section id="end-to-end-worked-example-on-a-credit-policy-evaluation" class="level2" data-number="32.9">
 <h2 data-number="32.9" class="anchored" data-anchor-id="end-to-end-worked-example-on-a-credit-policy-evaluation"><span class="header-section-number">32.9</span> End-to-end worked example on a credit policy evaluation</h2>
 <p>This section assembles the pieces into one analysis. The question: a lender tightens its minimum credit score for a card product from 620 to 640 in region A but not in region B. Did the policy reduce the default rate, and by how much? The analyst’s toolkit includes DiD on regional panels, RDD at the 640 cutoff within region A, and a DML sanity check conditioning on rich borrower covariates.</p>
-<div id="ca4d602c" class="cell" data-execution_count="16">
+<div id="5669cc0a" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">59</span>)</span>
@@ -1956,7 +1956,7 @@ SE (region-clustered): 0.0000</code></pre>
 </div>
 </div>
 <p>The DiD coefficient captures the reduction in observed default rate attributable to the tighter policy, at the cost of a smaller approved book.</p>
-<div id="29ae5b7e" class="cell" data-execution_count="17">
+<div id="e4089c66" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="co"># RDD at the new 640 cutoff within region A post-policy.</span></span>
@@ -1987,7 +1987,7 @@ SE (region-clustered): 0.0000</code></pre>
 Sharp RDD at the old 620 cutoff: default jump = 0.0611</code></pre>
 </div>
 </div>
-<div id="e4000fbe" class="cell" data-execution_count="18">
+<div id="28fd860f" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="co"># DML cross-check: with the pre-period data, estimate the effect of being</span></span>
@@ -2038,7 +2038,7 @@ Sharp RDD at the old 620 cutoff: default jump = 0.0611</code></pre>
 <section id="benchmarking-on-the-taiwan-dataset" class="level2" data-number="32.10">
 <h2 data-number="32.10" class="anchored" data-anchor-id="benchmarking-on-the-taiwan-dataset"><span class="header-section-number">32.10</span> Benchmarking on the Taiwan dataset</h2>
 <p>A real-data demonstration grounds the simulations. The UCI Taiwan Credit Card dataset has no randomized intervention, so a rigorous causal analysis is not available. What is available is a pseudo-policy analysis: compare two synthetic treatment arms defined by a credit-limit cut, estimate the observational association with OLS, and then apply DML with gradient-boosted nuisance estimators. The point is methodological: DML adjusts for high-dimensional nonlinear controls in a way that OLS cannot.</p>
-<div id="4e4610ec" class="cell" data-execution_count="19">
+<div id="7560a642" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_taiwan_default</span>
@@ -2092,7 +2092,7 @@ DML ATE of 'high limit' on default (pseudo, observational): -0.0549</code></pre>
 <h2 data-number="32.11" class="anchored" data-anchor-id="scalability"><span class="header-section-number">32.11</span> Scalability</h2>
 <p>Causal estimators scale differently from predictive ones. The DiD regression is <span class="math inline">\(O(n p)\)</span> with fixed effects absorbed via demeaning; this runs in seconds on a 100-million-row panel in Polars or DuckDB. IV 2SLS is similar. The bottleneck is almost always the cluster-robust covariance matrix, which requires an <span class="math inline">\(O(n)\)</span> pass per cluster; <code>linearmodels</code> implements this efficiently. RDD is typically small: the local window around the cutoff trims the data to a manageable neighborhood.</p>
 <p>Double machine learning is the most expensive of the four. Each cross-fit requires fitting two nuisance models <span class="math inline">\(K\)</span> times. For <span class="math inline">\(K = 5\)</span> and a gradient-boosting nuisance, expect roughly <span class="math inline">\(10\times\)</span> the cost of a single scorecard training run. Parallel cross-fitting (<span class="math inline">\(K\)</span> parallel jobs) is trivial to implement with <code>joblib</code> or Dask. For portfolios in the tens of millions of rows, subsample aggressively or switch to <code>econml</code>’s sparse-linear nuisance option.</p>
-<div id="7d219c2a" class="cell" data-execution_count="20">
+<div id="53ab03da" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
@@ -2117,7 +2117,7 @@ DML ATE of 'high limit' on default (pseudo, observational): -0.0549</code></pre>
 <span id="cb37-20"><a href="#cb37-20" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"ATE = </span><span class="sc">{</span><span class="bu">float</span>(np.atleast_1d(est_fast.const_marginal_ate(X_big)).ravel()[<span class="dv">0</span>])<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>DML on 200k rows in 419.0s, ATE = -0.0769</code></pre>
+<pre><code>DML on 200k rows in 433.7s, ATE = -0.0769</code></pre>
 </div>
 </div>
 <p>On a laptop, 200,000 rows finishes in a few seconds. For 20 million rows, split the cross-fits across nodes. For 200 million rows, move to a Dask or Spark cluster and fit the nuisance estimators with PySpark MLlib or a sparse linear model. The math does not change.</p>
@@ -4012,7 +4012,10 @@ World Bank. (2022). <em>The global findex database 2021</em>. World Bank Group. 
 <span id="cb39-1232"><a href="#cb39-1232" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@chernozhukov2018double on DML.</span>
 <span id="cb39-1233"><a href="#cb39-1233" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@belloni2014inference on high-dimensional controls.</span>
 <span id="cb39-1234"><a href="#cb39-1234" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@athey2019generalized, @wager2018estimation on heterogeneous treatment effects.</span>
-<span id="cb39-1235"><a href="#cb39-1235" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@dobbie2021measuring, @agarwal2017regulating, @keys2010did as exemplars of causal credit research at top-tier journals.</span>
+<span id="cb39-1235"><a href="#cb39-1235" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@athey2016recursive on recursive partitioning for treatment-effect estimation, the precursor to the causal-forest line.</span>
+<span id="cb39-1236"><a href="#cb39-1236" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@kunzel2019metalearners on the X-, T-, and S-learner taxonomy for adapting any supervised learner to a CATE estimator; the X-learner is particularly useful when treated and control samples are imbalanced, which is common in collections-treatment data.</span>
+<span id="cb39-1237"><a href="#cb39-1237" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@dellavigna2022rcts on what 126 nudge-unit RCTs collectively imply about effect-size inflation in the academic literature: real-world deployment effects are roughly one sixth of the published averages, with about seventy percent of the gap attributable to selective publication. Important caveat for any external-validity claim drawn from a single published RCT.</span>
+<span id="cb39-1238"><a href="#cb39-1238" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>@dobbie2021measuring, @agarwal2017regulating, @keys2010did as exemplars of causal credit research at top-tier journals.</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->

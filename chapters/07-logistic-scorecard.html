@@ -1106,7 +1106,7 @@ x_{ij}^{\text{WoE}} = \sum_{k=1}^{K_j} \mathrm{WoE}_{jk} \cdot \mathbf{1}\{x_{ij
 <ol type="1">
 <li><em>Decision-tree binning.</em> A shallow CART on <span class="math inline">\((x_j, y)\)</span> gives boundaries optimized for target split quality. Simple, but can over-fit if the tree depth is not bounded.</li>
 <li><em>Chi-merge.</em> Iteratively merge adjacent bins with low chi-square statistic on the event-rate contingency table <span class="citation" data-cites="thomas2017credit">(<a href="11-trees-rules.html#ref-thomas2017credit" role="doc-biblioref">Thomas et al., 2017</a>)</span>.</li>
-<li><em>Optimal binning via mixed-integer programming.</em> <span class="citation" data-cites="navas2016optimal">Navas-Palencia (<a href="11-trees-rules.html#ref-navas2016optimal" role="doc-biblioref">2020</a>)</span> formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what <code>optbinning</code> implements, and what we use below.</li>
+<li><em>Optimal binning via mixed-integer programming.</em> <span class="citation" data-cites="navas2020optimal">Navas-Palencia (<a href="11-trees-rules.html#ref-navas2020optimal" role="doc-biblioref">2020</a>)</span> formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what <code>optbinning</code> implements, and what we use below.</li>
 </ol>
 <p>In each case, the output is a list of bin boundaries plus the empirical WoE per bin. The sklearn <code>ColumnTransformer</code> plus custom transformer idiom is enough to industrialize any of the three.</p>
 </section>
@@ -1132,7 +1132,7 @@ x_{ij}^{\text{WoE}} = \sum_{k=1}^{K_j} \mathrm{WoE}_{jk} \cdot \mathbf{1}\{x_{ij
 <p>Several items worth flagging before we code.</p>
 <ol type="1">
 <li><em>Rare events.</em> Under heavy imbalance (low base rate), MLE <span class="math inline">\(\hat\beta_0\)</span> is biased downward. <span class="citation" data-cites="king2001logistic">King &amp; Zeng (<a href="11-trees-rules.html#ref-king2001logistic" role="doc-biblioref">2001</a>)</span> give a closed-form correction; <span class="citation" data-cites="firth1993bias">Firth (<a href="11-trees-rules.html#ref-firth1993bias" role="doc-biblioref">1993</a>)</span> recommends Jeffreys prior penalization, which has become the default in modern credit practice. sklearn’s L2 penalty (<a href="#sec-logistic-l2-ridge" class="quarto-xref"><span>Section 7.3.2</span></a>) with modest <code>C</code> achieves similar regularization in large-<span class="math inline">\(n\)</span> credit datasets without the small-sample closed-form. The full menu of resampling, cost-sensitive, and threshold-moving fixes for severe imbalance is treated in <a href="15-imbalanced.html" class="quarto-xref"><span>Chapter 15</span></a>.</li>
-<li><em>Separation.</em> Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin <span class="citation" data-cites="navas2016optimal">(<a href="11-trees-rules.html#ref-navas2016optimal" role="doc-biblioref">Navas-Palencia, 2020</a>)</span> to prevent this before fitting.</li>
+<li><em>Separation.</em> Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin <span class="citation" data-cites="navas2020optimal">(<a href="11-trees-rules.html#ref-navas2020optimal" role="doc-biblioref">Navas-Palencia, 2020</a>)</span> to prevent this before fitting.</li>
 <li><em>Prior corrections.</em> When a training set is stratified (over-sampled bads), the MLE intercept no longer reflects the deployment prior. The standard correction shifts <span class="math inline">\(\hat\beta_0\)</span> by <span class="math inline">\(\log(\pi_{\text{pop}} / (1-\pi_{\text{pop}})) - \log(\pi_{\text{train}} / (1-\pi_{\text{train}}))\)</span> <span class="citation" data-cites="king2001logistic">(<a href="11-trees-rules.html#ref-king2001logistic" role="doc-biblioref">King &amp; Zeng, 2001</a>)</span>. All other coefficients are left unchanged; only the intercept carries the mismatch between training and deployment base rates. This is a one-line fix that many deployed scorecards get wrong when a sampling policy changes mid-year.</li>
 <li><em>Choice-based sampling.</em> When the sampling scheme itself is endogenous (e.g., the training set is only of accepted applicants), the logistic likelihood is mis-specified in a more fundamental way. Reject inference (<a href="10-reject-inference.html" class="quarto-xref"><span>Chapter 10</span></a>) addresses this directly. For the bulk of retail products where the sampling scheme is exogenous or rebuilt via weighted likelihood, the base-rate shift is the only correction needed.</li>
 <li><em>Interpreting</em> <span class="math inline">\(\beta_j\)</span>. In a logit on WoE-encoded features, <span class="math inline">\(\hat\beta_j\)</span> close to 1.0 indicates the empirical WoE is a faithful summary of the feature’s log-odds-ratio. Values substantially above 1 imply the binning under-resolves the feature (the WoE signal is being amplified by the linear coefficient to compensate). Values substantially below 1 suggest the binning over-resolves or is contaminated by noise. Senior scorecard modelers use this as a diagnostic: after fitting, inspect the distribution of <span class="math inline">\(\hat\beta_j\)</span> values. Most should live between 0.5 and 1.2. Outliers deserve a look.</li>
@@ -1314,7 +1314,7 @@ monotone bad rate: True</code></pre>
 <ol type="1">
 <li><em>Equal-width is sensitive to skew.</em> <code>DTI</code> is gamma-distributed, so the two highest equal-width bins together hold under 10% of the portfolio. Bad rates are monotone on this seed but the tail bin counts are small enough that a typical 5% min-bin-size rule would force a merge, and on neighboring seeds the top bin’s rate is noisy enough to invert against its neighbor.</li>
 <li><em>Equal-frequency stabilizes counts but not cuts.</em> Quantile cuts give every bin the same <code>n</code>, which is what makes IV and WoE estimates low-variance. Cuts land at population quantiles (here 0.142, 0.243, 0.355, 0.527), not at policy-relevant thresholds. A 36% DTI is a meaningful underwriting boundary; a 35.5% quantile is not.</li>
-<li><em>Supervised cuts find risk-driven boundaries.</em> The tree minimizes Gini on <code>default</code>, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what <code>optbinning</code> does for a single feature, minus the mixed-integer monotone constraint <span class="citation" data-cites="navas2016optimal">(<a href="11-trees-rules.html#ref-navas2016optimal" role="doc-biblioref">Navas-Palencia, 2020</a>)</span>. The CART splitting rule used here is derived in <a href="11-trees-rules.html#sec-ch11-splits" class="quarto-xref"><span>Section 11.2</span></a>; the same impurity criterion underlies decision-tree binning in production.</li>
+<li><em>Supervised cuts find risk-driven boundaries.</em> The tree minimizes Gini on <code>default</code>, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what <code>optbinning</code> does for a single feature, minus the mixed-integer monotone constraint <span class="citation" data-cites="navas2020optimal">(<a href="11-trees-rules.html#ref-navas2020optimal" role="doc-biblioref">Navas-Palencia, 2020</a>)</span>. The CART splitting rule used here is derived in <a href="11-trees-rules.html#sec-ch11-splits" class="quarto-xref"><span>Section 11.2</span></a>; the same impurity criterion underlies decision-tree binning in production.</li>
 </ol>
 <p>In production we would feed the supervised cuts into an optimizer that adds a monotone-event-rate constraint per feature, the way <code>optbinning</code> and <code>scorecardpy</code> do. For a one-feature walkthrough the supervised cuts are usually adequate; we use rounded, policy-readable boundaries instead so the WoE arithmetic in the next step stays legible.</p>
 <div id="walkthrough-bin-dti" class="cell" data-execution_count="4">
@@ -1729,7 +1729,7 @@ s_i = A - B \beta_0 - B \sum_j \beta_j \mathrm{WoE}_{ji}
 </section>
 <section id="the-bayesian-view" class="level3" data-number="7.3.5">
 <h3 data-number="7.3.5" class="anchored" data-anchor-id="the-bayesian-view"><span class="header-section-number">7.3.5</span> The Bayesian view</h3>
-<p>Ridge logistic is the MAP estimate under a Gaussian prior: <span class="math inline">\(\beta_j \sim \mathcal{N}(0, \sigma^2)\)</span> with <span class="math inline">\(\lambda = 1/\sigma^2\)</span>. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: <span class="citation" data-cites="gelman2017prior">Gelman et al. (<a href="11-trees-rules.html#ref-gelman2017prior" role="doc-biblioref">2008</a>)</span> show that a weakly informative Cauchy<span class="math inline">\((0, 2.5)\)</span> prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through <code>pymc</code> or via sklearn’s L2 with a modest <code>C</code>. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.</p>
+<p>Ridge logistic is the MAP estimate under a Gaussian prior: <span class="math inline">\(\beta_j \sim \mathcal{N}(0, \sigma^2)\)</span> with <span class="math inline">\(\lambda = 1/\sigma^2\)</span>. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: <span class="citation" data-cites="gelman2008prior">Gelman et al. (<a href="11-trees-rules.html#ref-gelman2008prior" role="doc-biblioref">2008</a>)</span> show that a weakly informative Cauchy<span class="math inline">\((0, 2.5)\)</span> prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through <code>pymc</code> or via sklearn’s L2 with a modest <code>C</code>. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.</p>
 </section>
 <section id="picking-lambda" class="level3" data-number="7.3.6">
 <h3 data-number="7.3.6" class="anchored" data-anchor-id="picking-lambda"><span class="header-section-number">7.3.6</span> Picking <span class="math inline">\(\lambda\)</span></h3>
@@ -1787,7 +1787,7 @@ Table&nbsp;7.1: Default penalty choice by credit-modeling regime. Triage rules a
 </tr>
 <tr class="even">
 <td>Bayesian prior on coefficients</td>
-<td>L2 with calibrated <span class="math inline">\(\lambda\)</span> <span class="citation" data-cites="gelman2017prior">(<a href="11-trees-rules.html#ref-gelman2017prior" role="doc-biblioref">Gelman et al., 2008</a>)</span></td>
+<td>L2 with calibrated <span class="math inline">\(\lambda\)</span> <span class="citation" data-cites="gelman2008prior">(<a href="11-trees-rules.html#ref-gelman2008prior" role="doc-biblioref">Gelman et al., 2008</a>)</span></td>
 </tr>
 <tr class="odd">
 <td>Production with legal sign constraints</td>
@@ -1951,7 +1951,7 @@ Figure&nbsp;7.2: Calibration-method decision tree. Read top to bottom; at each d
 <h2 data-number="7.6" class="anchored" data-anchor-id="sec-ch07-impl"><span class="header-section-number">7.6</span> Implementation from scratch</h2>
 <section id="irls-matched-against-statsmodels.logit" class="level3" data-number="7.6.1">
 <h3 data-number="7.6.1" class="anchored" data-anchor-id="irls-matched-against-statsmodels.logit"><span class="header-section-number">7.6.1</span> IRLS, matched against <code>statsmodels.Logit</code></h3>
-<div id="85088a28" class="cell" data-execution_count="12">
+<div id="fd599f99" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -2018,7 +2018,7 @@ Max abs diff : 1.021405182655144e-14</code></pre>
 </div>
 </div>
 <p>IRLS converges in a handful of iterations, and the coefficients agree with <code>statsmodels.Logit</code> to machine precision. The Fisher information lets us recover asymptotic standard errors:</p>
-<div id="9a8f293b" class="cell" data-execution_count="13">
+<div id="a8c4151b" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>se_from_irls <span class="op">=</span> np.sqrt(np.diag(np.linalg.inv(I_mat)))</span>
@@ -2033,7 +2033,7 @@ SE (statsmodels) : [0.0445 0.0411 0.0391 0.0443 0.0375 0.0412]</code></pre>
 </section>
 <section id="points-per-bin-by-hand-on-a-one-feature-toy" class="level3" data-number="7.6.2">
 <h3 data-number="7.6.2" class="anchored" data-anchor-id="points-per-bin-by-hand-on-a-one-feature-toy"><span class="header-section-number">7.6.2</span> Points per bin by hand on a one-feature toy</h3>
-<div id="563c6f5f" class="cell" data-execution_count="14">
+<div id="b1aa6e12" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="co"># simple example showing points_per_bin = -factor * beta * WoE</span></span>
@@ -2064,7 +2064,7 @@ Ratio (each doubling of WoE) should ~ factor*log2 ? -34.62 vs -34.62</code></pre
 </section>
 <section id="ohlson-o-score-demonstration" class="level3" data-number="7.6.3">
 <h3 data-number="7.6.3" class="anchored" data-anchor-id="ohlson-o-score-demonstration"><span class="header-section-number">7.6.3</span> Ohlson O-score demonstration</h3>
-<div id="8145a663" class="cell" data-execution_count="15">
+<div id="76a9fc02" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Synthetic five-firm panel to show the O-score arithmetic. Values are</span></span>
@@ -2109,7 +2109,7 @@ epsilon -1.8038 0.1414</code></pre>
 <section id="refitting-ohlson-on-uci-572-public-data" class="level4">
 <h4 class="anchored" data-anchor-id="refitting-ohlson-on-uci-572-public-data">Refitting Ohlson on UCI 572 (public data)</h4>
 <p>The synthetic block above only checks that we can multiply Ohlson’s coefficients by a row of ratios. The interesting question is whether the <em>specification</em> still works on data Ohlson never saw. The UCI 572 Taiwanese Bankruptcy panel ships nearly every Ohlson covariate by name, so we can map columns one-for-one and refit. The two exceptions are <code>INTWO</code> (the UCI <code>Net_Income_Flag</code> column is constant on the released file, so it carries no information and we drop it) and <code>CHIN</code> (Ohlson’s earnings-change ratio requires a <span class="math inline">\(t-1\)</span> observation, but UCI 572 is a single firm-year cross-section without a usable lag). All remaining ratios in UCI 572 are min-max scaled to <span class="math inline">\([0,1]\)</span> by the publishers <span class="citation" data-cites="liang2016financial">(<a href="11-trees-rules.html#ref-liang2016financial" role="doc-biblioref">Liang et al., 2016</a>)</span>, so the <em>magnitudes</em> of the refit coefficients will not match Ohlson 1980 in absolute units. The <em>signs</em> should.</p>
-<div id="6f586c69" class="cell" data-execution_count="16">
+<div id="fd4a3947" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
@@ -2174,7 +2174,7 @@ intercept      13.142   0.0000           1        NaN
 <section id="the-standard-library-call" class="level2" data-number="7.7">
 <h2 data-number="7.7" class="anchored" data-anchor-id="the-standard-library-call"><span class="header-section-number">7.7</span> The standard library call</h2>
 <p>We fit logistic regression three ways on the UCI Taiwan default data: <code>statsmodels.Logit</code> for inference, <code>sklearn.linear_model.LogisticRegression</code> for pipelines, and <code>optbinning.Scorecard</code> for the full points scorecard <span class="citation" data-cites="yeh2009comparisons">(<a href="11-trees-rules.html#ref-yeh2009comparisons" role="doc-biblioref">Yeh &amp; Lien, 2009</a>)</span>.</p>
-<div id="23dfb433" class="cell" data-execution_count="17">
+<div id="0cd858d5" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -2200,7 +2200,7 @@ intercept      13.142   0.0000           1        NaN
 </div>
 <section id="route-a.-statsmodels.logit-on-standardized-raw-features" class="level3" data-number="7.7.1">
 <h3 data-number="7.7.1" class="anchored" data-anchor-id="route-a.-statsmodels.logit-on-standardized-raw-features"><span class="header-section-number">7.7.1</span> Route A. <code>statsmodels.Logit</code> on standardized raw features</h3>
-<div id="e3c5adc1" class="cell" data-execution_count="18">
+<div id="ac94baba" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.preprocessing <span class="im">import</span> StandardScaler</span>
@@ -2222,7 +2222,7 @@ statsmodels Brier: 0.1459</code></pre>
 </section>
 <section id="route-b.-sklearn.logisticregression-l2" class="level3" data-number="7.7.2">
 <h3 data-number="7.7.2" class="anchored" data-anchor-id="route-b.-sklearn.logisticregression-l2"><span class="header-section-number">7.7.2</span> Route B. <code>sklearn.LogisticRegression</code> (L2)</h3>
-<div id="cdc42af0" class="cell" data-execution_count="19">
+<div id="fe189bde" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegression</span>
@@ -2243,7 +2243,7 @@ sklearn Brier: 0.146</code></pre>
 </section>
 <section id="route-c.-full-optbinning.scorecard-pipeline" class="level3" data-number="7.7.3">
 <h3 data-number="7.7.3" class="anchored" data-anchor-id="route-c.-full-optbinning.scorecard-pipeline"><span class="header-section-number">7.7.3</span> Route C. Full <code>optbinning.Scorecard</code> pipeline</h3>
-<div id="a94b3f8a" class="cell" data-execution_count="20">
+<div id="d4355b25" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> optbinning <span class="im">import</span> BinningProcess, Scorecard</span>
@@ -2280,7 +2280,7 @@ Score percentiles (1/25/50/75/99): [473.4, 496.8, 508.0, 525.1, 607.1]</code></p
 </section>
 <section id="inspect-the-scorecard-table" class="level3" data-number="7.7.4">
 <h3 data-number="7.7.4" class="anchored" data-anchor-id="inspect-the-scorecard-table"><span class="header-section-number">7.7.4</span> Inspect the scorecard table</h3>
-<div id="e1a63593" class="cell" data-execution_count="21">
+<div id="c0dac522" class="cell" data-execution_count="21">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>sc_table <span class="op">=</span> scorecard.table(style<span class="op">=</span><span class="st">"detailed"</span>)</span>
@@ -2304,7 +2304,7 @@ Score percentiles (1/25/50/75/99): [473.4, 496.8, 508.0, 525.1, 607.1]</code></p
 </section>
 <section id="score-cutoff-policy" class="level3" data-number="7.7.5">
 <h3 data-number="7.7.5" class="anchored" data-anchor-id="score-cutoff-policy"><span class="header-section-number">7.7.5</span> Score cutoff policy</h3>
-<div id="ee1cd4c7" class="cell" data-execution_count="22">
+<div id="bdf85420" class="cell" data-execution_count="22">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pick a cutoff that approves roughly 70% of the train distribution, then</span></span>
@@ -2340,7 +2340,7 @@ Bad rate below cutoff: 0.0842</code></pre>
 <h2 data-number="7.8" class="anchored" data-anchor-id="benchmark-on-german-taiwan"><span class="header-section-number">7.8</span> Benchmark on German + Taiwan</h2>
 <section id="regularization-path-on-german" class="level3" data-number="7.8.1">
 <h3 data-number="7.8.1" class="anchored" data-anchor-id="regularization-path-on-german"><span class="header-section-number">7.8.1</span> Regularization path on German</h3>
-<div id="a147487f" class="cell" data-execution_count="23">
+<div id="e734b729" class="cell" data-execution_count="23">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.linear_model <span class="im">import</span> LogisticRegressionCV</span>
@@ -2388,7 +2388,7 @@ Bad rate below cutoff: 0.0842</code></pre>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>L2 best C : 1.269   test AUC : 0.8004
-L1 best C : 2.8072   test AUC : 0.8008   non-zero coefs: 47 / 48
+L1 best C : 2.8072   test AUC : 0.801   non-zero coefs: 47 / 48
 Elastic net test AUC : 0.802</code></pre>
 </div>
 </div>
@@ -2396,7 +2396,7 @@ Elastic net test AUC : 0.802</code></pre>
 </section>
 <section id="coefficient-stability-under-l1" class="level3" data-number="7.8.2">
 <h3 data-number="7.8.2" class="anchored" data-anchor-id="coefficient-stability-under-l1"><span class="header-section-number">7.8.2</span> Coefficient stability under L1</h3>
-<div id="f1aea62a" class="cell" data-execution_count="24">
+<div id="9d7b6754" class="cell" data-execution_count="24">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb49"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
@@ -2511,7 +2511,7 @@ Features with sel_freq &gt;= 0.6: 47 / 48</code></pre>
 <span id="cb52-25"><a href="#cb52-25" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"non-zero coefs = </span><span class="sc">{</span>nz_1se<span class="sc">}</span><span class="ss"> / </span><span class="sc">{</span>Xg_tr<span class="sc">.</span>shape[<span class="dv">1</span>]<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>min-loss rule : C = 2.8072, CV-AUC = 0.7640
+<pre><code>min-loss rule : C = 2.8072, CV-AUC = 0.7639
 1-SE rule     : C = 0.2593, CV-AUC = 0.7534, non-zero coefs = 23 / 48</code></pre>
 </div>
 </div>
@@ -3012,7 +3012,7 @@ Big retail LR (representative, n_train &gt; 20k)                 No calibration 
 <p>We scale the logistic fit from a single pandas call to an out-of-core fit and a PySpark MLlib fit on a 1M-row synthetic default dataset. The goal is to verify that AUC is recoverable at scale and to quantify the wall-clock tradeoff.</p>
 <section id="synthetic-1m-row-generator" class="level3" data-number="7.9.1">
 <h3 data-number="7.9.1" class="anchored" data-anchor-id="synthetic-1m-row-generator"><span class="header-section-number">7.9.1</span> Synthetic 1M-row generator</h3>
-<div id="b1fa08ae" class="cell" data-execution_count="35">
+<div id="96a384cb" class="cell" data-execution_count="35">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb70"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb70-1"><a href="#cb70-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> synth_default(n, seed<span class="op">=</span><span class="dv">0</span>):</span>
@@ -3037,7 +3037,7 @@ Big retail LR (representative, n_train &gt; 20k)                 No calibration 
 </section>
 <section id="sklearn-saga-on-the-full-1m-rows" class="level3" data-number="7.9.2">
 <h3 data-number="7.9.2" class="anchored" data-anchor-id="sklearn-saga-on-the-full-1m-rows"><span class="header-section-number">7.9.2</span> sklearn SAGA on the full 1M rows</h3>
-<div id="729d0743" class="cell" data-execution_count="36">
+<div id="a55d9d3b" class="cell" data-execution_count="36">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb72"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb72-1"><a href="#cb72-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
@@ -3053,14 +3053,14 @@ Big retail LR (representative, n_train &gt; 20k)                 No calibration 
 <span id="cb72-11"><a href="#cb72-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"sklearn SAGA   time=</span><span class="sc">{</span>sk_time<span class="sc">:6.2f}</span><span class="ss">s  AUC=</span><span class="sc">{</span>sk_auc<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>sklearn SAGA   time=  1.84s  AUC=0.7770</code></pre>
+<pre><code>sklearn SAGA   time=  4.29s  AUC=0.7770</code></pre>
 </div>
 </div>
 </section>
 <section id="pyspark-mllib-on-the-same-dataset-graceful-fallback" class="level3" data-number="7.9.3">
 <h3 data-number="7.9.3" class="anchored" data-anchor-id="pyspark-mllib-on-the-same-dataset-graceful-fallback"><span class="header-section-number">7.9.3</span> PySpark MLlib on the same dataset (graceful fallback)</h3>
 <p>PySpark MLlib fits logistic regression in a distributed fashion. In environments without a JVM we fall back to a Dask out-of-core comparison so the chapter always renders.</p>
-<div id="d93af3f0" class="cell" data-execution_count="37">
+<div id="3ba96757" class="cell" data-execution_count="37">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb74"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb74-1"><a href="#cb74-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
@@ -3112,7 +3112,7 @@ Big retail LR (representative, n_train &gt; 20k)                 No calibration 
 <div class="cell-output cell-output-stdout">
 <pre><code>PySpark unavailable in this environment: RuntimeError
 Falling back to Dask out-of-core logistic regression.
-Dask/SGD fallback time=  1.11s  AUC=0.7746</code></pre>
+Dask/SGD fallback time=  1.08s  AUC=0.7746</code></pre>
 </div>
 </div>
 <p>On a real cluster, MLlib parallelizes the Hessian accumulation across workers and returns coefficients within a few minutes on a 1M-row, 5-column dataset on 4 cores. The AUC is within rounding distance of the sklearn SAGA fit because the MLE is the same estimand. The tradeoff is operational: sklearn SAGA is faster at 1M rows on one laptop; MLlib wins when the data does not fit in memory or when you want a Spark pipeline for downstream feature engineering. At 10M rows, sklearn with float32 and SAGA still works under 30 seconds if the features fit; beyond that PySpark MLlib or a GPU-based solver is the better path.</p>
@@ -3136,7 +3136,7 @@ Dask/SGD fallback time=  1.11s  AUC=0.7746</code></pre>
 <p>The MLOps stack (FastAPI service contracts, container images, ONNX runtimes, MLflow registries, CI / shadow-deploy patterns) gets a full treatment in <a href="34-mlops-deployment.html" class="quarto-xref"><span>Chapter 38</span></a>. The blocks below cover only the scorecard-specific glue: serializing the artifact, exposing a thin scoring endpoint, and confirming numerical equivalence under ONNX export.</p>
 <section id="persist-the-scorecard" class="level3" data-number="7.10.1">
 <h3 data-number="7.10.1" class="anchored" data-anchor-id="persist-the-scorecard"><span class="header-section-number">7.10.1</span> Persist the scorecard</h3>
-<div id="011a49c7" class="cell" data-execution_count="38">
+<div id="159cf89c" class="cell" data-execution_count="38">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb77"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb77-1"><a href="#cb77-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pickle, os</span>
@@ -3175,7 +3175,7 @@ size (bytes): 62476</code></pre>
 </section>
 <section id="onnx-export-of-a-scikit-learn-lr" class="level3" data-number="7.10.3">
 <h3 data-number="7.10.3" class="anchored" data-anchor-id="onnx-export-of-a-scikit-learn-lr"><span class="header-section-number">7.10.3</span> ONNX export of a scikit-learn LR</h3>
-<div id="4ad2120e" class="cell" data-execution_count="39">
+<div id="91852af7" class="cell" data-execution_count="39">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb81"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb81-1"><a href="#cb81-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> skl2onnx <span class="im">import</span> to_onnx</span>
@@ -3205,7 +3205,7 @@ ONNX vs sklearn abs diff (first 5): [0. 0. 0. 0. 0.]</code></pre>
 </section>
 <section id="mlflow-logging" class="level3" data-number="7.10.4">
 <h3 data-number="7.10.4" class="anchored" data-anchor-id="mlflow-logging"><span class="header-section-number">7.10.4</span> MLflow logging</h3>
-<div id="a6927180" class="cell" data-execution_count="40">
+<div id="a7d52312" class="cell" data-execution_count="40">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb83"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb83-1"><a href="#cb83-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> mlflow, tempfile, shutil</span>
@@ -3234,7 +3234,7 @@ ONNX vs sklearn abs diff (first 5): [0. 0. 0. 0. 0.]</code></pre>
 <span id="cb83-24"><a href="#cb83-24" aria-hidden="true" tabindex="-1"></a>shutil.rmtree(mlruns_dir, ignore_errors<span class="op">=</span><span class="va">True</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>MLflow run: 14282a2f10c74388b09f583bf0f02e75 stored at /var/folders/v0/l6rqy_gs4v19zq2cgq476n8w0000gn/T/mlruns_tvas5qw0</code></pre>
+<pre><code>MLflow run: fe39e5694aa94f2bbd125939215b1075 stored at /var/folders/v0/l6rqy_gs4v19zq2cgq476n8w0000gn/T/mlruns_hq8bcp99</code></pre>
 </div>
 </div>
 <p>Every production scorecard should be MLflow-logged with the hyperparameters, metric suite (AUC, KS, Brier, PSI, approval/bad rates), training data signature, and the artifact itself. SR 11-7 (<a href="05-regulation.html#sec-sr117" class="quarto-xref"><span>Section 5.6</span></a>) expects you to reproduce the fit from logged artifacts on demand; <a href="34-mlops-deployment.html" class="quarto-xref"><span>Chapter 38</span></a> covers the registry-plus-CI workflow that operationalizes that requirement.</p>
@@ -3245,7 +3245,7 @@ ONNX vs sklearn abs diff (first 5): [0. 0. 0. 0. 0.]</code></pre>
 <section id="reason-codes" class="level3" data-number="7.11.1">
 <h3 data-number="7.11.1" class="anchored" data-anchor-id="reason-codes"><span class="header-section-number">7.11.1</span> Reason codes</h3>
 <p>Regulation B (ECOA) and FCRA require that a denied applicant be told, in concrete terms, why; the legal text and the four-reason rule are walked through in <a href="05-regulation.html#sec-adverse-action" class="quarto-xref"><span>Section 5.7</span></a>, with the broader ECOA and FCRA framing in <a href="05-regulation.html#sec-ch05-ecoa" class="quarto-xref"><span>Section 5.2</span></a> and <a href="05-regulation.html#sec-ch05-fcra" class="quarto-xref"><span>Section 5.3</span></a>. The standard scorecard approach is: for each applicant, rank feature bins by points below the approved-population average for that feature; return the top-k features. The FastAPI skeleton above does this by comparing each applicant’s bin points against the table of bin points.</p>
-<div id="6f95f55e" class="cell" data-execution_count="41">
+<div id="e05ec415" class="cell" data-execution_count="41">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb85"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb85-1"><a href="#cb85-1" aria-hidden="true" tabindex="-1"></a><span class="co"># demo: reason codes for five random declined applicants</span></span>
@@ -3291,7 +3291,7 @@ applicant 4: PAY_0=(-inf, -0.50) (13.6 pts); LIMIT_BAL=[365000.00, inf) (14.0 pt
 <li><strong>Monotonic binning.</strong> Optimal binning solves its mixed-integer program with a monotone event-rate constraint per feature. Then the learned WoE values are automatically monotone in the feature. This is the preferred approach because it is visible in the scorecard table and auditable.</li>
 <li><strong>Sign-constrained logistic regression.</strong> Fit a penalized LR with coefficient sign constraints imposed via convex optimization (<code>cvxpy</code>) or a projected gradient step. This is the fallback when a feature must enter raw.</li>
 </ol>
-<div id="276010f4" class="cell" data-execution_count="42">
+<div id="d640c164" class="cell" data-execution_count="42">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb87"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb87-1"><a href="#cb87-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Example: enforce monotone event-rate bins on PAY_0</span></span>
@@ -3335,7 +3335,7 @@ applicant 4: PAY_0=(-inf, -0.50) (13.6 pts); LIMIT_BAL=[365000.00, inf) (14.0 pt
 \mathrm{PSI} = \sum_{b=1}^{B} (A_b - E_b) \log(A_b / E_b)
 \tag{7.19}\]</span></span></p>
 <p>where <span class="math inline">\(E_b\)</span> and <span class="math inline">\(A_b\)</span> are the expected (baseline) and actual (current) fractions in quantile bucket <span class="math inline">\(b\)</span>.</p>
-<div id="188b56c5" class="cell" data-execution_count="43">
+<div id="c00610c4" class="cell" data-execution_count="43">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb89"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb89-1"><a href="#cb89-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate drift by taking two temporal splits</span></span>
@@ -3528,7 +3528,7 @@ Firth, D. (1993). Bias reduction of maximum likelihood estimates. <em>Biometrika
 <div id="ref-friedman2010regularization" class="csl-entry" role="listitem">
 Friedman, J., Hastie, T., &amp; Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. <em>Journal of Statistical Software</em>, <em>33</em>(1), 1–22. <a href="https://doi.org/10.18637/jss.v033.i01">https://doi.org/10.18637/jss.v033.i01</a>
 </div>
-<div id="ref-gelman2017prior" class="csl-entry" role="listitem">
+<div id="ref-gelman2008prior" class="csl-entry" role="listitem">
 Gelman, A., Jakulin, A., Pittau, M. G., &amp; Su, Y.-S. (2008). A weakly informative default prior distribution for logistic and other regression models. <em>The Annals of Applied Statistics</em>, <em>2</em>(4), 1360–1383. <a href="https://doi.org/10.1214/08-AOAS191">https://doi.org/10.1214/08-AOAS191</a>
 </div>
 <div id="ref-govvn2023decree13" class="csl-entry" role="listitem">
@@ -3585,7 +3585,7 @@ Meinshausen, N., &amp; Bühlmann, P. (2010). Stability selection. <em>Journal of
 <div id="ref-cicvn2023report" class="csl-entry" role="listitem">
 National Credit Information Centre of Vietnam. (2023). <em>Annual report of the <span>Credit</span> <span>Information</span> <span>Centre</span> (<span>CIC</span>)</em>. State Bank of Vietnam. <a href="https://cic.gov.vn/">https://cic.gov.vn/</a>
 </div>
-<div id="ref-navas2016optimal" class="csl-entry" role="listitem">
+<div id="ref-navas2020optimal" class="csl-entry" role="listitem">
 Navas-Palencia, G. (2020). Optimal binning: Mathematical programming formulation. <em>arXiv Preprint arXiv:2001.08025</em>.
 </div>
 <div id="ref-nelder1972generalized" class="csl-entry" role="listitem">
@@ -4334,7 +4334,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-201"><a href="#cb91-201" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-202"><a href="#cb91-202" aria-hidden="true" tabindex="-1"></a><span class="ss">1.  </span>*Decision-tree binning.* A shallow CART on $(x_j, y)$ gives boundaries optimized for target split quality. Simple, but can over-fit if the tree depth is not bounded.</span>
 <span id="cb91-203"><a href="#cb91-203" aria-hidden="true" tabindex="-1"></a><span class="ss">2.  </span>*Chi-merge.* Iteratively merge adjacent bins with low chi-square statistic on the event-rate contingency table <span class="co">[</span><span class="ot">@thomas2017credit</span><span class="co">]</span>.</span>
-<span id="cb91-204"><a href="#cb91-204" aria-hidden="true" tabindex="-1"></a><span class="ss">3.  </span>*Optimal binning via mixed-integer programming.* @navas2016optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what <span class="in">`optbinning`</span> implements, and what we use below.</span>
+<span id="cb91-204"><a href="#cb91-204" aria-hidden="true" tabindex="-1"></a><span class="ss">3.  </span>*Optimal binning via mixed-integer programming.* @navas2020optimal formulates bin selection as an MILP with monotonicity, minimum sample size, and maximum bin-count constraints. This is what <span class="in">`optbinning`</span> implements, and what we use below.</span>
 <span id="cb91-205"><a href="#cb91-205" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-206"><a href="#cb91-206" aria-hidden="true" tabindex="-1"></a>In each case, the output is a list of bin boundaries plus the empirical WoE per bin. The sklearn <span class="in">`ColumnTransformer`</span> plus custom transformer idiom is enough to industrialize any of the three.</span>
 <span id="cb91-207"><a href="#cb91-207" aria-hidden="true" tabindex="-1"></a></span>
@@ -4365,7 +4365,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-232"><a href="#cb91-232" aria-hidden="true" tabindex="-1"></a>Several items worth flagging before we code.</span>
 <span id="cb91-233"><a href="#cb91-233" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-234"><a href="#cb91-234" aria-hidden="true" tabindex="-1"></a><span class="ss">1.  </span>*Rare events.* Under heavy imbalance (low base rate), MLE $\hat\beta_0$ is biased downward. @king2001logistic give a closed-form correction; @firth1993bias recommends Jeffreys prior penalization, which has become the default in modern credit practice. sklearn's L2 penalty (@sec-logistic-l2-ridge) with modest <span class="in">`C`</span> achieves similar regularization in large-$n$ credit datasets without the small-sample closed-form. The full menu of resampling, cost-sensitive, and threshold-moving fixes for severe imbalance is treated in @sec-ch15.</span>
-<span id="cb91-235"><a href="#cb91-235" aria-hidden="true" tabindex="-1"></a><span class="ss">2.  </span>*Separation.* Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin <span class="co">[</span><span class="ot">@navas2016optimal</span><span class="co">]</span> to prevent this before fitting.</span>
+<span id="cb91-235"><a href="#cb91-235" aria-hidden="true" tabindex="-1"></a><span class="ss">2.  </span>*Separation.* Rare monotone bins (e.g., a PAY_0 bin with zero goods) make the likelihood diverge. Optimal binning enforces a minimum bad and good rate per bin <span class="co">[</span><span class="ot">@navas2020optimal</span><span class="co">]</span> to prevent this before fitting.</span>
 <span id="cb91-236"><a href="#cb91-236" aria-hidden="true" tabindex="-1"></a><span class="ss">3.  </span>*Prior corrections.* When a training set is stratified (over-sampled bads), the MLE intercept no longer reflects the deployment prior. The standard correction shifts $\hat\beta_0$ by $\log(\pi_{\text{pop}} / (1-\pi_{\text{pop}})) - \log(\pi_{\text{train}} / (1-\pi_{\text{train}}))$ <span class="co">[</span><span class="ot">@king2001logistic</span><span class="co">]</span>. All other coefficients are left unchanged; only the intercept carries the mismatch between training and deployment base rates. This is a one-line fix that many deployed scorecards get wrong when a sampling policy changes mid-year.</span>
 <span id="cb91-237"><a href="#cb91-237" aria-hidden="true" tabindex="-1"></a><span class="ss">4.  </span>*Choice-based sampling.* When the sampling scheme itself is endogenous (e.g., the training set is only of accepted applicants), the logistic likelihood is mis-specified in a more fundamental way. Reject inference (@sec-ch10) addresses this directly. For the bulk of retail products where the sampling scheme is exogenous or rebuilt via weighted likelihood, the base-rate shift is the only correction needed.</span>
 <span id="cb91-238"><a href="#cb91-238" aria-hidden="true" tabindex="-1"></a><span class="ss">5.  </span>*Interpreting* $\beta_j$. In a logit on WoE-encoded features, $\hat\beta_j$ close to 1.0 indicates the empirical WoE is a faithful summary of the feature's log-odds-ratio. Values substantially above 1 imply the binning under-resolves the feature (the WoE signal is being amplified by the linear coefficient to compensate). Values substantially below 1 suggest the binning over-resolves or is contaminated by noise. Senior scorecard modelers use this as a diagnostic: after fitting, inspect the distribution of $\hat\beta_j$ values. Most should live between 0.5 and 1.2. Outliers deserve a look.</span>
@@ -4481,7 +4481,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-354"><a href="#cb91-354" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-355"><a href="#cb91-355" aria-hidden="true" tabindex="-1"></a><span class="ss">1.  </span>*Equal-width is sensitive to skew.* <span class="in">`DTI`</span> is gamma-distributed, so the two highest equal-width bins together hold under 10% of the portfolio. Bad rates are monotone on this seed but the tail bin counts are small enough that a typical 5% min-bin-size rule would force a merge, and on neighboring seeds the top bin's rate is noisy enough to invert against its neighbor.</span>
 <span id="cb91-356"><a href="#cb91-356" aria-hidden="true" tabindex="-1"></a><span class="ss">2.  </span>*Equal-frequency stabilizes counts but not cuts.* Quantile cuts give every bin the same <span class="in">`n`</span>, which is what makes IV and WoE estimates low-variance. Cuts land at population quantiles (here 0.142, 0.243, 0.355, 0.527), not at policy-relevant thresholds. A 36% DTI is a meaningful underwriting boundary; a 35.5% quantile is not.</span>
-<span id="cb91-357"><a href="#cb91-357" aria-hidden="true" tabindex="-1"></a><span class="ss">3.  </span>*Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on <span class="in">`default`</span>, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what <span class="in">`optbinning`</span> does for a single feature, minus the mixed-integer monotone constraint <span class="co">[</span><span class="ot">@navas2016optimal</span><span class="co">]</span>. The CART splitting rule used here is derived in @sec-ch11-splits; the same impurity criterion underlies decision-tree binning in production.</span>
+<span id="cb91-357"><a href="#cb91-357" aria-hidden="true" tabindex="-1"></a><span class="ss">3.  </span>*Supervised cuts find risk-driven boundaries.* The tree minimizes Gini on <span class="in">`default`</span>, so its cut points (here near 0.20, 0.33, 0.52, 0.86) sit at genuine changes in bad rate, and the resulting bad-rate profile is the steepest of the three. With a 5% minimum leaf size and at most five leaves, this is exactly what <span class="in">`optbinning`</span> does for a single feature, minus the mixed-integer monotone constraint <span class="co">[</span><span class="ot">@navas2020optimal</span><span class="co">]</span>. The CART splitting rule used here is derived in @sec-ch11-splits; the same impurity criterion underlies decision-tree binning in production.</span>
 <span id="cb91-358"><a href="#cb91-358" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-359"><a href="#cb91-359" aria-hidden="true" tabindex="-1"></a>In production we would feed the supervised cuts into an optimizer that adds a monotone-event-rate constraint per feature, the way <span class="in">`optbinning`</span> and <span class="in">`scorecardpy`</span> do. For a one-feature walkthrough the supervised cuts are usually adequate; we use rounded, policy-readable boundaries instead so the WoE arithmetic in the next step stays legible.</span>
 <span id="cb91-360"><a href="#cb91-360" aria-hidden="true" tabindex="-1"></a></span>
@@ -4835,7 +4835,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-724"><a href="#cb91-724" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-725"><a href="#cb91-725" aria-hidden="true" tabindex="-1"></a><span class="fu">### The Bayesian view</span></span>
 <span id="cb91-726"><a href="#cb91-726" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-727"><a href="#cb91-727" aria-hidden="true" tabindex="-1"></a>Ridge logistic is the MAP estimate under a Gaussian prior: $\beta_j \sim \mathcal{N}(0, \sigma^2)$ with $\lambda = 1/\sigma^2$. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: @gelman2017prior show that a weakly informative Cauchy$(0, 2.5)$ prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through <span class="in">`pymc`</span> or via sklearn's L2 with a modest <span class="in">`C`</span>. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.</span>
+<span id="cb91-727"><a href="#cb91-727" aria-hidden="true" tabindex="-1"></a>Ridge logistic is the MAP estimate under a Gaussian prior: $\beta_j \sim \mathcal{N}(0, \sigma^2)$ with $\lambda = 1/\sigma^2$. Lasso is the MAP under a Laplace prior. Elastic net is a mixture. Treating the penalty as a prior has a practical payoff: @gelman2008prior show that a weakly informative Cauchy$(0, 2.5)$ prior on standardized coefficients acts as a default that prevents separation without meaningfully biasing large effects. In Python, this is available through <span class="in">`pymc`</span> or via sklearn's L2 with a modest <span class="in">`C`</span>. Credit modelers who ship Bayesian scorecards get credible intervals on the points directly, which makes governance reviews easier.</span>
 <span id="cb91-728"><a href="#cb91-728" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-729"><a href="#cb91-729" aria-hidden="true" tabindex="-1"></a><span class="fu">### Picking $\lambda$</span></span>
 <span id="cb91-730"><a href="#cb91-730" aria-hidden="true" tabindex="-1"></a></span>
@@ -4866,7 +4866,7 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-755"><a href="#cb91-755" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Small WoE scorecard (20 features, 50k obs) <span class="pp">|</span> L2, <span class="in">`C = 1.0 - 4.0`</span> <span class="pp">|</span></span>
 <span id="cb91-756"><a href="#cb91-756" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Large raw-feature logistic (500+ candidates) <span class="pp">|</span> L1 then refit L2 on survivors <span class="pp">|</span></span>
 <span id="cb91-757"><a href="#cb91-757" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Correlated behavioral signals <span class="pp">|</span> Elastic net <span class="pp">|</span></span>
-<span id="cb91-758"><a href="#cb91-758" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Bayesian prior on coefficients <span class="pp">|</span> L2 with calibrated $\lambda$ <span class="co">[</span><span class="ot">@gelman2017prior</span><span class="co">]</span> <span class="pp">|</span></span>
+<span id="cb91-758"><a href="#cb91-758" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Bayesian prior on coefficients <span class="pp">|</span> L2 with calibrated $\lambda$ <span class="co">[</span><span class="ot">@gelman2008prior</span><span class="co">]</span> <span class="pp">|</span></span>
 <span id="cb91-759"><a href="#cb91-759" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Production with legal sign constraints <span class="pp">|</span> L2 + projection onto sign cone, or monotonic binning upstream <span class="pp">|</span></span>
 <span id="cb91-760"><a href="#cb91-760" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb91-761"><a href="#cb91-761" aria-hidden="true" tabindex="-1"></a>: Default penalty choice by credit-modeling regime. Triage rules at the start of @sec-ch07-regularization (bin sparsity, candidate pool size, OOT gap) decide *whether* to regularize; this table decides *which* penalty once the answer is yes. {#tbl-ch07-penalty-regimes}</span>
@@ -6225,6 +6225,8 @@ Zou, H., &amp; Hastie, T. (2005). Regularization and variable selection via the 
 <span id="cb91-2180"><a href="#cb91-2180" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>@ohlson1980financial and @shumway2001forecasting for the logit bankruptcy lineage.</span>
 <span id="cb91-2181"><a href="#cb91-2181" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>@dumitrescu2022machine for a modern benchmark that puts penalized LR on WoE features inside one percent of gradient-boosted trees for credit.</span>
 <span id="cb91-2182"><a href="#cb91-2182" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>@sr117, @basel2006international, @eba2017gl, and @occ2021model for the regulatory frame.</span>
+<span id="cb91-2183"><a href="#cb91-2183" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-2184"><a href="#cb91-2184" aria-hidden="true" tabindex="-1"></a>The borrower side of the scorecard is increasingly informed by a behavioral-economics literature that treats the customer's repayment trajectory as a function of attention, present-bias, and exponential-growth comprehension as much as of liquidity or risk. @gathergood2019balancematching show with UK and US card data that consumers fail to allocate payments toward the highest-APR card, sacrificing several hundred dollars per year; @meier2010presentbiased and @kuchler2021sticking trace revolving behavior to time-preference structure; @stango2009exponential document widespread underestimation of compound interest. @agarwal2009ageofreason find a U-shape in financial sophistication by age, with mistakes concentrated at the 25-year and 75-year ends of the life cycle. The card-market backdrop in @ausubel1991failure, @gross2002doliquidity, @stango2016borrowing, @agarwal2015regulating and @agarwal2018dobanks supplies the institutional context for these mechanisms: switching costs, limit bunching, and incomplete pass-through of regulatory rate caps shape how a logistic scorecard's threshold translates into observed repayment.</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
