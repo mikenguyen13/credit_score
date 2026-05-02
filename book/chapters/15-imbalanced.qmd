@@ -98,7 +98,8 @@ The interpolant $\tilde{x}$ is a new minority example. Iterate until the class r
 The algorithm has a probabilistic interpretation. The synthetic sample is drawn from a density that places uniform weight on line segments $\{x_i + \lambda (x_j - x_i) : \lambda \in (0,1)\}$ between each pair of $k$-nearest minority neighbors. Equivalently, if $p_+$ denotes the empirical measure of minority points, the SMOTE generator approximates the convolution of $p_+$ with a uniform kernel over the $k$-NN graph:
 
 $$
-q_\text{smote}(x) = \frac{1}{n_+} \sum_{i=1}^{n_+} \frac{1}{k} \sum_{x_j \in \mathcal{N}_k(x_i)} \int_0^1 \delta\bigl(x - [x_i + \lambda (x_j - x_i)]\bigr)\,d\lambda.
+q_\text{smote}(x) = \frac{1}{n_+} \sum_{i=1}^{n_+} \frac{1}{k} \sum_{x_j \in \mathcal{N}_k(x_i)}
+\int_0^1 \delta\bigl(x - [x_i + \lambda (x_j - x_i)]\bigr)\,d\lambda.
 $$ {#eq-smote-kde}
 
 This is a kernel density estimate with a line-segment kernel rather than a Gaussian kernel. The bandwidth is the local spacing between minority points, and the kernel support is bounded by the $k$-NN graph. The implication is that SMOTE is a smoother of the minority density, not an extrapolator. It cannot create minority mass in regions where no minority examples are observed, and it injects spurious minority density into the convex hull even where the true minority density is zero. In high dimensions or with categorical features the convex-hull assumption becomes brittle, which is why SMOTE frequently degrades tree-based models in credit [@marques2013analysis; @brown2012experimental].
@@ -356,7 +357,8 @@ With $C_{00} = C_{11} = 0$ this reduces to $\mathbb{E}[\text{cost}] = C_{10} \pi
 A third family of metrics tries to balance sensitivity and specificity without committing to a cost ratio. Balanced accuracy is the arithmetic mean of sensitivity and specificity: $\operatorname{BAcc} = (\operatorname{TPR} + \operatorname{TNR})/2$. The geometric mean is $\operatorname{GM} = \sqrt{\operatorname{TPR} \operatorname{TNR}}$, which is zero whenever either component is zero and therefore penalizes predicting exclusively one class. Matthews correlation coefficient is
 
 $$
-\operatorname{MCC} = \frac{\operatorname{TP}\cdot\operatorname{TN} - \operatorname{FP}\cdot\operatorname{FN}}{\sqrt{(\operatorname{TP}+\operatorname{FP})(\operatorname{TP}+\operatorname{FN})(\operatorname{TN}+\operatorname{FP})(\operatorname{TN}+\operatorname{FN})}}.
+\operatorname{MCC} = \frac{\operatorname{TP}\cdot\operatorname{TN} - \operatorname{FP}\cdot\operatorname{FN}}
+{\sqrt{(\operatorname{TP}+\operatorname{FP})(\operatorname{TP}+\operatorname{FN})(\operatorname{TN}+\operatorname{FP})(\operatorname{TN}+\operatorname{FN})}}.
 $$
 
 MCC is the correlation between the predicted and true binary labels, bounded in $[-1, 1]$, and has the advantage of being informative when every cell of the confusion matrix is populated. For imbalanced problems MCC is a more defensible single-number summary than accuracy or $F_1$.
@@ -391,7 +393,10 @@ For a 2% default portfolio, a SMOTE-trained XGBoost will output probabilities ce
 The prior correction follows from Bayes' rule and an assumption that the class-conditional densities do not change under resampling. Let $p_+ = p(x \mid Y=1)$, $p_- = p(x \mid Y=0)$, with $\pi = P(Y=1)$ in the true population and $\pi' = P(Y=1)$ in the resampled population. By assumption, $p_+$ and $p_-$ are the same in both (this is the assumption that SMOTE violates by smoothing $p_+$). Then
 
 $$
-P'(Y=1 \mid x) = \frac{\pi' p_+(x)}{\pi' p_+(x) + (1-\pi') p_-(x)} \quad \Longleftrightarrow \quad \frac{p_+(x)}{p_-(x)} = \frac{P'(Y=1\mid x)}{1 - P'(Y=1\mid x)} \cdot \frac{1-\pi'}{\pi'}.
+\begin{aligned}
+P'(Y=1 \mid x) &= \frac{\pi' p_+(x)}{\pi' p_+(x) + (1-\pi') p_-(x)} \\
+\Longleftrightarrow\quad \frac{p_+(x)}{p_-(x)} &= \frac{P'(Y=1\mid x)}{1 - P'(Y=1\mid x)} \cdot \frac{1-\pi'}{\pi'}.
+\end{aligned}
 $$
 
 The likelihood ratio is invariant to the prior, so substituting into the true-population posterior:

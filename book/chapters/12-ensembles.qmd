@@ -70,7 +70,9 @@ For a tree $h_m$ we write $h_m(x) = \sum_{j=1}^{J} w_{m,j} \mathbb{1}[x \in R_{m
 Let $\hat{f}(\cdot; \mathcal{D})$ be the estimator applied to a random training sample $\mathcal{D}$ from distribution $P$. For a fixed test point $x_0$ the bias-variance decomposition of squared-error loss is
 
 $$
-\mathbb{E}_{\mathcal{D}} [(\hat f(x_0) - y_0)^2] = (\mathbb{E}_{\mathcal{D}} \hat f(x_0) - f^{\star}(x_0))^2 + \operatorname{Var}_{\mathcal{D}}(\hat f(x_0)) + \sigma^2,
+\mathbb{E}_{\mathcal{D}} [(\hat f(x_0) - y_0)^2]
+= (\mathbb{E}_{\mathcal{D}} \hat f(x_0) - f^{\star}(x_0))^2
++ \operatorname{Var}_{\mathcal{D}}(\hat f(x_0)) + \sigma^2,
 $$ {#eq-bv}
 
 with $\sigma^2$ the irreducible noise. Bagging attacks the middle term.
@@ -190,7 +192,8 @@ $$ {#eq-xgb-taylor}
 Drop the constant in $F_{m-1}$. For a fixed tree structure (leaves $R_j$), the tree assigns leaf weight $w_j$ to every $x \in R_j$. Let $I_j = \{i : x_i \in R_j\}$. The objective becomes separable over leaves:
 
 $$
-\tilde{\mathcal{L}} = \sum_{j=1}^{J} \left[ \left(\sum_{i \in I_j} g_i\right) w_j + \tfrac{1}{2} \left(\sum_{i \in I_j} h_i + \lambda\right) w_j^2 \right] + \gamma J.
+\tilde{\mathcal{L}} = \sum_{j=1}^{J} \left[ \left(\sum_{i \in I_j} g_i\right) w_j
++ \tfrac{1}{2} \left(\sum_{i \in I_j} h_i + \lambda\right) w_j^2 \right] + \gamma J.
 $$ {#eq-xgb-leaf}
 
 Denote $G_j = \sum_{i \in I_j} g_i$ and $H_j = \sum_{i \in I_j} h_i$. Minimizing over $w_j$:
@@ -202,7 +205,8 @@ $$ {#eq-xgb-weight}
 This is (@eq-newton-leaf) with $L_2$ regularization, written once in a compact form. The split criterion follows. If a leaf is split into left and right children with sums $(G_L, H_L)$ and $(G_R, H_R)$, the change in $\tilde{\mathcal{L}}$ is
 
 $$
-\operatorname{Gain} = \tfrac{1}{2} \left[ \frac{G_L^2}{H_L + \lambda} + \frac{G_R^2}{H_R + \lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda} \right] - \gamma.
+\operatorname{Gain} = \tfrac{1}{2} \left[ \frac{G_L^2}{H_L + \lambda} + \frac{G_R^2}{H_R + \lambda}
+- \frac{(G_L+G_R)^2}{H_L+H_R+\lambda} \right] - \gamma.
 $$ {#eq-xgb-gain}
 
 A split is accepted only if $\operatorname{Gain} > 0$. The $\gamma$ term acts as a minimum gain threshold. The $\lambda$ term shrinks leaf weights toward zero, reducing variance at the cost of a small bias. The expression (@eq-xgb-gain) is what makes XGBoost's splits numerically stable even on highly imbalanced data: the denominator $H + \lambda$ never vanishes.
@@ -242,7 +246,9 @@ Gradient boosting has a subtle leakage pathology when categorical features are e
 @prokhorenkova2018catboost solved this with ordered boosting. Let $\pi$ be a random permutation of the training rows. Define row-$i$ target statistics using only rows $j$ with $\pi(j) < \pi(i)$:
 
 $$
-\hat x^{\text{cat}}_i = \frac{\sum_{j : \pi(j) < \pi(i), x_j^{\text{cat}} = x_i^{\text{cat}}} y_j + a p}{\sum_{j : \pi(j) < \pi(i), x_j^{\text{cat}} = x_i^{\text{cat}}} 1 + a},
+\hat x^{\text{cat}}_i
+= \frac{\sum_{j : \pi(j) < \pi(i),\, x_j^{\text{cat}} = x_i^{\text{cat}}} y_j + a p}
+{\sum_{j : \pi(j) < \pi(i),\, x_j^{\text{cat}} = x_i^{\text{cat}}} 1 + a},
 $$ {#eq-cat-ts}
 
 with smoothing prior $p$ and weight $a$. The encoding at row $i$ is causally consistent: it uses no information about $y_i$ itself.

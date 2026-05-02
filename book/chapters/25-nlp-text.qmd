@@ -257,7 +257,8 @@ $$ {#eq-sg-softmax}
 The denominator sums over the full vocabulary, which is $O(V)$ per example and infeasible at scale. @mikolov2013distributed introduce negative sampling. For each positive pair $(w_I, w_O)$ one samples $k$ negative pairs $(w_I, w_n)$ with $w_n$ drawn from a noise distribution $P_n(w) \propto U(w)^{3/4}$ (unigram distribution raised to the 3/4 power). The negative-sampling objective for a single positive pair is
 
 $$
-\mathcal{L}_{\text{NS}}(w_I, w_O) = \log \sigma(u_{w_O}^\top v_{w_I}) + \sum_{n=1}^{k} \mathbb{E}_{w_n \sim P_n}\!\left[\log \sigma(-u_{w_n}^\top v_{w_I})\right],
+\mathcal{L}_{\text{NS}}(w_I, w_O) = \log \sigma(u_{w_O}^\top v_{w_I})
++ \sum_{n=1}^{k} \mathbb{E}_{w_n \sim P_n}\!\left[\log \sigma(-u_{w_n}^\top v_{w_I})\right],
 $$ {#eq-ns}
 
 where $\sigma(x) = 1/(1 + e^{-x})$. The total loss is the sum over all positive pairs. The negative-sampling loss is a proper binary cross-entropy on a logistic discriminator that separates true context words from noise samples. It approximates @eq-sg under the assumption that the discriminator is near optimal.
@@ -436,7 +437,8 @@ BERT pre-trains on two objectives: masked language modeling (MLM) and next-sente
 Let $\mathcal{M}$ be the set of masked positions in a sentence, $x_{\backslash \mathcal{M}}$ the observed context, and $x_m$ the true token at masked position $m$. The MLM loss is the masked cross-entropy
 
 $$
-\mathcal{L}_{\text{MLM}}(\theta) = -\mathbb{E}_{x \sim \mathcal{D}}\!\left[\sum_{m \in \mathcal{M}} \log \Pr_\theta(x_m \mid x_{\backslash \mathcal{M}})\right],
+\mathcal{L}_{\text{MLM}}(\theta) = -\mathbb{E}_{x \sim \mathcal{D}}\!\left[
+\sum_{m \in \mathcal{M}} \log \Pr_\theta(x_m \mid x_{\backslash \mathcal{M}})\right],
 $$ {#eq-mlm}
 
 where $\Pr_\theta(x_m \mid x_{\backslash \mathcal{M}}) = \mathrm{softmax}(h_m^\top W_{\text{vocab}})_{x_m}$ uses the final hidden state $h_m \in \mathbb{R}^{d_{\text{model}}}$ at position $m$ projected onto the vocabulary. MLM is a proper log-likelihood of the masked tokens conditional on the unmasked ones. It is bidirectional because the transformer encoder sees all of $x_{\backslash \mathcal{M}}$ at once, which is the main advantage over left-to-right language models for encoding tasks.

@@ -210,7 +210,8 @@ The Python `alibi` and `PyALE` packages provide production-grade implementations
 SHAP interaction values give a per-applicant, per-pair decomposition. @friedman2008predictive's H-statistic gives a global, scalar measure of the strength of each pairwise interaction. For features $j$ and $k$, the H-statistic is
 
 $$
-H_{jk}^2 = \frac{\sum_i \bigl[ \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k) - \text{PD}_j(x^{(i)}_j) - \text{PD}_k(x^{(i)}_k) \bigr]^2}{\sum_i \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k)^2},
+H_{jk}^2 = \frac{\sum_i \bigl[ \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k) - \text{PD}_j(x^{(i)}_j) - \text{PD}_k(x^{(i)}_k) \bigr]^2}
+{\sum_i \text{PD}_{jk}(x^{(i)}_j, x^{(i)}_k)^2},
 $$ {#eq-hstat}
 
 where $\text{PD}_{jk}$ is the two-feature partial dependence and $\text{PD}_j$, $\text{PD}_k$ are the one-feature versions. The numerator is the interaction component (the pairwise PD minus the sum of main-effect PDs) and the denominator normalizes by the total pairwise PD variance. $H_{jk}^2 \in [0, 1]$: zero when $f$ is additive in $j$ and $k$, one when the two features act only through their interaction.
@@ -240,7 +241,8 @@ When features are grouped (e.g., all payment-status features, all billing featur
 Formally, for a partition $\mathcal{P} = \{P_1, \dots, P_G\}$ of $[d]$ and a feature $j \in P_g$, the Owen value is
 
 $$
-\phi^O_j = \sum_{S \subseteq \mathcal{P} \setminus \{P_g\}} \sum_{T \subseteq P_g \setminus \{j\}} w_S w_T \bigl[ v(S \cup T \cup \{j\}) - v(S \cup T) \bigr],
+\phi^O_j = \sum_{S \subseteq \mathcal{P} \setminus \{P_g\}} \sum_{T \subseteq P_g \setminus \{j\}}
+w_S w_T \bigl[ v(S \cup T \cup \{j\}) - v(S \cup T) \bigr],
 $$ {#eq-owen}
 
 with weights $w_S = |S|!(G - |S| - 1)! / G!$ and $w_T = |T|!(|P_g| - |T| - 1)!/|P_g|!$. The computation cost is dominated by the inter-group sum, which is exponential in the number of groups rather than the number of features. For a credit model with fifteen feature groups, Owen values are tractable where full Shapley sampling would be expensive.
@@ -481,7 +483,9 @@ A counterfactual is not automatically useful. Three qualities are needed, follow
 @mothilal2020explaining's DiCE (Diverse Counterfactual Explanations) extends the Wachter objective to produce a set of $k$ diverse, actionable counterfactuals. Given an input $x$ with $f(x) = 1$, DiCE solves
 
 $$
-\min_{x_1, \dots, x_k} \frac{1}{k} \sum_{i=1}^k \bigl[ f(x_i) - y^\prime \bigr]^2 + \lambda_1 \cdot \frac{1}{k} \sum_{i=1}^k d(x, x_i) - \lambda_2 \cdot \text{dpp\_diversity}(x_1, \dots, x_k),
+\min_{x_1, \dots, x_k} \frac{1}{k} \sum_{i=1}^k \bigl[ f(x_i) - y^\prime \bigr]^2
++ \lambda_1 \cdot \frac{1}{k} \sum_{i=1}^k d(x, x_i)
+- \lambda_2 \cdot \text{dpp\_diversity}(x_1, \dots, x_k),
 $$ {#eq-dice}
 
 where the first term enforces the target class, the second enforces proximity, and the third rewards mutual diversity measured by a determinantal point process (DPP) kernel over pairwise distances. @mothilal2020explaining show that this objective yields counterfactuals that are faithful, proximal, and diverse, and they provide the `dice-ml` package that implements both random, genetic, and gradient-based search.

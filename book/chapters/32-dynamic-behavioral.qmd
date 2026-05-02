@@ -93,7 +93,10 @@ $$ {#eq-cox-partial}
 and the log partial likelihood aggregates across events. Two facts make @eq-cox-partial practical for billions of account-months. First, the risk set at event time $t_k$ requires only the covariate vectors of accounts still alive at $t_k$, which is a streaming aggregation. Second, the score equation
 
 $$
-U(\beta) = \sum_k \left\{ X_{i_k, t_k} - \bar X(\beta, t_k) \right\} = 0, \qquad \bar X(\beta, t_k) = \frac{\sum_{j \in R(t_k)} X_{j,t_k} e^{\beta^{\top} X_{j,t_k}}}{\sum_{j \in R(t_k)} e^{\beta^{\top} X_{j,t_k}}},
+\begin{aligned}
+U(\beta) &= \sum_k \left\{ X_{i_k, t_k} - \bar X(\beta, t_k) \right\} = 0, \\
+\bar X(\beta, t_k) &= \frac{\sum_{j \in R(t_k)} X_{j,t_k} e^{\beta^{\top} X_{j,t_k}}}{\sum_{j \in R(t_k)} e^{\beta^{\top} X_{j,t_k}}},
+\end{aligned}
 $$ {#eq-cox-score}
 
 factorizes over events, which Lin and Wei exploited to give a sandwich variance estimator robust to clustering at the account level. @thomas2017credit give the textbook version. For behavioral scoring the key move is to enter utilization, delinquency lag, and payment-to-balance ratio as time-varying covariates rather than baseline features. The information gain is large and the implementation cost is an extra indexing column.
@@ -135,7 +138,11 @@ The posterior state probability $\gamma_t(s) = \Pr(S_t = s \mid O_{1:T}) = \alph
 The Baum-Welch algorithm [@baum1970maximization] is the EM instance that maximizes the observed data log-likelihood $\log \Pr(O_{1:T})$ by iterating
 
 $$
-\hat\pi_s = \gamma_1(s), \qquad \hat A[s' \mid s] = \frac{\sum_{t=1}^{T-1} \xi_t(s, s')}{\sum_{t=1}^{T-1} \gamma_t(s)}, \qquad \hat B[o \mid s] = \frac{\sum_{t : o_t = o} \gamma_t(s)}{\sum_{t=1}^{T} \gamma_t(s)}.
+\hat\pi_s = \gamma_1(s),
+\qquad
+\hat A[s' \mid s] = \frac{\sum_{t=1}^{T-1} \xi_t(s, s')}{\sum_{t=1}^{T-1} \gamma_t(s)},
+\qquad
+\hat B[o \mid s] = \frac{\sum_{t : o_t = o} \gamma_t(s)}{\sum_{t=1}^{T} \gamma_t(s)}.
 $$ {#eq-bw}
 
 Convergence of @eq-bw is monotone in $\log \Pr(O_{1:T})$. The identifiability caveat is the usual one: permutations of state labels produce identical likelihoods, so parameter comparisons across re-fits require a canonical relabeling (for example, sort states by the probability of emitting bucket zero).
@@ -228,6 +235,78 @@ S(t \mid Z_i, X_{i,1:t}) = \pi(Z_i) + (1 - \pi(Z_i)) S_0\!\left(\int_0^t \exp(\b
 $$ {#eq-cure}
 
 with $S_0$ the baseline survival. @eq-cure reduces to @eq-cox-tv when $\pi = 0$ and captures the large fraction of mortgage accounts that simply never default even over a ten-year horizon. Estimation uses EM: an expected membership in the susceptible group at the E-step, a weighted Cox partial likelihood at the M-step.
+
+## Derivation 6: Multi-horizon deep forecasters {#sec-ch32-multihorizon}
+
+The five derivations so far solve a one-output problem at a time: a hazard, a posterior, a probability of default at a single horizon. IFRS 9 staging, Basel capital, ICAAP, and pricing all consume the *term structure* of PD, the function $h \mapsto \operatorname{PD}^{\text{PiT}}_{i,t}(h)$ defined in @eq-pdpit. Producing it from a one-horizon estimator means refitting at every horizon or extrapolating with assumptions the data did not see, which is what @sec-ch09-shumway and @sec-ch09-aft warn against. The forecasting literature has taken a different route: estimate the full vector $\big(\operatorname{PD}_{i,t}(1), \ldots, \operatorname{PD}_{i,t}(H)\big)$ jointly from the same forward pass, with one of three families of architectures.
+
+### Three families {#sec-ch32-mh-families}
+
+**Iterated** forecasters predict one step ahead and roll the forecast forward $H$ times, feeding their own previous output back as input. DeepAR [@salinas2020deepar] is the canonical example. Each step samples a value from a likelihood whose parameters are emitted by an LSTM, and the multi-step distribution is a Monte Carlo cloud of sample paths. Iterated forecasters are easy to train (single-step likelihood) and produce coherent joint distributions across horizons, but errors compound.
+
+**Direct** forecasters output the entire $H$-vector in a single forward pass and never feed predictions back in. MQ-RNN and MQ-CNN [@wen2017mqrnn], N-BEATS [@oreshkin2020nbeats], N-HiTS [@challu2023nhits], the generative-decoder variant of Informer [@zhou2021informer], and the patch-based PatchTST [@nie2023patchtst] are direct. They avoid error compounding but produce only marginal forecasts at each horizon; they do not give a coherent joint sample path unless an additional sampler is bolted on.
+
+**Joint multi-quantile** forecasters are direct forecasters with one output head per quantile $\rho \in \{q_1, \ldots, q_K\}$ and per horizon $h \in \{1, \ldots, H\}$, trained against the pinball loss [@koenker1978regression]
+$$
+L_\rho(y, \hat y) = \big(y - \hat y\big)\big(\rho - \mathbf{1}\{y < \hat y\}\big).
+$$ {#eq-pinball}
+Summing $L_{q_k}$ over $k$ and over $h$ gives a strictly proper scoring rule for the multivariate marginal forecast [@gneiting2007strictly]. The Temporal Fusion Transformer [@lim2021tft] is the most-cited credit-relevant instance: a seq2seq encoder over past behavior and known-future covariates, followed by interpretable multi-head attention and per-quantile output heads.
+
+### Architectures, in summary {#sec-ch32-mh-zoo}
+
+We summarize the architectures we have already named, plus the ones a credit team is most likely to encounter on a benchmark.
+
+*DeepAR* [@salinas2020deepar]. A shared global LSTM emits parameters $(\mu_t, \sigma_t)$ of a Gaussian or a negative-binomial likelihood at each step. Multi-step forecasts are sample paths drawn by ancestral sampling. The trick is *global* training: one model across the whole panel of accounts, with an account embedding that lets the model share statistical strength across thin-data borrowers.
+
+*MQ-RNN / MQ-CNN* [@wen2017mqrnn]. A seq2seq with separate horizon-specific context vectors and a shared local MLP that emits all forecast quantiles simultaneously. Trained directly with the multi-quantile pinball loss of @eq-pinball.
+
+*N-BEATS* [@oreshkin2020nbeats]. A pure stack of MLP blocks. Each block emits a backcast $\hat x_b$ and a forecast $\hat y_b$ from learned basis functions. Doubly residual stacking subtracts the backcast at each block. An interpretable variant constrains the bases to a low-order polynomial trend and a Fourier seasonal basis, which lets a regulator read the decomposition directly. No attention, no recurrence; on the M4 benchmark it beat the best classical ensemble.
+
+*N-HiTS* [@challu2023nhits]. N-BEATS with multi-rate sampling: each stack down-samples the input at a different rate and writes back through hierarchical interpolation. The hierarchy decomposes the forecast across frequencies, which improves long-horizon accuracy and slashes memory.
+
+*Informer* [@zhou2021informer]. A Transformer with ProbSparse attention (top-$u$ queries by KL sparsity score, $O(L \log L)$ cost), self-attention distillation that halves the sequence between encoder layers, and a generative-style decoder that emits the whole horizon in one forward pass instead of a step-by-step rollout. AAAI 2021 best paper.
+
+*Autoformer* [@wu2021autoformer]. Replaces self-attention with an Auto-Correlation block: $C(\tau) = \frac{1}{L}\sum_t Q_t K_{t-\tau}$, top-$k$ delays found via FFT, sub-series at those lags aggregated. Wraps a series-decomposition architecture that progressively peels off trend and seasonality inside each layer.
+
+*PatchTST* [@nie2023patchtst]. Cuts the input series into fixed-length patches, treats each patch as a Transformer token (analogous to ViT), and processes each channel independently. Channel independence cuts attention cost and supports strong supervised plus self-supervised pretraining.
+
+*TimesNet* [@wu2023timesnet]. Reshapes a 1D series into multiple 2D tensors whose row index is intra-period position and column index is inter-period; FFT picks the top-$k$ periods; an inception-style 2D convolution handles them. Multi-period dynamics become standard image-like local patterns.
+
+*iTransformer* [@liu2024itransformer]. Inverts the token axis: the entire time-series of one variate is one token. Attention now learns cross-variate (cross-series) dependencies, and the position-wise feed-forward learns within-variate temporal nonlinearities. Strong on multivariate forecasting where channel correlations matter.
+
+*Lag-Llama* [@rasul2024lagllama]. A decoder-only LLaMA-style Transformer whose only covariates are lag features at hand-picked frequency-aware lags plus calendar covariates, trained autoregressively across a wide pool of series and outputting a Student-$t$ distribution per step. Zero-shot probabilistic forecasts on series the model has not seen.
+
+*Chronos* [@ansari2024chronos]. Quantizes real-valued series into a finite token vocabulary, then trains an off-the-shelf encoder-decoder T5 with cross-entropy on those tokens. Forecasts arrive as multinomial samples that are de-tokenized back to values. The architecture is a generic LM; the trick is the tokenizer.
+
+*Moirai* [@woo2024moirai]. A masked-encoder Transformer with multi-patch-size projections (one set of weights per resolution), any-variate attention that handles arbitrary numbers of related series, and a mixture-of-distributions output head. Trained on the LOTSA archive (>27B observations across nine domains) for true zero-shot forecasting.
+
+*TimeGPT-1* [@garza2023timegpt]. An encoder-decoder Transformer pretrained on >100 billion observations from heterogeneous domains; the API accepts arbitrary frequency and horizon and returns quantile forecasts and conformal-style prediction intervals zero-shot. Closed source; cited here for completeness because banks evaluate it.
+
+### Why credit teams care {#sec-ch32-mh-credit}
+
+The implications for behavioral scoring are concrete.
+
+*One model produces the IFRS 9 ladder.* Stage 1 needs the 12-month PD; Stage 2 needs lifetime PD over the contractual maturity; the SICR test compares a current 12-month or lifetime PD against the at-origination value. A multi-horizon forecaster outputs all three in one forward pass, with consistent calibration across horizons by construction. The alternative, three independent estimators, leaves the SICR comparison vulnerable to differential calibration drift across horizons.
+
+*The forecast is a distribution, not a point.* IFRS 9 paragraph B5.5.41 requires probability-weighted scenario PD; the regulation's letter is silent on the source of the weights, but supervisors expect a distribution. DeepAR sample paths, TFT quantile heads, and MQ-RNN quantile outputs all produce that distribution natively. A point predictor needs an external uncertainty layer, typically conformalized quantile regression (@sec-ch22d-cqr), which is a second model that itself needs validation.
+
+*Known-future covariates are first-class inputs.* Macro paths under CCAR/EBA scenarios, contractual rate resets, and seasonality (the Tet calendar in the Vietnam section later in this chapter, the US tax-refund cycle) are observed in the future. TFT and the seq2seq DeepAR variant accept them; a vanilla LSTM does not. The supervisor's stress-test scenario flows directly into the score.
+
+*Non-monotonic term structure is allowed.* Empirical PD term structures are not monotone: a credit-card book exhibits a 3-to-9-month seasoning hump, a mortgage book a back-loaded peak. A direct multi-horizon forecaster fits the shape data-driven; an iterated forecaster with a Markov assumption can only produce shapes that the Markov dynamics can generate.
+
+*Calibration drift is per-horizon.* The 12-month head can drift independently of the 36-month head when the macro regime changes. Monitoring (PSI, calibration plots, Brier score over horizons) must run independently per horizon, not as a single aggregate (the integrated Brier score of @sec-ch09-shumway is the right scalar; the per-horizon plot is the right diagnostic).
+
+*Quantile crossings break monotone-rule reporting.* Independently trained quantile heads can produce $\hat q_{0.1} > \hat q_{0.5}$ in pathological inputs, which violates the basic property that lower quantiles are below higher quantiles. The Chernozhukov-Fern{\'a}ndez-Val-Galichon rearrangement [@chernozhukov2010quantile] sorts the quantile vector at inference time without retraining; a TFT or MQ-RNN production stack should always run rearrangement on the output.
+
+### Pitfalls {#sec-ch32-mh-pitfalls}
+
+Three failure modes recur on credit data.
+
+*Label leakage at horizon $h$.* The default label at $t + h$ depends on transactions through $t + h$, but the forecaster only sees transactions through $t$. Training labels must be consistent with that: do not include any feature whose value at $t$ already encodes information about the $t+h$ default, even indirectly. The most common culprit is a payment-stress feature computed on a rolling window that happens to extend past the score date.
+
+*Differential censoring across horizons.* The 36-month label is observed only for accounts originated 36 months ago or earlier. Naively dropping censored rows shrinks the long-horizon training set and biases the long-horizon head toward older vintages. A discrete-time hazard formulation (@sec-ch09-shumway) handles censoring exactly; multi-horizon deep models inherit the same machinery by training each head $h$ only on rows where horizon $h$ is observed, weighted by inverse-censoring probability if the censoring is informative.
+
+*Pretraining domain mismatch.* Foundation models (Chronos, Lag-Llama, Moirai, TimeGPT) are pretrained on macroeconomic, electricity, retail, and weather series. Borrower-level monthly behavioral series are heavy-tailed, sparse, and regime-switching in ways those domains are not. Zero-shot performance on a credit panel is reported in vendor blog posts and rarely matches a portfolio-fit GBDT or LSTM baseline. The honest workflow today is fine-tune-or-distill, not zero-shot. Treat foundation models as a strong initializer, not a finished product, until peer-reviewed credit benchmarks say otherwise.
 
 ## Identifiability and estimation trade-offs
 
@@ -544,6 +623,160 @@ print(f"LSTM synthetic KS  = {ks_statistic(yte.numpy(), p):.3f}")
 ```
 
 Performance on synthetic data is a sanity check, not a claim about real portfolios. The same architecture scales to real transaction streams with an embedding layer for the merchant-category-code token.
+
+## Multi-horizon quantile LSTM: a DeepAR/MQ-RNN hybrid {#sec-ch32-mh-impl}
+
+We implement the joint multi-quantile forecaster of @sec-ch32-multihorizon end to end. The architecture is a single-layer LSTM encoder followed by a horizon-specific projection that emits five quantiles ($q \in \{0.1, 0.25, 0.5, 0.75, 0.9\}$) at three horizons (1, 12, 36 months). Training minimizes the pinball loss of @eq-pinball summed across quantiles and horizons. At inference we sort the five-quantile vector per horizon to enforce monotonicity [@chernozhukov2010quantile], then read the median as the point forecast and the $(0.1, 0.9)$ pair as a credible interval. The whole model fits in fewer than 80 lines and runs on a CPU in under a minute.
+
+The synthetic generator emits monthly behavioral panels where the high-risk class has a slow-burn term structure: low one-month default but rapidly accumulating cumulative PD by 36 months. A vanilla one-horizon LSTM would miss the shape; the multi-horizon head fits it directly.
+
+```{python}
+#| label: mh-quantile-lstm
+import torch
+import torch.nn as nn
+import numpy as np
+
+torch.manual_seed(7)
+rng = np.random.default_rng(7)
+
+QUANTILES = torch.tensor([0.10, 0.25, 0.50, 0.75, 0.90])
+HORIZONS  = [1, 12, 36]
+N_FEAT, L = 4, 24
+
+def gen_panel(n=2000, seed=11):
+    g = np.random.default_rng(seed)
+    X = np.zeros((n, L, N_FEAT), dtype=np.float32)
+    y = np.zeros((n, len(HORIZONS)), dtype=np.float32)
+    for i in range(n):
+        risk = g.random() < 0.30
+        # behavioral series: util, payment ratio, delinq flag, balance trend
+        X[i, :, 0] = g.normal(0.30 if risk else 0.15, 0.05, L)
+        X[i, :, 1] = g.normal(0.40 if risk else 0.85, 0.10, L)
+        X[i, :, 2] = g.binomial(1, 0.18 if risk else 0.02, L)
+        X[i, :, 3] = np.cumsum(g.normal(0.02 if risk else 0.0, 0.04, L))
+        # term structure: short-horizon PD low, long-horizon PD high for risky
+        base = np.array([0.04, 0.18, 0.45]) if risk else np.array([0.005, 0.03, 0.10])
+        y[i] = (g.random(len(HORIZONS)) < base).astype(np.float32)
+    return torch.tensor(X), torch.tensor(y)
+
+Xtr, ytr = gen_panel(2000, seed=11)
+Xte, yte = gen_panel(800,  seed=19)
+
+class MultiHorizonQuantileLSTM(nn.Module):
+    def __init__(self, n_feat=N_FEAT, hidden=32, h_list=HORIZONS, n_q=len(QUANTILES)):
+        super().__init__()
+        self.lstm = nn.LSTM(n_feat, hidden, batch_first=True)
+        self.heads = nn.ModuleList([nn.Linear(hidden, n_q) for _ in h_list])
+    def forward(self, x):
+        h, _ = self.lstm(x)
+        last = h[:, -1, :]
+        return torch.stack([head(last) for head in self.heads], dim=1)  # [B, H, Q]
+
+def pinball_loss(y_hat, y_true, qs):
+    # y_hat: [B, H, Q]; y_true: [B, H]; qs: [Q]
+    err = y_true.unsqueeze(-1) - y_hat
+    return torch.maximum(qs * err, (qs - 1.0) * err).mean()
+
+model = MultiHorizonQuantileLSTM()
+opt = torch.optim.AdamW(model.parameters(), lr=5e-3, weight_decay=1e-4)
+for epoch in range(60):
+    model.train(); opt.zero_grad()
+    pred = torch.sigmoid(model(Xtr))
+    loss = pinball_loss(pred, ytr, QUANTILES)
+    loss.backward(); opt.step()
+
+model.eval()
+with torch.no_grad():
+    q_hat = torch.sigmoid(model(Xte))
+    q_hat_sorted, _ = torch.sort(q_hat, dim=-1)  # rearrangement
+median = q_hat_sorted[:, :, 2].numpy()           # 0.5 quantile
+lo, hi = q_hat_sorted[:, :, 0].numpy(), q_hat_sorted[:, :, 4].numpy()
+
+from sklearn.metrics import roc_auc_score
+for j, h in enumerate(HORIZONS):
+    auc = roc_auc_score(yte[:, j].numpy(), median[:, j])
+    cov = ((yte[:, j].numpy() >= lo[:, j]) & (yte[:, j].numpy() <= hi[:, j])).mean()
+    print(f"horizon {h:>2}m: AUC(median) = {auc:.3f}  80%-band coverage = {cov:.3f}")
+```
+
+The three AUCs separate by horizon: discrimination is sharpest at the horizon where the signal accumulates fastest. The 80% band coverage should land near 0.80 if the quantile heads are well-calibrated; departures larger than 5 percentage points are a recalibration signal.
+
+```{python}
+#| label: fig-ch32-mh-termstructure
+#| fig-cap: "Term structure of cumulative PD for two example accounts: median forecast (line) and 10/90 quantile band. The 'risky' account has a back-loaded term structure that a single-horizon classifier would miss."
+#| fig-width: 7
+#| fig-height: 3.6
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+idx_safe = int(np.argmin(median[:, 2]))
+idx_risk = int(np.argmax(median[:, 2]))
+xs = np.array(HORIZONS)
+for idx, lab, col in [(idx_safe, 'low-risk account', 'tab:blue'),
+                      (idx_risk, 'high-risk account', 'tab:red')]:
+    ax.plot(xs, median[idx], '-o', color=col, label=lab)
+    ax.fill_between(xs, lo[idx], hi[idx], color=col, alpha=0.20)
+ax.set_xlabel('horizon (months)'); ax.set_ylabel('cumulative PD')
+ax.set_xticks(xs); ax.legend(); fig.tight_layout(); plt.show()
+```
+
+The figure is the object IFRS 9 Stage 2 review consumes. A 12-month head produces a single point per account; a multi-horizon forecaster produces the whole curve plus a band. Stage 2 transfer is then a comparison of the at-origination curve with the current curve, which the SICR rule of @sec-ch35-sicr requires.
+
+### Production code: serving the term structure {#sec-ch32-mh-prod}
+
+The serving pattern adds three concerns to the LSTM/Redis pattern of the deployment section below: (i) the output is a tensor of shape $H \times Q$, not a scalar, which the response schema must reflect; (ii) the rearrangement of @chernozhukov2010quantile must run inside the service, never as a downstream consumer responsibility; (iii) the term-structure outputs must be co-versioned with the staging policy that consumes them, otherwise a recalibration of the 36-month head silently shifts SICR transfer rates.
+
+```{python}
+#| eval: false
+import json, numpy as np, redis, torch
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+r = redis.Redis(host='redis', port=6379, db=0)
+SCRIPT = torch.jit.load('models/mh_lstm_scripted.pt').eval()
+QS = [0.10, 0.25, 0.50, 0.75, 0.90]
+HS = [1, 12, 36]
+
+class ScoreRequest(BaseModel):
+    account_id: str
+
+def rearrange(q):
+    return np.sort(q, axis=-1)
+
+@app.post('/score-term-structure')
+def score(req: ScoreRequest):
+    seq = r.get(f'seq:{req.account_id}')
+    if seq is None:
+        return {'account_id': req.account_id, 'pd_curve': None,
+                'reason': 'cold start'}
+    x = torch.tensor(json.loads(seq), dtype=torch.float32).unsqueeze(0)
+    with torch.no_grad():
+        q_hat = torch.sigmoid(SCRIPT(x)).cpu().numpy()[0]
+    q_hat = rearrange(q_hat)
+    return {
+        'account_id': req.account_id,
+        'horizons_m': HS,
+        'quantiles': QS,
+        'pd_curve': q_hat.tolist(),
+        'pd_12m_median': float(q_hat[HS.index(12), QS.index(0.5)]),
+        'pd_lifetime_median': float(q_hat[HS.index(36), QS.index(0.5)]),
+        'model_version': 'mh-lstm-v3',
+    }
+```
+
+Three operational notes. *TorchScript or ONNX export.* `torch.jit.script(model)` produces a serialized artifact independent of the training Python environment, which is what MLflow registers and the serving container loads; ONNX is an alternative if the platform team standardizes on it across frameworks. *Quantile rearrangement.* The single line `np.sort(q_hat, axis=-1)` is non-negotiable; without it a downstream Stage 2 rule that compares the 0.10-quantile of the at-origination curve with the 0.10-quantile of the current curve can fire on a quantile-crossing artifact, not on a real risk increase. *Per-horizon monitoring.* Log the median, the 80% band width, and the realized default flag at each horizon as the cohort matures. Compute Brier and PSI at each horizon independently; aggregate diagnostics hide horizon-specific drift.
+
+### Library landscape {#sec-ch32-mh-libs}
+
+Banks rarely write the multi-horizon stack from scratch in production. Three mature libraries cover the architectures of @sec-ch32-mh-zoo with broadly compatible APIs:
+
+- **`neuralforecast`** (Olivares, Challu, Garza, Mergenthaler-Canseco). Native implementations of N-BEATS, N-HiTS, TFT, MQ-NHITS, Informer, Autoformer, PatchTST, iTransformer, and TimesNet. PyTorch backend, sklearn-style `fit/predict`, multi-quantile output by default. The maintainer overlap with the original N-HiTS authors keeps reference implementations current.
+- **`gluonts`** (Alexandrov et al., Amazon). Reference implementation of DeepAR; broad coverage of probabilistic forecasters; PyTorch and MXNet backends. The Chronos Hugging Face checkpoints integrate through `gluonts-chronos`.
+- **`pytorch-forecasting`** (Beitner). Reference implementation of TFT with the variable-selection-network and interpretable-attention components intact. Lightning-based training loop, native support for known-future covariates and static features, which a credit panel needs.
+- **`darts`** (Unit8). Higher-level wrapper that exposes RNN, TCN, NBEATS, NHiTS, TFT, and the Hugging Face TS foundation models behind a unified `forecaster.fit(ts).predict(h)` surface. Useful for quick benchmarking.
+- **Hugging Face TS** ships Chronos, Lag-Llama, and Moirai checkpoints behind the `transformers` API. Zero-shot is one line; fine-tuning is the standard `Trainer` flow.
+
+The choice between rolling your own (the code above) and using a library reduces to operational risk tolerance. A library produces a maintained, peer-reviewed implementation at the cost of an external dependency the bank's third-party-risk function must clear. A from-scratch model is auditable end to end, at the cost of carrying the implementation forward across team rotations. SR 11-7 is agnostic on the choice as long as the documentation is complete; in practice most banks use a library for prototyping and rewrite the production forward pass in pure PyTorch or ONNX.
 
 ## Benchmark on the Taiwan behavioral panel
 
@@ -1021,9 +1254,9 @@ When online learning is feasible the algorithms of choice are stochastic gradien
 
 Concept-drift detection is a prerequisite for any online-learning story. The algorithms of @gama2004learning and @bifet2007learning detect distributional changes in the input space and the error rate. A drift alarm does not mean the model is wrong; it means the assumption of stationarity has been violated and the monitoring thresholds should be revisited. In the IFRS 9 context, a drift alarm often coincides with a macroeconomic regime change, which is handled by the macro overlay rather than by retraining the behavioral backbone.
 
-## Comparative summary of the five estimators
+## Comparative summary of the six estimators
 
-The five estimators derived in this chapter are not substitutes in every sense. Each has a preferred use case, a data requirement, and a set of failure modes.
+The six estimators derived in this chapter are not substitutes in every sense. Each has a preferred use case, a data requirement, and a set of failure modes.
 
 The time-dependent Cox model of @eq-cox-tv is the natural choice when the data are organized as a panel of covariate observations and event times, and when the prediction target is time to default rather than default at a fixed horizon. It handles censoring cleanly, admits a rich robust variance, and has strong regulatory acceptance because of its classical pedigree. Its weakness is the proportional hazards assumption, which is often violated by behavioral covariates whose effect changes with account age.
 
@@ -1035,7 +1268,9 @@ The recursive Bayesian update of @eq-rec-bayes is the natural choice for lightwe
 
 The time-varying Cox with the survival and cure-mixture extension of @eq-cure is the natural choice when a meaningful fraction of the population never defaults, which is the case for mortgages and for high-quality credit cards. Its strengths are the cure probability as a separate object of interest and the clean separation of susceptible from immune populations. Its weaknesses are the identification of the cure fraction in the presence of censoring, which requires long follow-up, and the computational cost of the EM loop.
 
-A table that summarizes the five is useful as a selection guide:
+The multi-horizon deep forecaster of @sec-ch32-multihorizon (DeepAR, MQ-RNN, TFT, N-BEATS / N-HiTS, Informer / Autoformer / PatchTST, foundation models) is the natural choice when the consumer of the score is an IFRS 9 ECL pipeline or a Basel stress-test scenario, where the entire term structure of PD is the deliverable, not a single horizon. Its strengths are joint calibration across horizons, native quantile output, and direct ingestion of known-future macro paths. Its weaknesses are the data scale (hundreds of thousands of sequences with multi-year follow-up are the floor), the per-horizon calibration drift that requires monitoring per horizon, and the operational cost of registering and validating an artifact whose output schema is a tensor.
+
+A table that summarizes the six is useful as a selection guide:
 
 | Estimator | Data shape | Target | Strength | Weakness |
 |-----------|-----------|--------|----------|----------|
@@ -1044,6 +1279,7 @@ A table that summarizes the five is useful as a selection guide:
 | LSTM / Transformer | Long token sequences | PD at horizon | Expressive, scales with data | Opaque, expensive |
 | Recursive Bayesian | Scalar score + repayment | Online score with CI | Cheap, online, interpretable | Linear-Gaussian only |
 | Cox + cure | Panel with long follow-up | Lifetime PD with immune fraction | Handles populations that never default | Cure identification hard |
+| Multi-horizon deep forecaster | Long behavioral panel + macro path | PD term structure with quantiles | One model for IFRS 9 + Basel + lifetime; native uncertainty | Heavy data, per-horizon drift, schema versioning |
 
 In practice a bank runs at least two of these in parallel: a classical estimator for regulatory reporting and a sequence model as a champion or challenger for line-management decisions. The interoperability of the two is mediated by the feature store and the recalibration layer.
 
@@ -1182,6 +1418,16 @@ The fifth is the integration of non-financial signals. Utility payment records, 
 - @rabiner1989tutorial for the most-cited HMM tutorial.
 - @hochreiter1997long for the LSTM, still the default for transaction-stream models.
 - @vaswani2017attention for the Transformer, now competitive on long sequences.
+- @salinas2020deepar for DeepAR, the canonical iterated multi-horizon forecaster.
+- @wen2017mqrnn for the multi-horizon quantile recurrent forecaster (MQ-RNN), the direct quantile baseline.
+- @lim2021tft for the Temporal Fusion Transformer, the most-cited interpretable multi-horizon model with explicit static, observed-past, and known-future covariate pathways.
+- @oreshkin2020nbeats and @challu2023nhits for the N-BEATS / N-HiTS basis-expansion family.
+- @zhou2021informer, @wu2021autoformer, and @nie2023patchtst for long-context Transformer variants.
+- @wu2023timesnet and @liu2024itransformer for the cross-period and cross-variate views.
+- @ansari2024chronos, @rasul2024lagllama, @woo2024moirai, and @garza2023timegpt for time-series foundation models. Treat zero-shot results with caution on credit panels until peer-reviewed credit benchmarks land.
+- @koenker1978regression for the original quantile-regression formulation that the pinball loss extends.
+- @gneiting2007strictly for the proper-scoring-rule framework that justifies quantile or sample-path multi-horizon training over MSE.
+- @chernozhukov2010quantile for the rearrangement that fixes quantile crossings at inference.
 - @jarrow1997markov for the Markov chain view of credit spreads.
 - @bcbs2017ifrs9 for the Basel guidance on ECL.
 - @fed2019mrm for SR 11-7.

@@ -75,7 +75,9 @@ $$ {#eq-svm-dual-b}
 Substituting (@eq-svm-dual-w) and (@eq-svm-dual-b) back into (@eq-svm-lagrangian) eliminates $w$ and $b$. The cross term $\sum_i \alpha_i y_i w^\top x_i$ collapses to $w^\top w$. The $b$ term vanishes because of (@eq-svm-dual-b). What remains is the Wolfe dual:
 
 $$
-\max_{\alpha \ge 0} \sum_{i=1}^N \alpha_i - \tfrac{1}{2} \sum_{i=1}^N \sum_{j=1}^N \alpha_i \alpha_j y_i y_j x_i^\top x_j \quad \text{s.t.} \quad \sum_i \alpha_i y_i = 0.
+\max_{\alpha \ge 0} \sum_{i=1}^N \alpha_i
+- \tfrac{1}{2} \sum_{i=1}^N \sum_{j=1}^N \alpha_i \alpha_j y_i y_j x_i^\top x_j
+\quad \text{s.t.} \quad \sum_i \alpha_i y_i = 0.
 $$ {#eq-svm-dual-hard}
 
 The dual is a concave quadratic program in $N$ variables. Two features of (@eq-svm-dual-hard) drive everything that follows. The data appear only through the inner products $x_i^\top x_j$, which is what lets us replace them with a kernel. The dual's size is $N$ rather than $p$, which is what makes SVM attractive in very high-dimensional spaces but painful at large $N$.
@@ -107,7 +109,8 @@ This identity is useful for diagnostics. A training run whose dual objective has
 Credit data are never separable. Overlapping distributions, mislabeled performance windows, and rare but informative anomalies all guarantee that at least one training point will violate any reasonable margin. The hard-margin primal becomes infeasible and the dual becomes unbounded. @cortes1995support handle this by relaxing the constraints with slack variables $\xi_i \ge 0$:
 
 $$
-\min_{w, b, \xi} \tfrac{1}{2} \lVert w \rVert_2^2 + C \sum_{i=1}^N \xi_i \quad \text{subject to} \quad y_i (w^\top x_i + b) \ge 1 - \xi_i, \xi_i \ge 0.
+\min_{w, b, \xi} \tfrac{1}{2} \lVert w \rVert_2^2 + C \sum_{i=1}^N \xi_i
+\quad \text{subject to} \quad y_i (w^\top x_i + b) \ge 1 - \xi_i,\; \xi_i \ge 0.
 $$ {#eq-svm-primal-soft}
 
 The hyperparameter $C > 0$ balances margin size against constraint violations. A large $C$ drives $\xi_i$ toward zero and recovers the hard margin in the separable limit. A small $C$ tolerates violations in exchange for a larger margin. The constant is the central regularization knob of the SVM and its value depends on the data scale, which is why standardization matters before tuning.
@@ -143,7 +146,8 @@ $$ {#eq-svm-soft-lag}
 Stationarity in $w$ and $b$ is unchanged from the hard case: $w = \sum_i \alpha_i y_i x_i$ and $\sum_i \alpha_i y_i = 0$. Stationarity in $\xi_i$ gives $C - \alpha_i - \mu_i = 0$, which, combined with $\mu_i \ge 0$, implies $0 \le \alpha_i \le C$. Substituting back gives the box-constrained dual:
 
 $$
-\max_{\alpha} \sum_i \alpha_i - \tfrac{1}{2} \sum_{i,j} \alpha_i \alpha_j y_i y_j x_i^\top x_j \quad \text{s.t.} \quad 0 \le \alpha_i \le C, \sum_i \alpha_i y_i = 0.
+\max_{\alpha} \sum_i \alpha_i - \tfrac{1}{2} \sum_{i,j} \alpha_i \alpha_j y_i y_j x_i^\top x_j
+\quad \text{s.t.} \quad 0 \le \alpha_i \le C,\; \sum_i \alpha_i y_i = 0.
 $$ {#eq-svm-dual-soft}
 
 The only change from (@eq-svm-dual-hard) is the upper bound $\alpha_i \le C$. This bound caps the influence any single training point can have on $w$. It is the entire reason outliers degrade the kernel SVM more gracefully than they would a hard-margin classifier.
@@ -174,7 +178,8 @@ Only points with $\alpha_i > 0$ enter the classifier. A trained SVM is sparse in
 Numerical solvers do not return $b$ directly. We recover it by averaging over the free support vectors ($0 < \alpha_i < C$):
 
 $$
-b^\star = \frac{1}{|\mathcal{S}|} \sum_{i \in \mathcal{S}} \left[ y_i - \sum_{j} \alpha_j^\star y_j k(x_i, x_j) \right], \qquad \mathcal{S} = \{ i : 0 < \alpha_i^\star < C \}.
+b^\star = \frac{1}{|\mathcal{S}|} \sum_{i \in \mathcal{S}} \left[ y_i - \sum_{j} \alpha_j^\star y_j k(x_i, x_j) \right],
+\qquad \mathcal{S} = \{ i : 0 < \alpha_i^\star < C \}.
 $$ {#eq-svm-b}
 
 If no free support vectors exist (a degenerate case that happens with extreme class imbalance), any tight bound from a KKT inequality suffices.
@@ -184,7 +189,8 @@ If no free support vectors exist (a degenerate case that happens with extreme cl
 An alternative parametrization, due to @scholkopf2001estimating in the context of one-class SVMs, replaces $C$ with a hyperparameter $\nu \in (0, 1]$ that admits a direct interpretation. The $\nu$-SVM primal is
 
 $$
-\min_{w, b, \xi, \rho} \tfrac{1}{2} \lVert w \rVert_2^2 - \nu \rho + \frac{1}{N} \sum_i \xi_i \quad \text{s.t.} \quad y_i (w^\top x_i + b) \ge \rho - \xi_i, \xi_i \ge 0.
+\min_{w, b, \xi, \rho} \tfrac{1}{2} \lVert w \rVert_2^2 - \nu \rho + \frac{1}{N} \sum_i \xi_i
+\quad \text{s.t.} \quad y_i (w^\top x_i + b) \ge \rho - \xi_i,\; \xi_i \ge 0.
 $$ {#eq-svm-nu}
 
 At the optimum $\nu$ is simultaneously an upper bound on the fraction of training points with nonzero slack (the margin errors) and a lower bound on the fraction of support vectors. For credit work this is attractive because $\nu$ has an operational meaning: it is approximately the target error rate. The disadvantage is that $\nu$-SVM is slightly harder to solve and the standard library of choice (`sklearn.svm.NuSVC`) is less tuned for large problems than the C-parametrized `SVC`.
@@ -212,7 +218,8 @@ $$ {#eq-svm-rbf}
 has infinite-dimensional feature map. To see why, expand the scalar case $\gamma = 1/2$:
 
 $$
-\exp\!\left(-\tfrac{(x - x')^2}{2}\right) = \exp\!\left(-\tfrac{x^2}{2}\right)\exp\!\left(-\tfrac{x'^2}{2}\right) \sum_{k=0}^\infty \frac{(xx')^k}{k!}.
+\exp\!\left(-\tfrac{(x - x')^2}{2}\right) = \exp\!\left(-\tfrac{x^2}{2}\right)\exp\!\left(-\tfrac{x'^2}{2}\right)
+\sum_{k=0}^\infty \frac{(xx')^k}{k!}.
 $$ {#eq-svm-rbf-expand}
 
 The sum is a Taylor series in $xx'$. Each term $(xx')^k / k!$ equals $\langle \psi_k(x), \psi_k(x') \rangle$ where $\psi_k(x) = x^k / \sqrt{k!}$. Multiplying by the Gaussian prefactor $\exp(-x^2/2)$ gives a countable family of basis functions. Truncating at $k = K$ gives a polynomial approximation of the kernel in a $(K+1)$-dimensional space, and the error tends to zero as $K \to \infty$. The RBF feature map is therefore infinite dimensional, which is why the kernel trick is not a mere implementation detail but a substantive statistical choice: it lets us reason about classifiers in a Hilbert space we could never write down explicitly.
@@ -314,7 +321,8 @@ Application fraud is a one-class problem. The bank has millions of examples of l
 The one-class formulation of @scholkopf2001estimating solves, in the kernel feature space,
 
 $$
-\min_{w, \xi, \rho} \tfrac{1}{2} \lVert w \rVert_2^2 + \frac{1}{\nu N} \sum_i \xi_i - \rho \quad \text{s.t.} \quad w^\top \varphi(x_i) \ge \rho - \xi_i, \xi_i \ge 0.
+\min_{w, \xi, \rho} \tfrac{1}{2} \lVert w \rVert_2^2 + \frac{1}{\nu N} \sum_i \xi_i - \rho
+\quad \text{s.t.} \quad w^\top \varphi(x_i) \ge \rho - \xi_i,\; \xi_i \ge 0.
 $$ {#eq-svm-oneclass}
 
 The hyperparameter $\nu \in (0, 1]$ upper bounds the fraction of training points allowed outside the support and lower bounds the fraction of support vectors. At test time $f(x) = w^\top \varphi(x) - \rho$, with negative values flagged as anomalies. @tax2004support propose a slightly different formulation, support vector data description, that fits a minimum-volume ball in feature space and gives identical decisions when the RBF kernel is used. @bolton2002statistical and @ngai2011application situate one-class methods in the broader landscape of statistical fraud detection. The strength of one-class SVM in credit is that it reuses the same kernel machinery as the classifier, works with tabular data, and scores continuously rather than producing a binary flag.

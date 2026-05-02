@@ -123,7 +123,7 @@ $$ {#eq-pt-correlated}
 
 solved for PD at the chosen confidence.
 
-### Scenario-weighted ECL
+### Scenario-weighted ECL {#sec-ch35-scenarios}
 
 IFRS 9 is explicit that the measurement must incorporate forward-looking information and must reflect the range of possible outcomes. Most banks run three scenarios: baseline, adverse, severe, with probability weights. Scenario-weighted ECL is
 
@@ -133,12 +133,14 @@ $$ {#eq-scenario-weighted}
 
 where $Z^{(s)}$ is the macro path under scenario $s$ and $\omega_s$ is the assigned weight with $\sum_s \omega_s = 1$. The function $\mathrm{ECL}(\cdot)$ is nonlinear in $Z$; ignoring the nonlinearity and using only the baseline understates the allowance, which is the main reason the rule requires the weighting.
 
-### SICR triggers
+### SICR triggers {#sec-ch35-sicr}
 
 A simple quantitative SICR trigger is a relative change in lifetime PD since origination:
 
 $$
-\text{SICR}_{i,t} = \mathbb{1}\!\left\{ \frac{\mathrm{PD}^{\text{lt}}_{i,t}}{\mathrm{PD}^{\text{lt}}_{i,0}} > \kappa_{i}\right\} \vee \mathbb{1}\{\text{DPD}_{i,t} > 30\} \vee \mathbb{1}\{\text{watchlist}_{i,t}\}
+\text{SICR}_{i,t} = \mathbb{1}\!\left\{ \frac{\mathrm{PD}^{\text{lt}}_{i,t}}{\mathrm{PD}^{\text{lt}}_{i,0}} > \kappa_{i}\right\}
+\;\vee\; \mathbb{1}\{\text{DPD}_{i,t} > 30\}
+\;\vee\; \mathbb{1}\{\text{watchlist}_{i,t}\}
 $$ {#eq-sicr}
 
 where $\kappa_i$ is a threshold calibrated by rating bucket. EBA/GL/2017/06 gives supervisory expectations on the choice of $\kappa_i$ and the use of the 30 days past due backstop [@ebagl201706].
@@ -211,7 +213,7 @@ Practitioners often build the transition matrix at an annual frequency because c
 
 The Vasicek-Wilson-Gordy family assumes a single systematic factor driving all defaults in a portfolio. It is a strong assumption. Multi-factor models are available and are used for large corporate portfolios where industry and country factors matter separately. For a retail portfolio in a single country the single-factor assumption is often adequate because retail borrowers are exposed to similar macro risks: local unemployment, local house prices, and local interest rates. The correlation parameter $\rho$ maps onto the Basel IRB asset correlation, which for retail is 0.03 to 0.16 depending on product. Practitioners often calibrate $\rho$ to match the historical volatility of observed default rates, conditional on a macro factor.
 
-### LGD modeling details
+### LGD modeling details {#sec-ch35-lgd}
 
 Retail unsecured LGD is typically built as a product of a cure rate and a loss rate given no cure:
 
@@ -388,7 +390,7 @@ for n in [50, 200, 1000]:
 
 The correlated bound is materially higher than the independent one. The supervisory use is to justify a positive PD for a grade with zero observed defaults [@plutotasche2005].
 
-### Twelve-month and lifetime ECL for a synthetic loan book
+### Twelve-month and lifetime ECL for a synthetic loan book {#sec-ch35-ecl-impl}
 
 We build a loan book seeded from the Taiwan default dataset. Taiwan gives us a realistic joint distribution of credit limit, age, and payment behavior. We assign ratings from a proxy score on default probability, and attach a remaining maturity drawn at random.
 
@@ -464,7 +466,7 @@ print(f"Lifetime ECL adv  : {ecl_lt_adv.sum():>14,.0f}  ({pct(ecl_lt_adv):.3f}% 
 print(f"Lifetime ECL sev  : {ecl_lt_sev.sum():>14,.0f}  ({pct(ecl_lt_sev):.3f}% of EAD)")
 ```
 
-### Stage allocation and SICR
+### Stage allocation and SICR {#sec-ch35-staging}
 
 We compute a twelve month PD at origination (using the rating at origination, taken here as one bucket safer than the current rating) and at reporting, and apply the SICR trigger (@eq-sicr).
 
@@ -679,7 +681,7 @@ Third, the severe scenario LGD adjustment (plus 8 percentage points) contributes
 
 The SICR threshold $\kappa$ is the single most sensitive parameter in an IFRS 9 allowance. Lowering $\kappa$ moves accounts from Stage 1 to Stage 2 and sharply lifts the allowance. In practice $\kappa$ is differentiated by rating bucket because the same absolute PD change represents a larger relative change for a low-risk account than for a high-risk one. EBA/GL/2017/06 asks banks to justify the trigger empirically. A common method is to backtest: for accounts that subsequently defaulted, what was the relative PD change in the months before default? The threshold is set so that a chosen share (say 75 to 90 percent) of eventual defaulters were flagged as Stage 2 at least three months before default. Banks also set a hard 30 days past due backstop because the standard allows rebutting the presumption only with strong evidence.
 
-### Stage transition matrix
+### Stage transition matrix {#sec-ch35-transitions}
 
 Beyond the initial allocation, the flow of accounts between stages over time matters. EBA supervisory disclosures publish Stage 1 to Stage 2 migration rates and Stage 2 back to Stage 1 cure rates. A bank with very low Stage 2 to Stage 1 cures is pro-cyclical: once accounts deteriorate they stay in the lifetime bucket. This is the opposite of the "rehabilitation" intent in the standard. Banks report a stage transition matrix quarterly and reconcile it to changes in the allowance.
 
@@ -786,7 +788,7 @@ The ECL engine is a monthly batch, not an online service. It fits an orchestrati
 
 Airflow or Prefect owns the monthly ECL DAG. A realistic DAG has five layers. First, data extract: pull the account snapshot, the latest PAY history, the scoring input, and the open macro forecast vintage. Second, macro scenario generation: pull the CCAR baseline, adverse, severely adverse vintage, or the IFRS 9 economic scenarios approved by the risk committee. Third, model scoring: invoke the PiT PD model (from MLflow), the LGD model, and the EAD model, each as a task. Fourth, staging and ECL aggregation: compute SICR, stage, apply (@eq-ecl-base), weight scenarios. Fifth, ledger posting and review: export to the GL feed, compare to last month, trigger the governance review for movements above thresholds.
 
-### MLflow registry for macro PD
+### MLflow registry for macro PD {#sec-ch35-mlflow}
 
 Treat each PD, LGD, and EAD model as a registered MLflow model with explicit stages (staging, production). Each production deployment logs: training data snapshot hash, feature spec, macro vintage used for validation, backtest metrics, and the sign-off JSON from the model risk team. The severe scenario PD and LGD live behind the same registry entry: the macro covariate is an input at scoring time.
 
@@ -794,7 +796,7 @@ Treat each PD, LGD, and EAD model as a registered MLflow model with explicit sta
 
 SICR decisions are high impact. Every stage change needs to be reproducible at audit time. Persist for each account and each reporting date: `pd_12m_origination`, `pd_12m_reporting`, `dpd`, `watchlist_flag`, `override_reason`, and `who_approved`. The BCBS 239 principles on risk data aggregation [@bcbs239] make this traceability a regulatory requirement, not a nice to have.
 
-### Overlays and post-model adjustments
+### Overlays and post-model adjustments {#sec-ch35-overlays}
 
 Every expected loss model builder needs an overlay process. The pandemic made this explicit: in March 2020 no PD model had seen a twenty point unemployment move, so banks booked post-model adjustments. The EBA and the ECB both published guidance that overlays are acceptable if they are documented, governed, approved, and phased out when the underlying model catches up [@ebagl201706; @ecbTRIM]. Concretely, store overlays as named records with scope (portfolio, segment), size (absolute or relative), rationale, owner, and review date. Reconcile overlays against model output each quarter and escalate stale overlays.
 
