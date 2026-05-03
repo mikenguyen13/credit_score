@@ -141,58 +141,32 @@ Before tackling the methods in turn, it helps to map every stage where selection
 
 ```{mermaid}
 %%| label: fig-ch10-selection-roadmap
-%%| fig-cap: "Selection pipeline (left) and the moderators every reject inference method has to take a position on (right). The applicant flows through screening, an underwriter decision, funding, and a performance window before $Y$ is observed. Bias enters at the underwriter stage as covariate shift on $X$ (M1), selection on unobservables that also drive default (M2), thin policy overlap (M3), and the availability of an exclusion restriction (M4); at the performance window as vintage and macro distortion of the observed default rate (M5); and at the bureau-surrogate step as product mismatch (M6) and within-reject coverage gaps (M7). Subsequent sections take the moderators one at a time."
-flowchart LR
-    classDef stage fill:#cfd8dc,stroke:#37474f,color:#111;
-    classDef accept fill:#90caf9,stroke:#1565c0,color:#111;
-    classDef reject fill:#ef9a9a,stroke:#c62828,color:#111;
-    classDef obs fill:#1976d2,stroke:#0d47a1,color:#fff;
-    classDef bureau fill:#f8bbd0,stroke:#ad1457,color:#111;
-    classDef latent fill:#ede7f6,stroke:#4527a0,color:#111;
-    classDef mod fill:#fff8e1,stroke:#b58900,color:#111;
+%%| fig-cap: "Selection pipeline as a funnel from through-the-door applicant to observed outcome $Y$. Stages carry the moderators that bind there: M1 covariate shift on $X$ ($P(X \\mid S{=}1) \\neq P(X)$); M2 selection on unobservables ($\\mathrm{Corr}(U,V) \\neq 0$); M3 policy overlap ($P(S{=}1 \\mid x) > 0$ everywhere); M4 exclusion restriction (a $Z$ that shifts $S$ but not $Y$); M5 vintage and macro state (through-the-cycle versus point-in-time); M6 bureau product gap (limit, rate, servicer differ from the lender's product); M7 within-reject coverage (10 to 30 percent of rejects have no bureau trade-line). Red nodes mark paths where $Y$ is missing for the lender. Subsequent sections take the moderators one at a time."
+flowchart TD
+    classDef stage fill:#eceff1,stroke:#455a64,color:#111;
+    classDef obs   fill:#1976d2,stroke:#0d47a1,color:#fff;
+    classDef miss  fill:#ef9a9a,stroke:#c62828,color:#111;
 
-    subgraph Pipe["Selection pipeline"]
-        direction TB
-        A["Through-the-door applicant<br/>X observed; Z partly observed;<br/>U, V latent"]:::stage
-        S1["Stage 1: channel and eKYC screen<br/>eligibility, fraud, KYC"]:::stage
-        LOST["Filtered before scoring;<br/>X often not stored"]:::latent
-        S2["Stage 2: policy plus underwriter decision<br/>score cut on X, manual signals on V"]:::stage
-        ACC["Funded loan:<br/>limit, rate, term"]:::accept
-        REJ["Rejected; Y missing for the lender"]:::reject
-        PW["Stage 3: performance window<br/>vintage v, macro state m"]:::stage
-        Y["Outcome Y observed"]:::obs
-        PRP["Prepay or refinance: competing event, ch 9"]:::latent
-        YB["Bureau outcome Y_B<br/>different lender, different product"]:::bureau
+    A["Through-the-door applicant<br/>X observed, Z partial, U and V latent"]:::stage
+    S1["Stage 1: channel and eKYC screen<br/><b>[M3]</b>"]:::stage
+    L1["Filtered pre-score<br/>X often not stored"]:::miss
+    S2["Stage 2: policy and underwriter decision<br/><b>[M1, M2, M3, M4]</b>"]:::stage
+    REJ["Rejected (S=0)<br/>Y missing for the lender"]:::miss
+    YB["Bureau outcome Y_B<br/>different lender, different product<br/><b>[M6, M7]</b>"]:::miss
+    ACC["Funded (S=1)<br/>limit, rate, term"]:::stage
+    PW["Stage 3: performance window<br/>vintage v, macro state m, <b>[M5]</b>"]:::stage
+    PRP["Prepay or refinance<br/>competing event (ch 9)"]:::miss
+    Y["Outcome Y observed"]:::obs
 
-        A --> S1
-        S1 -->|fail| LOST
-        S1 -->|pass| S2
-        S2 -->|"S=1"| ACC
-        S2 -->|"S=0"| REJ
-        ACC --> PW
-        PW --> Y
-        PW -.->|early exit| PRP
-        REJ -.->|cross-bureau pull| YB
-    end
-
-    subgraph Mods["Moderators every method must address"]
-        direction TB
-        M1["M1 covariate shift on X:<br/>P(X &#124; S=1) ≠ P(X)"]:::mod
-        M2["M2 selection on unobservables:<br/>Corr(U, V) ≠ 0"]:::mod
-        M3["M3 policy overlap:<br/>is P(S=1 &#124; x) > 0 everywhere?"]:::mod
-        M4["M4 exclusion restriction:<br/>any Z that shifts S but not Y?"]:::mod
-        M5["M5 vintage and macro state:<br/>through-the-cycle vs point-in-time"]:::mod
-        M6["M6 bureau product gap:<br/>limit, rate, servicer differ"]:::mod
-        M7["M7 within-reject coverage:<br/>10 to 30 percent have no trade-line"]:::mod
-    end
-
-    S2 -.- M1
-    S2 -.- M2
-    S2 -.- M3
-    S2 -.- M4
-    PW -.- M5
-    YB -.- M6
-    YB -.- M7
+    A --> S1
+    S1 -->|fail| L1
+    S1 -->|pass| S2
+    S2 -->|S=0| REJ
+    S2 -->|S=1| ACC
+    REJ -.->|cross-bureau pull| YB
+    ACC --> PW
+    PW --> Y
+    PW -.->|early exit| PRP
 ```
 
 A short reading guide to the diagram. Augmentation and parceling (@sec-ch10-augmentation-hsias-parceling-and-its-fuz) leans on M1 alone and assumes M2 away. Bureau extrapolation (@sec-ch10-bureau-extrapolation) buys M2 by importing $Y_B$ but inherits M5, M6, and M7. Heckman (@sec-ch10-heckman-selection-correction) trades M2 for parametric structure plus M4. AIPW, copulas, deep generative imputation, importance weighting, and PU learning (@sec-ch10-modern) each relax one Heckman primitive. Observable-engine methods (@sec-ch10-observable) attack M3 directly when the lender owns the decision engine. EM and pseudo-labeling (@sec-ch10-em) exploit cluster structure when none of the above is available.
