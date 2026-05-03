@@ -6332,7 +6332,7 @@ The Geskus-reduced frame is the Layout-1 shape again, so it feeds straight into 
 ### Cheat sheet
 
 | Layout | Shape | Library | Fitters |
-|---|---|---|---|
+|------------------|------------------|------------------|------------------|
 | Wide per-loan | one row per loan | `lifelines` | `KaplanMeierFitter`, `CoxPHFitter`, `*AFTFitter` |
 | Structured array `(event, time)` + `X` | tuple-dtype `y`, 2-D `X` | `scikit-survival` | `CoxPHSurvivalAnalysis`, `RandomSurvivalForest`, `GradientBoostingSurvivalAnalysis` |
 | Counting-process `(start, stop, event)` | one or more episodes per loan | `lifelines`, `survival` (R), `statsmodels` | `CoxTimeVaryingFitter`, `coxph(Surv(start, stop, event))`, `PHReg(entry=)` |
@@ -6523,17 +6523,17 @@ Read the three numbers in column order: they are $\hat\beta_1, \hat\beta_2, \hat
 
 #### What the assumption says, in one picture
 
-Proportional hazards (PH) is the assumption that *the relative riskiness of two borrowers does not change as the loan ages*. Pick any two borrowers, A and B, and write down the ratio of their hazards: 
+Proportional hazards (PH) is the assumption that *the relative riskiness of two borrowers does not change as the loan ages*. Pick any two borrowers, A and B, and write down the ratio of their hazards:
 
 $$
 \frac{h(t \mid x_A)}{h(t \mid x_B)} = \frac{h_0(t)\,\exp(x_A^\top \beta)}{h_0(t)\,\exp(x_B^\top \beta)} = \exp\big((x_A - x_B)^\top \beta\big).
-$$ 
+$$
 
-The shared baseline $h_0(t)$ cancels, so the right-hand side has *no* $t$ in it. That is what "proportional" means: whatever multiplier separates A's hazard from B's hazard at month one is the *same* multiplier at month twelve and at month forty-eight. If borrower A has triple the default hazard of borrower B today, PH says A still has triple the hazard four years from now, even if both borrowers' absolute hazards have risen or fallen with seasoning. A concrete reading. Suppose A and B differ only in utilization, with $x_{A,1} - x_{B,1} = 1$ standard deviation, and $\beta_1 = 0.50$. Then A's hazard is $\exp(0.50) \approx 1.65$ times B's at every age. The two hazard curves $h(t \mid x_A)$ and $h(t \mid x_B)$ may rise, fall, or wiggle as the loan seasons (that is the job of $h_0(t)$), but they move *in lockstep*: their ratio is pinned at 1.65. The same statement on the log-cumulative-hazard scale is often easier to plot. Integrating $h(t \mid x) = h_0(t) \exp(x^\top \beta)$ from 0 to $t$ gives $H(t \mid x) = H_0(t) \exp(x^\top \beta)$, and taking logs gives 
+The shared baseline $h_0(t)$ cancels, so the right-hand side has *no* $t$ in it. That is what "proportional" means: whatever multiplier separates A's hazard from B's hazard at month one is the *same* multiplier at month twelve and at month forty-eight. If borrower A has triple the default hazard of borrower B today, PH says A still has triple the hazard four years from now, even if both borrowers' absolute hazards have risen or fallen with seasoning. A concrete reading. Suppose A and B differ only in utilization, with $x_{A,1} - x_{B,1} = 1$ standard deviation, and $\beta_1 = 0.50$. Then A's hazard is $\exp(0.50) \approx 1.65$ times B's at every age. The two hazard curves $h(t \mid x_A)$ and $h(t \mid x_B)$ may rise, fall, or wiggle as the loan seasons (that is the job of $h_0(t)$), but they move *in lockstep*: their ratio is pinned at 1.65. The same statement on the log-cumulative-hazard scale is often easier to plot. Integrating $h(t \mid x) = h_0(t) \exp(x^\top \beta)$ from 0 to $t$ gives $H(t \mid x) = H_0(t) \exp(x^\top \beta)$, and taking logs gives
 
 $$
 \log H(t \mid x) = \log H_0(t) + x^\top \beta,
-$$  
+$$ 
 
 which is a straight-line decomposition: a common shape $\log H_0(t)$ plus a constant vertical shift $x^\top \beta$ that depends only on the covariates. So if you plot $\log H(t \mid x)$ for, say, low- versus high-utilization borrowers, PH predicts two curves of the *same shape* offset by a constant gap. They are parallel translations: they never cross, narrow, or fan out as $t$ increases. Crossing curves, a gap that grows with seasoning, or a gap that shrinks toward zero are all visual signatures of PH failure. PH fails for three recurring reasons in retail credit. First, an effect can be *strong early and fade*: a high-utilization borrower either defaults fast or stabilizes, so the hazard ratio is large in the first year and drifts toward one by year three. Second, an effect can *build with seasoning*: a payment-shock variable (e.g. teaser-rate expiry) is irrelevant before the shock and dominant after, so the hazard ratio grows with $t$. Third, the population can be a *mixture across regimes* (origination year, product type, geography), so the pooled baseline $h_0(t)$ is itself a weighted average of cohort-specific baselines and the "constant" coefficients are an artifact of pooling. The diagnostics below detect each of these as a *time trend in residuals*: under PH the residuals scatter flat around zero, and any of the three failure modes shows up as slope.
 
@@ -6541,11 +6541,11 @@ which is a straight-line decomposition: a common shape $\log H_0(t)$ plus a cons
 
 Recall from @eq-cox-score that at the MLE $\hat\beta$, the score contribution from event time $t_k$ is $r_k = x_{i_k} - \bar x(\hat\beta, R_k)$. This is the *Schoenfeld residual*: the difference between the failing subject's covariate and the risk-set-weighted mean. Under PH, $E[r_k] = 0$ at every event time, so a plot of $r_{kj}$ versus $t_k$ should be a horizontal cloud with no trend.
 
-@grambsch1994proportional sharpened this into a test by *scaling* the residual by the estimated covariance of the score at $t_k$: 
+@grambsch1994proportional sharpened this into a test by *scaling* the residual by the estimated covariance of the score at $t_k$:
 
 $$
 r^*_k = d \cdot V(\hat\beta, R_k)^{-1} r_k,
-$$  
+$$ 
 
 where $d$ is the number of events. They show that if the true coefficient drifts as $\beta_j(t) = \beta_j + \theta_j g(t)$ for some known time function $g$ (e.g. $g(t) = \log t$ or the rank of $t$), then $E[r^*_{kj}] \approx \theta_j g(t_k)$. So *regressing the scaled residual on* $g(t)$ and testing $\theta_j = 0$ is a direct test of constant-effect-in-time. `lifelines` reports this regression for each covariate and a global chi-squared.
 
@@ -6565,11 +6565,11 @@ On simulated data generated under proportional hazards, `lifelines` does not rej
 
 #### What violation looks like
 
-To see what the test catches, build a dataset where the effect of one covariate *changes* at month $\tau = 12$. Concretely, simulate piecewise-constant hazards 
+To see what the test catches, build a dataset where the effect of one covariate *changes* at month $\tau = 12$. Concretely, simulate piecewise-constant hazards
 
 $$
 h(t \mid x) = \lambda_0 \exp \big(\beta_1(t)\, x\big), \qquad \beta_1(t) = \begin{cases} 0.20, & t \le 12 \\ 1.20, & t > 12. \end{cases}
-$$  
+$$ 
 
 This is the structural form behind "payment shock after teaser period": the same covariate behaves like a weak risk early, then a strong one after seasoning. Inverse-CDF sampling on the cumulative hazard gives exact times.
 
@@ -6765,12 +6765,9 @@ $$
 L_i = \left[ (1 - \pi(x_i)) f_u(y_i \mid x_i) \right]^{\delta_i} \left[ \pi(x_i) + (1 - \pi(x_i)) S_u(y_i \mid x_i) \right]^{1 - \delta_i}.
 $$ 
 
-Direct maximization is feasible, but awkward. The two factors in @eq-cure-lik behave very differently under the log. For an observed default ($\delta_i = 1$),
-$$
+Direct maximization is feasible, but awkward. The two factors in @eq-cure-lik behave very differently under the log. For an observed default ($\delta_i = 1$), $$
 \log L_i = \log(1 - \pi(x_i)) + \log f_u(y_i \mid x_i),
-$$
-which separates additively into an incidence piece in $\alpha$ and a latency piece in the latency parameters: each block has its own gradient and the cross-Hessian is zero. The censored contribution ($\delta_i = 0$) is the second factor of @eq-cure-lik,
-$$
+$$ which separates additively into an incidence piece in $\alpha$ and a latency piece in the latency parameters: each block has its own gradient and the cross-Hessian is zero. The censored contribution ($\delta_i = 0$) is the second factor of @eq-cure-lik, $$
 \log L_i = \log\left[\pi(x_i) + (1 - \pi(x_i))\, S_u(y_i \mid x_i)\right],
 $$
 
@@ -6938,9 +6935,9 @@ Per-vintage cumulative default curve:
 
 Each thread is one cohort's loss curve: $\hat F_v(a) = 1 - \hat S_v(a)$, the Kaplan-Meier estimate of cumulative default for vintage $v$ as a function of age $a$ (months on book). Two structural effects are visible by construction:
 
-1. *Age effect (common shape).* All threads share an S-shape: near-zero in the seasoning gap (months 0 to roughly 6), steepest in the middle of the curve where the Weibull hazard peaks, then flattening as the surviving pool gets cleaner. This is the seasoning curve $f_{\text{age}}(a)$ of @eq-vintage. It is intrinsic to the product, not to any single cohort.
+1.  *Age effect (common shape).* All threads share an S-shape: near-zero in the seasoning gap (months 0 to roughly 6), steepest in the middle of the curve where the Weibull hazard peaks, then flattening as the surviving pool gets cleaner. This is the seasoning curve $f_{\text{age}}(a)$ of @eq-vintage. It is intrinsic to the product, not to any single cohort.
 
-2. *Vintage effect (dispersion).* The vertical spread between threads at a fixed age $a$ is the cohort-quality shifter $g_{\text{vintage}}(v)$. Higher curves are weaker cohorts (looser underwriting, worse macro at booking, riskier mix); lower curves are tighter cohorts. In this simulation, the spread is driven by the seasonal $q_v = 0.10 \sin(2\pi v / 12)$ multiplier on the Weibull rate, which is why the dispersion has a periodic flavour rather than a monotone drift.
+2.  *Vintage effect (dispersion).* The vertical spread between threads at a fixed age $a$ is the cohort-quality shifter $g_{\text{vintage}}(v)$. Higher curves are weaker cohorts (looser underwriting, worse macro at booking, riskier mix); lower curves are tighter cohorts. In this simulation, the spread is driven by the seasonal $q_v = 0.10 \sin(2\pi v / 12)$ multiplier on the Weibull rate, which is why the dispersion has a periodic flavour rather than a monotone drift.
 
 What to read off the chart in production:
 
@@ -6959,9 +6956,9 @@ The triangle has exactly three reading axes, and a competent monitoring meeting 
 
 *Read down a column (fixed age, varying vintage).* Pick a column, say $a = 12$, and slide your eye from the oldest cohort at the top to the most recent observable cohort at the bottom. Every cell in this column has been on book for the same number of months, so the seasoning effect is held constant by construction. Any monotone drift in colour is a vintage-quality signal: it says the *origination engine itself* is producing a different mix of credits over time, even before any macro shock has hit. Three column-direction patterns recur in practice:
 
-1. *Steady darkening down the column.* Underwriting has loosened. The committee asks origination to produce the score-cutoff history, the channel mix (branch, broker, digital), and the policy-override rate, then decides whether to retighten the cutoff, retire a broker, or cap a product line.
-2. *A single dark band that then lightens again.* A specific cohort is bad on its own, usually traceable to a campaign, a promotional rate, a partner channel, or a one-off policy waiver. The committee's job is to attribute the band to a named root cause and book a corrective action with an owner and a date.
-3. *Lightening down the column.* Underwriting has tightened, often because a previous month's escalation worked. This is the only direction nobody escalates, but it should be acknowledged so origination keeps doing whatever it changed.
+1.  *Steady darkening down the column.* Underwriting has loosened. The committee asks origination to produce the score-cutoff history, the channel mix (branch, broker, digital), and the policy-override rate, then decides whether to retighten the cutoff, retire a broker, or cap a product line.
+2.  *A single dark band that then lightens again.* A specific cohort is bad on its own, usually traceable to a campaign, a promotional rate, a partner channel, or a one-off policy waiver. The committee's job is to attribute the band to a named root cause and book a corrective action with an owner and a date.
+3.  *Lightening down the column.* Underwriting has tightened, often because a previous month's escalation worked. This is the only direction nobody escalates, but it should be acknowledged so origination keeps doing whatever it changed.
 
 *Read across a row (fixed vintage, varying age).* This is the loss-emergence curve for a single cohort. The committee uses it to answer: is this cohort tracking the seasoning curve we *priced* at booking, or has it diverged? Concretely, the row is compared to the through-the-cycle reference curve baked into the pricing model. A cohort that is tracking above its priced curve at age $a = 6$ has a high probability of finishing above it at the lifetime plateau, because most of the residual variance in cumulative default is explained by what happened in the first year. Pricing model owners use this row to refit the seasoning shape. Finance uses it to true up the lifetime PD that drives expected credit loss under IFRS 9 and CECL.
 
@@ -6986,7 +6983,7 @@ $$
 y_{v,a} = f(a) + g(v) + h(c) + \varepsilon_{v,a}, \qquad c = v + a.
 $$ 
 
-Because $c = v + a$ is a linear identity on the panel, the model is rank deficient. For any scalar $k$ the rotation 
+Because $c = v + a$ is a linear identity on the panel, the model is rank deficient. For any scalar $k$ the rotation
 
 $$
 \bigl(f, g, h\bigr) \mapsto \bigl(f + k\,a,\, g + k\,v,\, h - k\,c\bigr)
@@ -7010,14 +7007,14 @@ We fit the unrestricted model first, verify rotation invariance, then resolve th
 
 The three panels look like the same kind of object (a coefficient profile against an integer index), but each one belongs to a different stakeholder, drives a different decision, and is read with a different question in mind. Reviewers who treat all three panels as "trends in default rate" miss the entire point of the decomposition. Each panel answers exactly one question.
 
-*Left panel: age effect $\hat f(a)$.* This is the *seasoning curve*. The horizontal axis is months on book, with vintage and calendar held statistically constant. The level at any one age is meaningless on its own (any constant can be absorbed into the intercept), but the *shape* tells the product owner whether the loss-emergence curve has the canonical hump or is monotone, where the hazard peaks, and how fast surviving credits clean up. A pricing actuary reads this panel by asking: "where on the curve is the bulk of lifetime loss accumulated, and how does that compare to the curve I priced into the term structure of expected loss at booking?" If the empirical peak is later than the priced peak, the bank has been under-reserving in months 12 through 18 and over-reserving in months 6 through 9. If the empirical curve is monotone where the priced curve was hump-shaped, the bank booked the loan as a personal-loan-like product but the loss profile looks more mortgage-like; pricing tenor and reserving cadence both need to change.
+*Left panel: age effect* $\hat f(a)$. This is the *seasoning curve*. The horizontal axis is months on book, with vintage and calendar held statistically constant. The level at any one age is meaningless on its own (any constant can be absorbed into the intercept), but the *shape* tells the product owner whether the loss-emergence curve has the canonical hump or is monotone, where the hazard peaks, and how fast surviving credits clean up. A pricing actuary reads this panel by asking: "where on the curve is the bulk of lifetime loss accumulated, and how does that compare to the curve I priced into the term structure of expected loss at booking?" If the empirical peak is later than the priced peak, the bank has been under-reserving in months 12 through 18 and over-reserving in months 6 through 9. If the empirical curve is monotone where the priced curve was hump-shaped, the bank booked the loan as a personal-loan-like product but the loss profile looks more mortgage-like; pricing tenor and reserving cadence both need to change.
 
-*Centre panel: vintage effect $\hat g(v)$.* This is the *origination-quality shifter*: how much riskier or safer cohort $v$ is, after controlling for where each cohort sits on the seasoning curve and which calendar months it has lived through. The reader is the head of underwriting (or, in a Vietnamese consumer-finance subsidiary, the head of credit policy). The question is: "which of my cohorts are off-trend, and is the deviation drifting in one direction over time?" Two patterns dominate in the field:
+*Centre panel: vintage effect* $\hat g(v)$. This is the *origination-quality shifter*: how much riskier or safer cohort $v$ is, after controlling for where each cohort sits on the seasoning curve and which calendar months it has lived through. The reader is the head of underwriting (or, in a Vietnamese consumer-finance subsidiary, the head of credit policy). The question is: "which of my cohorts are off-trend, and is the deviation drifting in one direction over time?" Two patterns dominate in the field:
 
 1.  *Periodic pattern.* In the simulation here it is the seasonal $0.10 \sin(2 \pi v / 12)$ that the data-generating process injected. In a real Vietnamese book the same shape appears around Tet (Lunar New Year): cohorts originated in the two months before Tet are systematically weaker because of holiday-spending applicants and rushed underwriting. The committee response is *operational*: pre-Tet temporary cutoffs, additional verification staffing, and a hard cap on broker volumes during the holiday window.
 2.  *Monotone drift.* A monotone increase in $\hat g(v)$ over recent vintages is the empirical signature of underwriting loosening (or score drift, or channel mix shift toward higher-loss origination). This is the single most actionable finding in the entire decomposition, because it points at a controllable input. The committee response is to demand a score-cutoff history, a channel-mix history, and a policy-override-rate history aligned to the same vintage axis, then to retighten the input that moved.
 
-*Right panel: calendar effect $\hat h(c)$.* This is the *macro and policy environment*. The horizontal axis is wall-clock time. The reader is the chief risk officer and, indirectly, the regulator. The question is: "what calendar months are abnormally bad or good, after controlling for seasoning and cohort quality?" Spikes in $\hat h(c)$ pick out: COVID-era forbearance and the cliff after it, rate-cycle peaks, currency-driven import-cost shocks, and any State Bank of Vietnam (SBV) policy intervention (debt restructuring circulars, deposit-rate caps, real-estate liquidity programmes). The committee does not respond to the calendar panel by changing underwriting (the cohorts that lived through those months are already on the books); it responds by reviewing IFRS 9 stage-2 triggers, considering management overlays on lifetime expected credit loss, and updating the macro scenarios in the next stress-testing pack.
+*Right panel: calendar effect* $\hat h(c)$. This is the *macro and policy environment*. The horizontal axis is wall-clock time. The reader is the chief risk officer and, indirectly, the regulator. The question is: "what calendar months are abnormally bad or good, after controlling for seasoning and cohort quality?" Spikes in $\hat h(c)$ pick out: COVID-era forbearance and the cliff after it, rate-cycle peaks, currency-driven import-cost shocks, and any State Bank of Vietnam (SBV) policy intervention (debt restructuring circulars, deposit-rate caps, real-estate liquidity programmes). The committee does not respond to the calendar panel by changing underwriting (the cohorts that lived through those months are already on the books); it responds by reviewing IFRS 9 stage-2 triggers, considering management overlays on lifetime expected credit loss, and updating the macro scenarios in the next stress-testing pack.
 
 *The mandatory caveat.* The cross-panel comparison is exactly the place where the identification problem in (@eq-avc-additive) bites. Because $c = v + a$ holds as an identity, any constant linear slope can be moved from one panel to another without changing the fit (this is the rotation in (@eq-avc-rotation)). So the *linear trend* in any single panel is a normalization choice, not an empirical fact. The empirical content lives in:
 
@@ -7216,7 +7213,7 @@ A model that is well-calibrated on training cohorts can drift if origination pol
 
 `z` prints PSI = 0.0017, verdict *stable*. The borrower covariate is i.i.d. across vintages by design in this simulation, so the empty-cell-padded log-ratio is dominated by sampling noise and lands far below the 0.10 stability threshold. In a production read, a stable applicant covariate but a shifting macro covariate is the *cleanest possible diagnosis*: it isolates the drift to a single channel and tells the model owner that origination policy and applicant mix have not moved.
 
-`u` prints PSI = 7.93, verdict *shift*. The macro covariate is a calendar-time AR(1) with a structural break around month 18, the holdout vintages sit *after* the break, and the train deciles therefore give vanishingly small reference probability mass to the values `u` takes on the holdout. Two consequences. First, the magnitude is uninterpretable on its own: PSI above ~3 saturates the practical scale and means "the holdout falls almost entirely outside the train support", not "the holdout is 30 times worse than the 0.25 threshold". Second, the verdict label *shift* is the action trigger; the magnitude past that point is not used for sizing the response.
+`u` prints PSI = 7.93, verdict *shift*. The macro covariate is a calendar-time AR(1) with a structural break around month 18, the holdout vintages sit *after* the break, and the train deciles therefore give vanishingly small reference probability mass to the values `u` takes on the holdout. Two consequences. First, the magnitude is uninterpretable on its own: PSI above \~3 saturates the practical scale and means "the holdout falls almost entirely outside the train support", not "the holdout is 30 times worse than the 0.25 threshold". Second, the verdict label *shift* is the action trigger; the magnitude past that point is not used for sizing the response.
 
 What follows from a `u`-shift verdict is the *retrain-or-overlay* decision tree that the section above on backtest bias drew. The PSI alert localizes the drift to the macro channel; the calibration figure (@fig-ch09-shumway-calibration) tells you whether the drift has *already* moved realized rates off the diagonal at any horizon; the bias panel from the walk-forward backtest tells you in which direction. If PSI is large on `u` and the calibration figure is still on the diagonal, the model is operating outside its training support but has not yet broken; the right action is a *recalibration overlay* (Platt or isotonic on the held-out fold) plus a watch-list entry, not a retrain. If PSI is large on `u` and calibration has already drifted, the right action is a *retrain on a window that includes the new macro regime*. If PSI on `z` were also large, the diagnosis would broaden to underwriting drift and the retrain window would need to span the new applicant mix as well. The reading is therefore: PSI on inputs is a *warning that the calibration check above must be re-read*, not a substitute for it.
 
@@ -7234,7 +7231,7 @@ A note on what to expect from this comparison. The data-generating process here 
 
 The good and median panels show the challenger (red dashed) sitting *above* the champion (blue solid) past month 12, with a gap that widens out to roughly 1 percentage point at 36 months on the good profile and roughly 4 percentage points on the median. The weak panel reverses the order: the challenger sits *below* the champion, by about 5 percentage points at 36 months on the weak profile. Read those three deltas together: the boosted challenger is compressing the borrower spread relative to the GLM. It is pulling the good and median profiles up and the weak profile down, which is the classic regularization-toward-the-mean signature of a tree ensemble at a moderate `min_data_in_leaf` setting on a one-covariate signal. On a DGP that is linear-additive in `z`, this compression is *expected and undesirable*: the GLM has the right functional form, the tree ensemble does not, and the rank structure that the C-index does not penalize is being attenuated. In production this would show up as a flatter score distribution, a smaller gap between approval and rejection bands, and (downstream) higher capital because the *long tail* of weak borrowers has been pulled toward the mean and the resulting Vasicek correlation kicks in less sharply. The diagnostic from this row is therefore *do not promote even if AUC is tied*; the term structure on extreme `z` profiles has changed shape.
 
-*Bottom row, by reporting horizon.* Each panel is the same calibration curve construction as @fig-ch09-shumway-calibration but with both models overlaid. Markers on the 45-degree line are well-calibrated bins; champion (blue circle) and challenger (red square) trace nearly identical paths at all three horizons, with the points differing by less than the visual width of the markers in most bins. The 12-month panel hits the same right-end ceiling near 0.22 predicted (term-structure floor) seen earlier; the 24-month panel populates predicted PD up to ~0.45; the 36-month panel populates predicted PD up to ~0.67. None of the three panels shows a systematic challenger-vs-champion offset, so on this fold the challenger is *as well-calibrated as the champion at every reporting horizon*, and the choice between them collapses to the AUC, Brier, and term-structure-shape evidence above.
+*Bottom row, by reporting horizon.* Each panel is the same calibration curve construction as @fig-ch09-shumway-calibration but with both models overlaid. Markers on the 45-degree line are well-calibrated bins; champion (blue circle) and challenger (red square) trace nearly identical paths at all three horizons, with the points differing by less than the visual width of the markers in most bins. The 12-month panel hits the same right-end ceiling near 0.22 predicted (term-structure floor) seen earlier; the 24-month panel populates predicted PD up to \~0.45; the 36-month panel populates predicted PD up to \~0.67. None of the three panels shows a systematic challenger-vs-champion offset, so on this fold the challenger is *as well-calibrated as the champion at every reporting horizon*, and the choice between them collapses to the AUC, Brier, and term-structure-shape evidence above.
 
 *The combined verdict.* AUC and calibration are tied; term structure is materially different on the tails of `z`. The model-risk reading is "challenger does not regress on calibration but does regress on the structural smoothness of the projected risk curve, on a DGP where the GLM has the right functional form". Decision: keep the champion in production, log the challenger as the LightGBM benchmark on the long table, and re-run the comparison when the feature set expands beyond the linear-additive simulated covariates to real bureau and behavioral inputs where the boosted tree is expected to find genuine interactions. That is the SR 11-7-defensible promotion test: not "challenger wins on a single number", but "challenger wins on the metric the consumer of the model actually uses, without breaking shape".
 
@@ -7322,9 +7319,9 @@ To recover a survival curve from the boosted hazard, score every age-row for eac
 
 For the bank-internal sequence-model frontier @babaev2022coles, swap `MLPVanilla` for a transformer encoder fine-tuned from a contrastive pre-training run on unlabeled transaction streams; the hazard head is unchanged.
 
-*Distributed long-table logit.* For $10^9$ firm-month rows the engineering cost is in the long-table build, not the fit. PySpark MLlib runs the same Shumway logit at scale.
+*Distributed long-table logit.* For $10^9$ firm-month rows the engineering cost is in the long-table build, not the fit. The same Bernoulli pooled discrete-time hazard fits in minutes on three production engines: PySpark MLlib, Vowpal Wabbit, and H2O. Each block below is a standalone, production-ready training run with vintage holdout, holdout AUC and log-loss, and a persisted artifact in the engine's native format. The persistence target is what the production scorer reloads: a Spark `PipelineModel` directory for `pyspark.ml`, a binary regressor plus a readable model dump for VW (the readable dump is the SR 11-7 documentation surface), a MOJO archive for H2O (loads in any JVM scorer through the H2O GenModel JAR with no running H2O cluster).
 
-The pragmatic stack on public-firm data is therefore: a Shumway logit (CHS covariates, Bharath naive DD, year-FE or filtered frailty) as champion, persisted via the `ShumwayHazard` artifact in @sec-ch09-shumway; an `xgboost` long-table classifier or `pycox` `CoxPH` as the SR 11-7 challenger; and the same long-table logit on `pyspark.ml` once the firm-month panel grows past memory.
+The pragmatic stack on public-firm data is therefore: a Shumway logit (CHS covariates, Bharath naive DD, year-FE or filtered frailty) as champion, persisted via the `ShumwayHazard` artifact in @sec-ch09-shumway; an `xgboost` long-table classifier or `pycox` `CoxPH` as the SR 11-7 challenger; and the same long-table logit on `pyspark.ml`, Vowpal Wabbit, or H2O once the firm-month panel grows past memory. All three engines fit the identical likelihood; the choice is operational (Spark for shared cluster infrastructure, VW for streaming out-of-core on a single box, H2O for the MOJO/POJO scoring path into a JVM service).
 
 ### From script to production: the `discrete_hazard` package 
 
@@ -7344,11 +7341,45 @@ The same artifact backs the FastAPI service. `POST /shumway/fit` runs the pipeli
 
 We finish with an end-to-end benchmark on UCI German credit. The dataset has no explicit time-to-event, but `duration` (months of the credit) combined with `default` produces a pseudo survival setup used widely in the consumer-credit literature [@stepanova2002survival; @dirick2017time; @banasik1999not]. The point of this section is not to win on a thousand-row file. The point is to run as much of the chapter's roster as the dataset can support, end-to-end on a public file, score each fit with discrimination, calibration, and integrated Brier metrics on a held-out test set, and produce the figures a model-risk reviewer expects.
 
-The expanded benchmark fits **seventeen** families spanning four groups. *Classical statistical*: (i) Cox PH linear, (ii) Cox PH with natural cubic splines, (iii) Cox PH stratified on `purpose`, (iv to vi) Weibull / log-logistic / log-normal AFT, (vii) hand-rolled exponential AFT. *Marketing duration models* (@sec-ch09-marketing): (viii) single-event Weibull mixture cure (@sec-ch09-cure), (ix) gamma-frailty Weibull with `purpose` as cluster key (@sec-ch09-frailty), (x) latent-class piecewise-exponential mixture (@sec-ch09-latent-class), (xi) shifted Beta-Geometric retention (@sec-ch09-sbg). *Discrete-time*: (xii) Shumway logit (@sec-ch09-shumway), (xiii) cloglog grouped-data hazard (the discrete analog of Cox PH). *Machine-learning challengers*: (xiv) Random Survival Forest [@ishwaran2008random], (xv) sksurv gradient-boosted survival with Cox loss [@chen2016xgboost], (xvi) XGBoost long-table classifier [@tian2015variable], and (xvii) DeepSurv [@katzman2018deepsurv] (graceful skip if `pycox` is not installed; the cell is reported as `n/a` in the table). The multi-event mixture cure is out of scope on UCI German because the file has no prepayment indicator (the synthetic Vietnam-Tet panel at @sec-ch09-vietnam-code closes that gap with a Fine-Gray and multi-event-cure end-to-end). The Shumway state-of-the-art layers that need market-equity, macro, or calendar covariates (CHS layer 1, Duffie stochastic-covariate layer 2, filtered frailty / Bharath naive distance-to-default layer 3) are exercised on the controlled stress benchmark in @sec-ch09-comparison and on the production panel in @sec-ch09-shumway-layers-code rather than here, since UCI German carries no equity or calendar series. State dependence and dynamic-promotion long-table extensions (@sec-ch09-state-dep) require a per-loan history that UCI German does not carry; they are scored on the synthetic Vietnam panel.
+The expanded benchmark fits **seventeen** families spanning four groups (@tbl-ch09-bench-roster).
+
+| #     | Group                       | Family                                       | Reference / notes                                                |
+|:------|:----------------------------|:---------------------------------------------|:-----------------------------------------------------------------|
+| i     | Classical statistical       | Cox PH linear                                |                                                                  |
+| ii    | Classical statistical       | Cox PH with natural cubic splines            |                                                                  |
+| iii   | Classical statistical       | Cox PH stratified on `purpose`               |                                                                  |
+| iv    | Classical statistical       | Weibull AFT                                  |                                                                  |
+| v     | Classical statistical       | Log-logistic AFT                             |                                                                  |
+| vi    | Classical statistical       | Log-normal AFT                               |                                                                  |
+| vii   | Classical statistical       | Hand-rolled exponential AFT                  |                                                                  |
+| viii  | Marketing duration models   | Single-event Weibull mixture cure            | @sec-ch09-cure                                                   |
+| ix    | Marketing duration models   | Gamma-frailty Weibull, `purpose` as cluster  | @sec-ch09-frailty                                                |
+| x     | Marketing duration models   | Latent-class piecewise-exponential mixture   | @sec-ch09-latent-class                                           |
+| xi    | Marketing duration models   | Shifted Beta-Geometric retention             | @sec-ch09-sbg                                                    |
+| xii   | Discrete-time               | Shumway logit                                | @sec-ch09-shumway                                                |
+| xiii  | Discrete-time               | Cloglog grouped-data hazard                  | Discrete analog of Cox PH                                        |
+| xiv   | Machine-learning challenger | Random Survival Forest                       | @ishwaran2008random                                              |
+| xv    | Machine-learning challenger | sksurv gradient-boosted survival, Cox loss   | @chen2016xgboost                                                 |
+| xvi   | Machine-learning challenger | XGBoost long-table classifier                | @tian2015variable                                                |
+| xvii  | Machine-learning challenger | DeepSurv                                     | @katzman2018deepsurv; graceful skip if `pycox` missing (`n/a`)   |
+
+: Seventeen-family benchmark roster fit on UCI German credit. 
+
+The multi-event mixture cure is out of scope on UCI German because the file has no prepayment indicator (the synthetic Vietnam-Tet panel at @sec-ch09-vietnam-code closes that gap with a Fine-Gray and multi-event-cure end-to-end). The Shumway state-of-the-art layers that need market-equity, macro, or calendar covariates (CHS layer 1, Duffie stochastic-covariate layer 2, filtered frailty / Bharath naive distance-to-default layer 3) are exercised on the controlled stress benchmark in @sec-ch09-comparison and on the production panel in @sec-ch09-shumway-layers-code rather than here, since UCI German carries no equity or calendar series. State dependence and dynamic-promotion long-table extensions (@sec-ch09-state-dep) require a per-loan history that UCI German does not carry; they are scored on the synthetic Vietnam panel.
 
 ### Setup: stratified split, encoding, structured arrays
 
 The split is a single-shot 70/30 stratified by the joint label (event, duration quartile) using `sklearn.model_selection.StratifiedShuffleSplit`. Stratifying on event alone preserves the bad rate; adding the duration quartile keeps both early and late exits in both halves so that the time-dependent AUC has support across all evaluated horizons. This is one stratified holdout, not stratified cross-validation; for a thousand-row file it is the right operating point. A repeated-stratified-K-fold variant follows trivially with the same `_strat` key.
+
+A clarification on what "time" means here, because the word does double duty in this chapter. The `_dq` stratifier uses quartiles of the *survival duration* $t$ (the response side of $(t, \delta)$), not calendar or origination time. Its job is variance reduction on the horizon-localized metrics: with $n = 1000$ and a 30 percent test fold, a purely random split can ship a test set whose maximum $t$ falls below the 24- or 36-month evaluation horizon, at which point cumulative-dynamic AUC is undefined for the upper horizons and integrated Brier integrates over a truncated window. Stratifying on `event × duration_quartile` keeps both early and late exits in both halves and removes that failure mode. It is *not* a temporal split: the same loan can land on either side of the cut regardless of when it was originated.
+
+On a production credit book this is not the split you would use. UCI German credit ships only `(duration_in_months, default)`, with no origination date, so a calendar-aware split is not constructible from the file: this chapter therefore demonstrates the stratified holdout on the data it has. On a real book the calendar axis is the dominant source of distribution shift (macro regime, scorecard policy generations, product mix, channel mix, underwriting cutoff drift), and a random split, even one stratified on $(\text{event}, t)$, leaks future-vintage information into the training fold and inflates every test-set metric relative to what production will see. The defensible alternatives, in order of strictness:
+
+-   *Out-of-time (OOT) holdout by vintage.* Order loans by origination month $v$, fit on $v \le v^*$, score on $v > v^*$. The split key is calendar-side, not response-side. Stratification on event runs *within* each vintage block, never across.
+-   *Walk-forward / expanding-window cross-validation.* Successive folds expand the training window by one calendar period and score on the next, mimicking how a quarterly refit pipeline actually operates. `sklearn.model_selection.TimeSeriesSplit` covers the simple case; a cohort-keyed splitter that respects loan-level grouping (no loan straddles fold boundaries) covers the case where a single loan contributes long-table rows across many calendar periods.
+-   *Calendar-cutoff censoring matters in the design.* Vintages near the extraction cutoff $\tau_{\text{end}}$ have a mechanically shorter maximum follow-up than older vintages, so the test fold from a recent vintage is right-censored more aggressively. Either truncate the evaluation horizon to the youngest vintage's maximum $t$, or carry delayed entry through the fit so the at-risk denominator stays correct (the vintage and truncation chapters at @sec-ch09-vintage and @sec-ch09-truncation-demo handle this in detail).
+
+Treat the `StratifiedShuffleSplit` block below as the textbook-dataset operating point. The Vietnam-panel and shock-cohort blocks later in the chapter use vintage-ordered splits where the calendar column is available; the production package at `book/code/survival_diagnostics/` enforces a vintage tag on every cohort it ingests precisely to make the OOT split reproducible.
 
 ### Models: seventeen fits, one common predict-survival contract
 
@@ -7403,7 +7434,7 @@ Two caveats on reading the chart. First, the leaf model is a *starting point*, n
 The columns are the assumption levers a survival model can pull. `Y` means the family handles the lever natively. `N` means it does not. `partial` means it can be coaxed into handling the lever by an extension (stratification, time interaction, frailty term, EM wrapper) that changes the implementation but keeps the family name. The last two columns are operational: `lifetime PD` is whether the family extrapolates $S(t \mid x)$ past the longest training time without a separate parametric scaffold, and `compute` is the fit-time order on a six-figure-row long table.
 
 | family | hazard shape | covariate effect | PH | TVC | competing risks | cure fraction | left truncation | lifetime PD | compute |
-|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
+|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
 | Kaplan-Meier | nonparametric | none (marginal) | n/a | N | N (use AJ) | N | Y (entry time) | N (flat past max obs) | low |
 | Cox PH (linear) | nonparametric baseline | log-linear | assumed Y | partial | partial (cause-specific) | N | Y | partial (Breslow + extrap) | medium |
 | Cox PH + strata | nonparametric, stratum-specific | log-linear within stratum | assumed within stratum | partial | partial | N | Y | partial | medium |
