@@ -1010,14 +1010,14 @@ window.Quarto = {
 <i class="callout-icon no-icon"></i>
 </div>
 <div class="callout-body-container">
-<p><strong>Scope: corporate.</strong> Altman MDA, Z’/Z’’, Ohlson, Shumway, and Campbell-Hilscher-Szilagyi on the UCI 572 Taiwanese Bankruptcy panel. Consumer applicability is discussed only in <a href="#sec-ch06-limitations" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-limitations</span></a>.</p>
+<p><strong>Scope: corporate.</strong> Altman MDA, Z’/Z’’, Ohlson, Shumway, and Campbell-Hilscher-Szilagyi on the UCI 572 Taiwanese Bankruptcy panel. Consumer applicability is discussed only in <a href="#sec-ch06-limitations" class="quarto-xref"><span>Section 6.5</span></a>.</p>
 </div>
 </div>
 </div>
 <section id="overview" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="overview">Overview</h2>
 <p>Linear discriminant analysis was the first statistical tool a bank analyst could hand to a credit committee with a coefficient table and a decision rule. It still is, in many corporate risk groups, because regulators, auditors, and working capital officers can read it. <span class="citation" data-cites="altman1968zscore">Altman (<a href="11-trees-rules.html#ref-altman1968zscore" role="doc-biblioref">1968</a>)</span> turned Fisher’s 1936 idea into a working bankruptcy filter by fitting a five-ratio discriminant function on a matched sample of 66 manufacturers. More than five decades later, the Z-score survives as a monitoring metric, a covenant trigger, and a classroom staple. The method is no longer state of the art for out-of-sample accuracy, but it is a lower bound on interpretability and a useful calibration against fancier models.</p>
-<p>This chapter rebuilds that machinery end to end. The formal part derives Fisher’s criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to quadratic discriminant analysis (<a href="#sec-ch06-qda" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-qda</span></a>) when covariances differ. The empirical part replays the Altman MDA on the <span class="citation" data-cites="liang2016financial">Liang et al. (<a href="11-trees-rules.html#ref-liang2016financial" role="doc-biblioref">2016</a>)</span> Taiwanese Bankruptcy Prediction panel (UCI 572: 6,819 firm-years, 220 bankruptcies), then steps through the Z’, Z’’, and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson’s logit, Shumway’s hazard model, and the Campbell-Hilscher-Szilagyi distance measure (<a href="#sec-ch06-chs" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-chs</span></a>), and documents where LDA still wins and where it loses badly.</p>
+<p>This chapter rebuilds that machinery end to end. The formal part derives Fisher’s criterion from the between-to-within variance ratio, proves its equivalence to the Bayes rule under Gaussian equal-covariance class-conditionals, and extends to quadratic discriminant analysis (<a href="#sec-ch06-qda" class="quarto-xref"><span>Section 6.1.5</span></a>) when covariances differ. The empirical part replays the Altman MDA on the <span class="citation" data-cites="liang2016financial">Liang et al. (<a href="11-trees-rules.html#ref-liang2016financial" role="doc-biblioref">2016</a>)</span> Taiwanese Bankruptcy Prediction panel (UCI 572: 6,819 firm-years, 220 bankruptcies), then steps through the Z’, Z’’, and ZETA extensions. The benchmark part puts LDA head to head with logistic regression, Ohlson’s logit, Shumway’s hazard model, and the Campbell-Hilscher-Szilagyi distance measure (<a href="#sec-ch06-chs" class="quarto-xref"><span>Section 6.4.7</span></a>), and documents where LDA still wins and where it loses badly.</p>
 <p>A pragmatic warning first. LDA on raw consumer-credit features, with their mixture of one-hot dummies and skewed amounts, is almost always dominated by a penalized logit or a gradient-boosted tree on the same design matrix. The reason is not that LDA is wrong in principle. It is that its generative Gaussian assumption is wrong in that particular setting. Where features really are close to jointly Gaussian, LDA remains statistically efficient <span class="citation" data-cites="efron1975efficiency">(<a href="11-trees-rules.html#ref-efron1975efficiency" role="doc-biblioref">Efron, 1975</a>)</span>. The chapter gives the conditions and shows them in code.</p>
 <p>An emerging-market framing sits underneath the whole chapter. In Vietnam and peer economies, corporate books are dominated by thin-file private SMEs whose audited financials arrive late, if at all. Household lending is pulled around by the Tet holiday liquidity cycle, informal-income cash flows, and macro volatility. An LDA or Z’‘-style model is often the only thing a credit committee in Ho Chi Minh City or Hanoi will approve for middle-market corporate scoring, because the coefficient table is auditable and the sample sizes do not support heavier machinery. The emerging-market section at the end of the chapter returns to this with the CIC bureau, SBV Circular 11/2021, and practical notes on fitting Z’’ to Vietnamese manufacturers.</p>
 <section id="notation" class="level3 unnumbered">
@@ -1029,8 +1029,8 @@ window.Quarto = {
 <h2 class="unnumbered anchored" data-anchor-id="motivation">Motivation</h2>
 <p>Banks run two kinds of default models at a minimum: one for corporates and large SMEs, scored on financial statements, and one for consumer accounts, scored on application plus bureau data. <span class="citation" data-cites="beaver1966financial">Beaver (<a href="11-trees-rules.html#ref-beaver1966financial" role="doc-biblioref">1966</a>)</span> showed that individual accounting ratios discriminate between bankrupt and healthy firms one to five years out, but he scored one ratio at a time. The weakness is obvious: ratios are correlated, the information is redundant, and a single-ratio cutoff throws away the multivariate signal.</p>
 <p><span class="citation" data-cites="altman1968zscore">Altman (<a href="11-trees-rules.html#ref-altman1968zscore" role="doc-biblioref">1968</a>)</span> fixed this with Fisher’s multiple discriminant analysis (MDA). He picked five ratios out of an initial list of 22, fit a linear discriminant on a paired sample of 33 bankrupt and 33 non-bankrupt manufacturers over 1946 to 1965, and published a scoring function that bank analysts could compute by hand. The published function, his decision zones, and his out-of-sample hit rate (95 percent on the original sample, about 80 percent at two-year horizons on holdout) made the Z-score the reference point every later bankruptcy model had to beat.</p>
-<p>Three things changed after 1980. <span class="citation" data-cites="ohlson1980financial">Ohlson (<a href="11-trees-rules.html#ref-ohlson1980financial" role="doc-biblioref">1980</a>)</span> showed that a logit on nine variables beat the Z-score on a bigger sample, because binary outcomes with mixed-type predictors fit the logit log-likelihood better than the Gaussian likelihood behind LDA. <span class="citation" data-cites="shumway2001forecasting">Shumway (<a href="11-trees-rules.html#ref-shumway2001forecasting" role="doc-biblioref">2001</a>)</span> reframed bankruptcy as a time-to-event process and built a multi-period hazard model, which avoids the selection bias baked into static matched samples. The derivation, pooled-logit equivalence, and its place in the lineage appear in <a href="#sec-ch06-empirical" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-empirical</span></a> of this chapter; the full implementation (long-table construction, time-varying covariates, term-structure recovery, and the current state of the art) is developed in <a href="#sec-ch09-shumway" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch09-shumway</span></a>, with the connection to distance-to-default covered in <a href="#sec-ch08-empirical" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08-empirical</span></a>. <span class="citation" data-cites="campbell2008search">Campbell et al. (<a href="11-trees-rules.html#ref-campbell2008search" role="doc-biblioref">2008</a>)</span> combined accounting and market-based inputs, including volatility and equity returns, and improved out-of-sample ranking further. The sequence from Altman through Campbell is a textbook instance of the same phenomenon, climbing a ladder of statistical sophistication, while the underlying economics stay close to “leverage, profitability, liquidity, size.”</p>
-<p>This chapter keeps the whole ladder in one place. <a href="#sec-ch06" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06</span></a> derives LDA from scratch. <a href="#sec-ch06-altman" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-altman</span></a> reconstructs Altman’s Z. Sections <a href="#sec-ch06-extensions" class="quarto-xref"><span class="quarto-unresolved-ref ref-noprefix">sec-ch06-extensions</span></a> and <a href="#sec-ch06-empirical" class="quarto-xref"><span class="quarto-unresolved-ref ref-noprefix">sec-ch06-empirical</span></a> step through its extensions and its empirical competitors. <a href="#sec-ch06-limitations" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-limitations</span></a> returns to the original question: when does the linear-Gaussian generative model win against the discriminative logit?</p>
+<p>Three things changed after 1980. <span class="citation" data-cites="ohlson1980financial">Ohlson (<a href="11-trees-rules.html#ref-ohlson1980financial" role="doc-biblioref">1980</a>)</span> showed that a logit on nine variables beat the Z-score on a bigger sample, because binary outcomes with mixed-type predictors fit the logit log-likelihood better than the Gaussian likelihood behind LDA. <span class="citation" data-cites="shumway2001forecasting">Shumway (<a href="11-trees-rules.html#ref-shumway2001forecasting" role="doc-biblioref">2001</a>)</span> reframed bankruptcy as a time-to-event process and built a multi-period hazard model, which avoids the selection bias baked into static matched samples. The derivation, pooled-logit equivalence, and its place in the lineage appear in <a href="#sec-ch06-empirical" class="quarto-xref"><span>Section 6.4</span></a> of this chapter; the full implementation (long-table construction, time-varying covariates, term-structure recovery, and the current state of the art) is developed in <a href="09-survival-analysis.html#sec-ch09-shumway" class="quarto-xref"><span>Section 9.8</span></a>, with the connection to distance-to-default covered in <a href="08-structural-models.html#sec-ch08-empirical" class="quarto-xref"><span>Section 8.8</span></a>. <span class="citation" data-cites="campbell2008search">Campbell et al. (<a href="11-trees-rules.html#ref-campbell2008search" role="doc-biblioref">2008</a>)</span> combined accounting and market-based inputs, including volatility and equity returns, and improved out-of-sample ranking further. The sequence from Altman through Campbell is a textbook instance of the same phenomenon, climbing a ladder of statistical sophistication, while the underlying economics stay close to “leverage, profitability, liquidity, size.”</p>
+<p>This chapter keeps the whole ladder in one place. <a href="#sec-ch06" class="quarto-xref"><span>Chapter 6</span></a> derives LDA from scratch. <a href="#sec-ch06-altman" class="quarto-xref"><span>Section 6.2</span></a> reconstructs Altman’s Z. Sections <a href="#sec-ch06-extensions" class="quarto-xref"><span>6.3</span></a> and <a href="#sec-ch06-empirical" class="quarto-xref"><span>6.4</span></a> step through its extensions and its empirical competitors. <a href="#sec-ch06-limitations" class="quarto-xref"><span>Section 6.5</span></a> returns to the original question: when does the linear-Gaussian generative model win against the discriminative logit?</p>
 </section>
 <section id="formal-setup" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="formal-setup">Formal setup</h2>
@@ -1073,7 +1073,7 @@ J(w) = \frac{u^\top (L^{-1} S_B L^{-\top}) u}{u^\top u}.
 <section id="equivalence-with-the-decorrelated-signal-to-noise-direction" class="level3" data-number="6.1.2">
 <h3 data-number="6.1.2" class="anchored" data-anchor-id="equivalence-with-the-decorrelated-signal-to-noise-direction"><span class="header-section-number">6.1.2</span> Equivalence with the decorrelated signal-to-noise direction</h3>
 <p>Start from a different angle. Suppose <span class="math inline">\(X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma)\)</span>. Let <span class="math inline">\(Z = \Sigma^{-1/2}(X - \bar\mu)\)</span> where <span class="math inline">\(\bar\mu = (\mu_0 + \mu_1)/2\)</span>. Under the change of variables, <span class="math inline">\(Z \mid Y = k \sim \mathcal{N}\bigl(\tfrac{1}{2}(-1)^{1-k} \Sigma^{-1/2}(\mu_1-\mu_0), I\bigr)\)</span>. The two class distributions are now unit-covariance Gaussians symmetric about the origin, separated along the direction <span class="math inline">\(d = \Sigma^{-1/2}(\mu_1 - \mu_0)\)</span>. The Bayes rule reduces to thresholding the projection <span class="math inline">\(d^\top Z\)</span>, and in the original coordinate system that projection is <span class="math inline">\((\Sigma^{-1/2})^\top d \cdot (X - \bar\mu) = \Sigma^{-1}(\mu_1-\mu_0) \cdot (X - \bar\mu)\)</span>. Same answer, different derivation, same coefficient <span class="math inline">\(\beta = \Sigma^{-1}(\mu_1 - \mu_0)\)</span>.</p>
-<p>The Mahalanobis distance <a href="#eq-mahalanobis" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-mahalanobis</span></a> controls the discriminability. When <span class="math inline">\(\Delta\)</span> is small, no linear rule separates well; any competing non-linear rule that does better must be exploiting non-Gaussian, not geometry. When <span class="math inline">\(\Delta\)</span> is large, almost any sensible rule works, and the optimization details stop mattering. <span class="citation" data-cites="anderson1951classification">Anderson (<a href="11-trees-rules.html#ref-anderson1951classification" role="doc-biblioref">1951</a>)</span> formalized this and gave the asymptotic error rate for Fisher’s rule as <span class="math inline">\(\Phi(-\Delta/2)\)</span> when the priors are equal, which is the quantity most later empirical papers use as a benchmark.</p>
+<p>The Mahalanobis distance <a href="#eq-mahalanobis" class="quarto-xref">Eq.&nbsp;<span>6.4</span></a> controls the discriminability. When <span class="math inline">\(\Delta\)</span> is small, no linear rule separates well; any competing non-linear rule that does better must be exploiting non-Gaussian, not geometry. When <span class="math inline">\(\Delta\)</span> is large, almost any sensible rule works, and the optimization details stop mattering. <span class="citation" data-cites="anderson1951classification">Anderson (<a href="11-trees-rules.html#ref-anderson1951classification" role="doc-biblioref">1951</a>)</span> formalized this and gave the asymptotic error rate for Fisher’s rule as <span class="math inline">\(\Phi(-\Delta/2)\)</span> when the priors are equal, which is the quantity most later empirical papers use as a benchmark.</p>
 </section>
 <section id="sample-size-corrections-and-plug-in-bias" class="level3" data-number="6.1.3">
 <h3 data-number="6.1.3" class="anchored" data-anchor-id="sample-size-corrections-and-plug-in-bias"><span class="header-section-number">6.1.3</span> Sample-size corrections and plug-in bias</h3>
@@ -1083,7 +1083,7 @@ J(w) = \frac{u^\top (L^{-1} S_B L^{-\top}) u}{u^\top u}.
 + \sum_{i: y_i=1} (x_i - \hat\mu_1)(x_i - \hat\mu_1)^\top\right].
 \tag{6.6}\]</span></span></p>
 <p>Plugging <span class="math inline">\(\hat\Sigma\)</span> and <span class="math inline">\(\hat\mu_k\)</span> into the Bayes rule produces a linear classifier whose error exceeds the Bayes error by an <span class="math inline">\(O(p/n)\)</span> term <span class="citation" data-cites="anderson1951classification">(<a href="11-trees-rules.html#ref-anderson1951classification" role="doc-biblioref">Anderson, 1951</a>)</span>. <span class="citation" data-cites="bickel2004some">Bickel &amp; Levina (<a href="11-trees-rules.html#ref-bickel2004some" role="doc-biblioref">2004</a>)</span> show that as <span class="math inline">\(p/n \to \gamma &gt; 0\)</span>, the classifier loses all discriminative power unless <span class="math inline">\(\Sigma\)</span> has structure (sparsity, block-diagonality, a factor model). In the <span class="math inline">\(p \ll n\)</span> regime relevant to Altman’s 5-variable model on 66 firms, the plug-in correction is small. In the consumer-credit regime with 50 to 200 dummies on a few thousand applicants, it is not.</p>
-<p>A partial fix is regularized discriminant analysis <span class="citation" data-cites="friedman1989regularized">(<a href="11-trees-rules.html#ref-friedman1989regularized" role="doc-biblioref">Friedman, 1989</a>)</span>, which shrinks <span class="math inline">\(\hat\Sigma_k\)</span> toward a pooled covariance and a diagonal target to trade bias against variance. The full derivation, the hyperparameter grid, and a runnable comparison against LDA and QDA appear in <a href="#sec-ch06-rda" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-rda</span></a>.</p>
+<p>A partial fix is regularized discriminant analysis <span class="citation" data-cites="friedman1989regularized">(<a href="11-trees-rules.html#ref-friedman1989regularized" role="doc-biblioref">Friedman, 1989</a>)</span>, which shrinks <span class="math inline">\(\hat\Sigma_k\)</span> toward a pooled covariance and a diagonal target to trade bias against variance. The full derivation, the hyperparameter grid, and a runnable comparison against LDA and QDA appear in <a href="#sec-ch06-rda" class="quarto-xref"><span>Section 6.1.6</span></a>.</p>
 </section>
 <section id="bayes-decision-under-gaussian-equal-covariance" class="level3" data-number="6.1.4">
 <h3 data-number="6.1.4" class="anchored" data-anchor-id="bayes-decision-under-gaussian-equal-covariance"><span class="header-section-number">6.1.4</span> Bayes decision under Gaussian equal-covariance</h3>
@@ -1107,7 +1107,7 @@ X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma), \qquad k = 0, 1.
 &amp; - \tfrac12(\mu_1+\mu_0)^\top \Sigma^{-1}(\mu_1-\mu_0) + \log\frac{\pi_1}{\pi_0}.
 \end{aligned}
 \tag{6.9}\]</span></span></p>
-<p>The Bayes-optimal classifier thresholds this linear function of <span class="math inline">\(X\)</span>. The coefficient vector <span class="math inline">\(\Sigma^{-1}(\mu_1 - \mu_0)\)</span> is exactly the Fisher direction <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-fisher-gep</span></a> up to scaling, so the two derivations coincide. The intercept differs only by the prior adjustment <span class="math inline">\(\log(\pi_1/\pi_0)\)</span> and the midpoint term, which Fisher’s variance-ratio criterion does not fix because it is scale and location invariant.</p>
+<p>The Bayes-optimal classifier thresholds this linear function of <span class="math inline">\(X\)</span>. The coefficient vector <span class="math inline">\(\Sigma^{-1}(\mu_1 - \mu_0)\)</span> is exactly the Fisher direction <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span>6.3</span></a> up to scaling, so the two derivations coincide. The intercept differs only by the prior adjustment <span class="math inline">\(\log(\pi_1/\pi_0)\)</span> and the midpoint term, which Fisher’s variance-ratio criterion does not fix because it is scale and location invariant.</p>
 <p>Three consequences matter in practice. First, LDA is linear in <span class="math inline">\(X\)</span>, so the decision boundary is a hyperplane. Second, its coefficients are interpretable in the same way OLS coefficients are, because they come from inverting a single covariance matrix. Third, the estimated probability</p>
 <p><span id="eq-lda-sigmoid"><span class="math display">\[
 \Pr(Y=1 \mid X) = \sigma\!\left(X^\top \beta + \beta_0\right), \qquad \beta = \Sigma^{-1}(\mu_1 - \mu_0),
@@ -1121,11 +1121,11 @@ X \mid Y = k \sim \mathcal{N}(\mu_k, \Sigma), \qquad k = 0, 1.
 \log\frac{\Pr(Y=1\mid X)}{\Pr(Y=0\mid X)} = -\tfrac12 X^\top(\Sigma_1^{-1} - \Sigma_0^{-1}) X + X^\top(\Sigma_1^{-1}\mu_1 - \Sigma_0^{-1}\mu_0) + C,
 \tag{6.11}\]</span></span></p>
 <p>where <span class="math inline">\(C\)</span> collects the scalar intercept with <span class="math inline">\(\log(\pi_1/\pi_0)\)</span>, <span class="math inline">\(\log|\Sigma_k|\)</span> terms, and quadratic terms in the class means. The decision surface is now a quadric, not a hyperplane. QDA has <span class="math inline">\(p(p+1)\)</span> parameters in the covariance blocks versus <span class="math inline">\(p(p+1)/2\)</span> for LDA, so it overfits quickly when <span class="math inline">\(p\)</span> grows relative to <span class="math inline">\(n\)</span> <span class="citation" data-cites="friedman1989regularized">(<a href="11-trees-rules.html#ref-friedman1989regularized" role="doc-biblioref">Friedman, 1989</a>)</span>.</p>
-<p>For credit work, QDA is the natural upgrade when defaulters show a different covariance structure from survivors. That is common in practice: distressed firms have fatter tails and more correlated deterioration across ratios. Whether QDA actually beats LDA depends on whether you have enough defaulters to estimate <span class="math inline">\(\Sigma_1\)</span> well. When the defaulter sample is too thin to support separate covariances but LDA’s equal-covariance constraint is visibly wrong, the regularized path in <a href="#sec-ch06-rda" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-rda</span></a> is the practical middle ground.</p>
+<p>For credit work, QDA is the natural upgrade when defaulters show a different covariance structure from survivors. That is common in practice: distressed firms have fatter tails and more correlated deterioration across ratios. Whether QDA actually beats LDA depends on whether you have enough defaulters to estimate <span class="math inline">\(\Sigma_1\)</span> well. When the defaulter sample is too thin to support separate covariances but LDA’s equal-covariance constraint is visibly wrong, the regularized path in <a href="#sec-ch06-rda" class="quarto-xref"><span>Section 6.1.6</span></a> is the practical middle ground.</p>
 </section>
 <section id="sec-ch06-rda" class="level3" data-number="6.1.6">
 <h3 data-number="6.1.6" class="anchored" data-anchor-id="sec-ch06-rda"><span class="header-section-number">6.1.6</span> Regularized discriminant analysis</h3>
-<p><span class="citation" data-cites="friedman1989regularized">Friedman (<a href="11-trees-rules.html#ref-friedman1989regularized" role="doc-biblioref">1989</a>)</span> proposed a two-parameter shrinkage that interpolates between LDA (<a href="#sec-ch06-discriminant" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-discriminant</span></a>) and QDA (<a href="#sec-ch06-qda" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-qda</span></a>) and then shrinks each covariance toward its diagonal:</p>
+<p><span class="citation" data-cites="friedman1989regularized">Friedman (<a href="11-trees-rules.html#ref-friedman1989regularized" role="doc-biblioref">1989</a>)</span> proposed a two-parameter shrinkage that interpolates between LDA (<a href="#sec-ch06-discriminant" class="quarto-xref"><span>Section 6.1</span></a>) and QDA (<a href="#sec-ch06-qda" class="quarto-xref"><span>Section 6.1.5</span></a>) and then shrinks each covariance toward its diagonal:</p>
 <p><span id="eq-rda-shrink"><span class="math display">\[
 \hat\Sigma_k(\alpha, \gamma) = (1 - \gamma)\left[(1 - \alpha)\hat\Sigma_k + \alpha \hat\Sigma_{\text{pool}}\right]
 + \gamma \operatorname{diag}\!\left(\hat\Sigma_k\right).
@@ -1248,11 +1248,11 @@ RDA  log-loss: 0.228 at (alpha, gamma) = (0.50, 0.00)</code></pre>
 </div>
 </div>
 <p>RDA finds an interior <span class="math inline">\((\alpha, \gamma)\)</span> that beats both corners. On a Gaussian-equal-covariance sample, the optimum would collapse to the LDA corner; on a sample with distinct covariances and a small minority class the optimum is typically in the interior. For credit work, this matters most in two settings: corporate distress scoring with a dozen or two defaulters per year, and consumer-credit segments like fraud-adjacent cohorts where the rarer class is both thin and heteroskedastic. Either way the cost is one cross-validation grid over a <span class="math inline">\(11 \times 11\)</span> rectangle, which is negligible next to the downstream calibration and monitoring pipeline.</p>
-<p>A caveat: RDA inherits LDA’s generative Gaussian assumption. It handles covariance misspecification but not the failure modes documented in <a href="#sec-ch06-limitations" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-limitations</span></a> (heavy categoricals, skewed amounts, rare-event bias). On a mixed-type consumer design matrix, a well-tuned regularized logit remains the better default; RDA is the right tool when the predictors are continuous financial ratios and the sample is too thin for unconstrained QDA.</p>
+<p>A caveat: RDA inherits LDA’s generative Gaussian assumption. It handles covariance misspecification but not the failure modes documented in <a href="#sec-ch06-limitations" class="quarto-xref"><span>Section 6.5</span></a> (heavy categoricals, skewed amounts, rare-event bias). On a mixed-type consumer design matrix, a well-tuned regularized logit remains the better default; RDA is the right tool when the predictors are continuous financial ratios and the sample is too thin for unconstrained QDA.</p>
 </section>
 <section id="from-scratch-fisher-lda" class="level3" data-number="6.1.7">
 <h3 data-number="6.1.7" class="anchored" data-anchor-id="from-scratch-fisher-lda"><span class="header-section-number">6.1.7</span> From-scratch Fisher LDA</h3>
-<p>The following block implements LDA from the generalized eigenvalue system <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-fisher-gep</span></a> and compares it to <code>sklearn</code>. It also verifies the closed-form equivalence <span class="math inline">\(w \propto S_W^{-1}(\mu_1 - \mu_0)\)</span>.</p>
+<p>The following block implements LDA from the generalized eigenvalue system <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span>6.3</span></a> and compares it to <code>sklearn</code>. It also verifies the closed-form equivalence <span class="math inline">\(w \propto S_W^{-1}(\mu_1 - \mu_0)\)</span>.</p>
 <div id="832b0858" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1346,7 +1346,7 @@ sklearn accuracy     : 0.8975</code></pre>
 </section>
 <section id="decision-boundary-plot" class="level3" data-number="6.1.8">
 <h3 data-number="6.1.8" class="anchored" data-anchor-id="decision-boundary-plot"><span class="header-section-number">6.1.8</span> Decision boundary plot</h3>
-<p>The LDA boundary is the set where <a href="#eq-lda-logit" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-lda-logit</span></a> equals zero. For the shared-covariance case it is a straight line. QDA (<a href="#sec-ch06-qda" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-qda</span></a>) adds the quadratic terms in <a href="#eq-qda-logit" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-qda-logit</span></a>, producing a conic boundary.</p>
+<p>The LDA boundary is the set where <a href="#eq-lda-logit" class="quarto-xref">Eq.&nbsp;<span>6.9</span></a> equals zero. For the shared-covariance case it is a straight line. QDA (<a href="#sec-ch06-qda" class="quarto-xref"><span>Section 6.1.5</span></a>) adds the quadratic terms in <a href="#eq-qda-logit" class="quarto-xref">Eq.&nbsp;<span>6.11</span></a>, producing a conic boundary.</p>
 <div id="307c9074" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1444,7 +1444,7 @@ QDA accuracy: 0.904</code></pre>
 <p><span id="eq-mda-trace"><span class="math display">\[
 J(W) = \operatorname{tr}\!\left[(W^\top S_W W)^{-1} (W^\top S_B W)\right], \qquad W \in \mathbb{R}^{p \times (K-1)},
 \tag{6.13}\]</span></span></p>
-<p>with <span class="math inline">\(S_B = \sum_{k=1}^K n_k (\hat\mu_k - \hat\mu)(\hat\mu_k - \hat\mu)^\top\)</span> the between-class scatter, <span class="math inline">\(S_W = \sum_{k=1}^K \sum_{i: y_i = k}(x_i - \hat\mu_k)(x_i - \hat\mu_k)^\top\)</span> the within-class scatter, and <span class="math inline">\(\hat\mu\)</span> the overall sample mean. The optimal <span class="math inline">\(W^\star\)</span> collects the top <span class="math inline">\(K - 1\)</span> generalized eigenvectors of <span class="math inline">\(S_B w = \lambda S_W w\)</span>. For <span class="math inline">\(K = 2\)</span> this reduces to <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-fisher-gep</span></a>, with <span class="math inline">\(W^\star\)</span> a single vector.</p>
+<p>with <span class="math inline">\(S_B = \sum_{k=1}^K n_k (\hat\mu_k - \hat\mu)(\hat\mu_k - \hat\mu)^\top\)</span> the between-class scatter, <span class="math inline">\(S_W = \sum_{k=1}^K \sum_{i: y_i = k}(x_i - \hat\mu_k)(x_i - \hat\mu_k)^\top\)</span> the within-class scatter, and <span class="math inline">\(\hat\mu\)</span> the overall sample mean. The optimal <span class="math inline">\(W^\star\)</span> collects the top <span class="math inline">\(K - 1\)</span> generalized eigenvectors of <span class="math inline">\(S_B w = \lambda S_W w\)</span>. For <span class="math inline">\(K = 2\)</span> this reduces to <a href="#eq-fisher-gep" class="quarto-xref">Eq.&nbsp;<span>6.3</span></a>, with <span class="math inline">\(W^\star\)</span> a single vector.</p>
 <p>Under Gaussian class-conditionals with shared covariance <span class="math inline">\(\Sigma\)</span>, the multi-class Bayes classifier assigns <span class="math inline">\(x\)</span> to the class <span class="math inline">\(k^\star\)</span> that maximizes the linear discriminant function</p>
 <p><span id="eq-lda-multiclass"><span class="math display">\[
 \delta_k(x) = x^\top \Sigma^{-1} \mu_k - \tfrac{1}{2}\mu_k^\top \Sigma^{-1} \mu_k + \log \pi_k.
@@ -1506,7 +1506,7 @@ Z = 1.2 X_1 + 1.4 X_2 + 3.3 X_3 + 0.6 X_4 + 1.0 X_5,
 </tr>
 </tbody>
 </table>
-<p>The original paper expresses <span class="math inline">\(X_1\)</span> through <span class="math inline">\(X_4\)</span> as percentages (so the 1.2 coefficient multiplies a raw decimal of 0.10 as 1.2 multiplied by 10 percent). Altman’s later monographs reformulated the equation so that the ratios are entered as decimals and the coefficients become 0.012, 0.014, 0.033, 0.006, 0.999, which is algebraically the same model. The version in <a href="#eq-altman-z" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-altman-z</span></a> uses the percentage convention, which is how it appears in most textbooks.</p>
+<p>The original paper expresses <span class="math inline">\(X_1\)</span> through <span class="math inline">\(X_4\)</span> as percentages (so the 1.2 coefficient multiplies a raw decimal of 0.10 as 1.2 multiplied by 10 percent). Altman’s later monographs reformulated the equation so that the ratios are entered as decimals and the coefficients become 0.012, 0.014, 0.033, 0.006, 0.999, which is algebraically the same model. The version in <a href="08-structural-models.html#eq-altman-z" class="quarto-xref">Eq.&nbsp;<span>8.27</span></a> uses the percentage convention, which is how it appears in most textbooks.</p>
 </section>
 <section id="why-five-ratios-and-not-more" class="level3" data-number="6.2.2">
 <h3 data-number="6.2.2" class="anchored" data-anchor-id="why-five-ratios-and-not-more"><span class="header-section-number">6.2.2</span> Why five ratios and not more</h3>
@@ -1972,7 +1972,7 @@ h(t \mid X_{it}) = \Pr(Y_{it} = 1 \mid Y_{i,t-1} = 0, X_{it}) = \sigma(X_{it}^\t
 </section>
 <section id="the-structural-distance-to-default" class="level3" data-number="6.4.5">
 <h3 data-number="6.4.5" class="anchored" data-anchor-id="the-structural-distance-to-default"><span class="header-section-number">6.4.5</span> The structural distance-to-default</h3>
-<p>Before reaching CHS (<a href="#sec-ch06-chs" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-chs</span></a>), it is worth pausing on the market-based alternative Altman could not use in 1968. <span class="citation" data-cites="merton1974pricing">Merton (<a href="11-trees-rules.html#ref-merton1974pricing" role="doc-biblioref">1974</a>)</span> models equity as a call option on the firm’s assets. Under the Black-Scholes framework <span class="citation" data-cites="black1973pricing">(<a href="11-trees-rules.html#ref-black1973pricing" role="doc-biblioref">Black &amp; Scholes, 1973</a>)</span>, equity value <span class="math inline">\(E\)</span> and asset value <span class="math inline">\(V\)</span> are linked by</p>
+<p>Before reaching CHS (<a href="#sec-ch06-chs" class="quarto-xref"><span>Section 6.4.7</span></a>), it is worth pausing on the market-based alternative Altman could not use in 1968. <span class="citation" data-cites="merton1974pricing">Merton (<a href="11-trees-rules.html#ref-merton1974pricing" role="doc-biblioref">1974</a>)</span> models equity as a call option on the firm’s assets. Under the Black-Scholes framework <span class="citation" data-cites="black1973pricing">(<a href="11-trees-rules.html#ref-black1973pricing" role="doc-biblioref">Black &amp; Scholes, 1973</a>)</span>, equity value <span class="math inline">\(E\)</span> and asset value <span class="math inline">\(V\)</span> are linked by</p>
 <p><span id="eq-merton-equity"><span class="math display">\[
 E = V \Phi(d_1) - D e^{-rT} \Phi(d_2), \qquad d_{1,2} = \frac{\log(V/D) + (r \pm \tfrac{1}{2}\sigma_V^2) T}{\sigma_V \sqrt{T}},
 \tag{6.20}\]</span></span></p>
@@ -1980,7 +1980,7 @@ E = V \Phi(d_1) - D e^{-rT} \Phi(d_2), \qquad d_{1,2} = \frac{\log(V/D) + (r \pm
 <p><span id="eq-dd"><span class="math display">\[
 \mathrm{DD} = \frac{\log(V/D) + (\mu_V - \tfrac{1}{2}\sigma_V^2) T}{\sigma_V \sqrt{T}},
 \tag{6.21}\]</span></span></p>
-<p>with associated default probability <span class="math inline">\(\Phi(-\mathrm{DD})\)</span> under the physical measure. KMV’s commercial implementation (<a href="#sec-ch08-kmv" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08-kmv</span></a>) solves the two-equation system (<a href="#eq-merton-equity" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-merton-equity</span></a> plus a volatility identity) for <span class="math inline">\((V, \sigma_V)\)</span> from observed <span class="math inline">\((E, \sigma_E, D)\)</span>. <span class="citation" data-cites="bharath2008forecasting">Bharath &amp; Shumway (<a href="11-trees-rules.html#ref-bharath2008forecasting" role="doc-biblioref">2008</a>)</span> show that a simplified DD computed from naive plug-ins retains most of the information of the full KMV calculation, which is important because it means the DD is cheap to compute in research data. <span class="citation" data-cites="hillegeist2004assessing">Hillegeist et al. (<a href="11-trees-rules.html#ref-hillegeist2004assessing" role="doc-biblioref">2004</a>)</span> compared accounting models (Altman and Ohlson) against a KMV-style DD and found DD dominated on large listed samples; <span class="citation" data-cites="agarwal2008comparing">Agarwal &amp; Taffler (<a href="11-trees-rules.html#ref-agarwal2008comparing" role="doc-biblioref">2008</a>)</span> found the two classes of models had roughly equal power on an international panel. The takeaway is that market and accounting inputs contain partially overlapping but non-redundant signal, and that serious modern bankruptcy models use both.</p>
+<p>with associated default probability <span class="math inline">\(\Phi(-\mathrm{DD})\)</span> under the physical measure. KMV’s commercial implementation (<a href="08-structural-models.html#sec-ch08-kmv" class="quarto-xref"><span>Section 8.5</span></a>) solves the two-equation system (<a href="08-structural-models.html#eq-merton-equity" class="quarto-xref">Eq.&nbsp;<span>8.20</span></a> plus a volatility identity) for <span class="math inline">\((V, \sigma_V)\)</span> from observed <span class="math inline">\((E, \sigma_E, D)\)</span>. <span class="citation" data-cites="bharath2008forecasting">Bharath &amp; Shumway (<a href="11-trees-rules.html#ref-bharath2008forecasting" role="doc-biblioref">2008</a>)</span> show that a simplified DD computed from naive plug-ins retains most of the information of the full KMV calculation, which is important because it means the DD is cheap to compute in research data. <span class="citation" data-cites="hillegeist2004assessing">Hillegeist et al. (<a href="11-trees-rules.html#ref-hillegeist2004assessing" role="doc-biblioref">2004</a>)</span> compared accounting models (Altman and Ohlson) against a KMV-style DD and found DD dominated on large listed samples; <span class="citation" data-cites="agarwal2008comparing">Agarwal &amp; Taffler (<a href="11-trees-rules.html#ref-agarwal2008comparing" role="doc-biblioref">2008</a>)</span> found the two classes of models had roughly equal power on an international panel. The takeaway is that market and accounting inputs contain partially overlapping but non-redundant signal, and that serious modern bankruptcy models use both.</p>
 </section>
 <section id="pooled-logit-as-the-practical-benchmark" class="level3" data-number="6.4.6">
 <h3 data-number="6.4.6" class="anchored" data-anchor-id="pooled-logit-as-the-practical-benchmark"><span class="header-section-number">6.4.6</span> Pooled logit as the practical benchmark</h3>
@@ -1988,7 +1988,7 @@ E = V \Phi(d_1) - D e^{-rT} \Phi(d_2), \qquad d_{1,2} = \frac{\log(V/D) + (r \pm
 <p><span id="eq-shumway-likelihood"><span class="math display">\[
 \mathcal{L}(\beta, \alpha) = \prod_{i=1}^N \prod_{t=1}^{T_i} h(t \mid X_{it})^{y_{it}} \bigl(1 - h(t \mid X_{it})\bigr)^{1 - y_{it}},
 \tag{6.22}\]</span></span></p>
-<p>where <span class="math inline">\(h(\cdot)\)</span> is <a href="#eq-shumway-hazard" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-shumway-hazard</span></a>, <span class="math inline">\(T_i\)</span> is the last observation year before default or censoring, and <span class="math inline">\(y_{it} = 1\)</span> only in the single default year. The log-likelihood is a standard logit log-likelihood with firm-year rows, which is how it is estimated in practice.</p>
+<p>where <span class="math inline">\(h(\cdot)\)</span> is <a href="#eq-shumway-hazard" class="quarto-xref">Eq.&nbsp;<span>6.19</span></a>, <span class="math inline">\(T_i\)</span> is the last observation year before default or censoring, and <span class="math inline">\(y_{it} = 1\)</span> only in the single default year. The log-likelihood is a standard logit log-likelihood with firm-year rows, which is how it is estimated in practice.</p>
 <p>The practical lesson is that the gap between Altman’s MDA and a modern bankruptcy model is not a gap between linear and non-linear models. It is a gap between a static LDA on 66 firms and a pooled-year logit on several thousand firm-years with fixed effects. The linear form is the same. The estimation framework and the data structure are what changed.</p>
 </section>
 <section id="sec-ch06-chs" class="level3" data-number="6.4.7">
@@ -2071,7 +2071,7 @@ E = V \Phi(d_1) - D e^{-rT} \Phi(d_2), \qquad d_{1,2} = \frac{\log(V/D) + (r \pm
 </tr>
 </tbody>
 </table>
-<p>Leverage (TLMTA), volatility (SIGMA), and overvaluation (MB) push default risk up. Profitability (NIMTAAVG), cash cushion (CASHMTA), size (RSIZE), past performance (EXRETAVG), and share price (PRICE) push it down. The economic content overlaps heavily with Altman’s five-ratio list and with Merton’s distance-to-default (<a href="#sec-ch08-kmv" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08-kmv</span></a>), but the hazard-logit scaffolding lets all three traditions contribute simultaneously.</p>
+<p>Leverage (TLMTA), volatility (SIGMA), and overvaluation (MB) push default risk up. Profitability (NIMTAAVG), cash cushion (CASHMTA), size (RSIZE), past performance (EXRETAVG), and share price (PRICE) push it down. The economic content overlaps heavily with Altman’s five-ratio list and with Merton’s distance-to-default (<a href="08-structural-models.html#sec-ch08-kmv" class="quarto-xref"><span>Section 8.5</span></a>), but the hazard-logit scaffolding lets all three traditions contribute simultaneously.</p>
 <p><strong>Replication status.</strong> CHS did not ship a formal replication package, but every variable is defined in their Appendix A and the main coefficients are in Table IV. A usable implementation path is: pull the CRSP-Compustat merged database from WRDS (firm-months, 1963 onward), compute <span class="math inline">\((\mathrm{NIMTA}, \mathrm{TLMTA}, \mathrm{CASHMTA}, \mathrm{MB})\)</span> from quarterly Compustat aligned to month-end, compute <span class="math inline">\((\mathrm{EXRET}, \mathrm{SIGMA}, \mathrm{RSIZE}, \mathrm{PRICE})\)</span> from CRSP monthly and daily files, build the geometric moving averages, define defaults as Chapter 7/11 filings plus performance-related delistings (CRSP delisting codes 400, 550 to 585) and D-rating flags, and fit a discrete-time logit on the long panel. <span class="citation" data-cites="bharath2008forecasting">Bharath &amp; Shumway (<a href="11-trees-rules.html#ref-bharath2008forecasting" role="doc-biblioref">2008</a>)</span> and <span class="citation" data-cites="chava2004bankruptcy">Chava &amp; Jarrow (<a href="11-trees-rules.html#ref-chava2004bankruptcy" role="doc-biblioref">2004</a>)</span> report coefficients within 20 to 30 percent of CHS on overlapping samples. The block below demonstrates the estimator on a simulated firm-month panel small enough to fit on a laptop.</p>
 <details class="code-fold">
 <summary>Show code</summary>
@@ -2198,13 +2198,13 @@ Figure&nbsp;6.4
 <li>The original Altman coefficients are stale after 10 to 15 years. Refitting coefficients on fresh data recovers most of the accuracy.</li>
 <li>Logit beats LDA out of sample in most documented replications, usually by 2 to 5 percentage points of AUC at one-year horizons.</li>
 <li>Market-based inputs (volatility, returns) beat accounting-only models on listed firms by a further 3 to 8 percentage points of AUC.</li>
-<li>No single model dominates across time and geography, which is why modern practice builds ensembles (<a href="#sec-ch12-ensembles" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch12-ensembles</span></a>) and runs large-scale horse races across classifier families (<a href="#sec-ch16-bench" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch16-bench</span></a>).</li>
+<li>No single model dominates across time and geography, which is why modern practice builds ensembles (<a href="12-ensembles.html#sec-ch12-ensembles" class="quarto-xref"><span>Section 12.1</span></a>) and runs large-scale horse races across classifier families (<a href="16-benchmarking.html#sec-ch16-bench" class="quarto-xref"><span>Section 16.1</span></a>).</li>
 </ul>
 </section>
 <section id="decomposing-the-sequence-of-improvements" class="level3" data-number="6.4.9">
 <h3 data-number="6.4.9" class="anchored" data-anchor-id="decomposing-the-sequence-of-improvements"><span class="header-section-number">6.4.9</span> Decomposing the sequence of improvements</h3>
 <p>It is useful to step back and ask how much each methodological jump contributed to measurable accuracy. <span class="citation" data-cites="chava2004bankruptcy">Chava &amp; Jarrow (<a href="11-trees-rules.html#ref-chava2004bankruptcy" role="doc-biblioref">2004</a>)</span> ran all four ancestors side by side on a US panel from 1962 to 1999: Altman Z, Ohlson O, Shumway hazard, and a KMV-style DD. Their one-year out-of-sample accuracy ratios (a Gini-like ranking statistic) run roughly 0.65 for Altman, 0.75 for Ohlson, 0.83 for Shumway, 0.86 for a joint accounting-plus-market hazard model. The Altman-to-Ohlson jump is worth 10 points and is almost entirely about the likelihood being matched to the binary response and the sample being bigger and unmatched. The Ohlson-to-Shumway jump is worth 8 points and comes from using panel data instead of a point-in-time cross-section. The last 3 points come from market inputs. None of the jumps change the qualitative story (leverage, profitability, and liquidity drive default) but each added roughly one basis point of information.</p>
-<p>For a modern bankruptcy model on a public-firm panel, the minimum defensible approach is therefore a hazard logit on a combination of Altman-style accounting ratios, a Merton-style DD, and size and return controls. That is Shumway’s original specification plus one variable, and it reproduces most of Campbell-Hilscher-Szilagyi’s gain (<a href="#sec-ch06-chs" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch06-chs</span></a>) at a much smaller implementation cost. The contribution of deep learning on the same inputs, documented in <span class="citation" data-cites="tian2015variable">Tian et al. (<a href="11-trees-rules.html#ref-tian2015variable" role="doc-biblioref">2015</a>)</span> and later work, is modest: an improvement of 1 to 3 accuracy points at large sample sizes, usually at the cost of interpretability. For covenant triggers, regulatory reporting, and cross-industry comparability, the linear hazard model remains the sensible default.</p>
+<p>For a modern bankruptcy model on a public-firm panel, the minimum defensible approach is therefore a hazard logit on a combination of Altman-style accounting ratios, a Merton-style DD, and size and return controls. That is Shumway’s original specification plus one variable, and it reproduces most of Campbell-Hilscher-Szilagyi’s gain (<a href="#sec-ch06-chs" class="quarto-xref"><span>Section 6.4.7</span></a>) at a much smaller implementation cost. The contribution of deep learning on the same inputs, documented in <span class="citation" data-cites="tian2015variable">Tian et al. (<a href="11-trees-rules.html#ref-tian2015variable" role="doc-biblioref">2015</a>)</span> and later work, is modest: an improvement of 1 to 3 accuracy points at large sample sizes, usually at the cost of interpretability. For covenant triggers, regulatory reporting, and cross-industry comparability, the linear hazard model remains the sensible default.</p>
 </section>
 <section id="benchmark-on-the-german-credit-data" class="level3" data-number="6.4.10">
 <h3 data-number="6.4.10" class="anchored" data-anchor-id="benchmark-on-the-german-credit-data"><span class="header-section-number">6.4.10</span> Benchmark on the German credit data</h3>
@@ -2390,7 +2390,7 @@ Random Forest 0.7870 0.4351 0.1354</code></pre>
 <h2 data-number="6.5" class="anchored" data-anchor-id="sec-ch06-limitations"><span class="header-section-number">6.5</span> Limitations for consumer credit</h2>
 <section id="the-gaussian-assumption-versus-reality" class="level3" data-number="6.5.1">
 <h3 data-number="6.5.1" class="anchored" data-anchor-id="the-gaussian-assumption-versus-reality"><span class="header-section-number">6.5.1</span> The Gaussian assumption versus reality</h3>
-<p>Consumer credit features are not joint Gaussian. They are a mix of continuous amounts (loan principal, income, balances) with heavy skew, integer counts (number of open accounts, hard inquiries), binary flags (homeowner status, paystub verified), ordinal categories (employment length buckets), and high-cardinality nominals (state, purpose, funding channel). Every one of these violates the LDA generative model. The violation is not fatal for ranking, as the German benchmark shows: LDA’s hyperplane recovers roughly the same ordering as the logit’s hyperplane because both are linear in the same features. The violation is fatal for calibration and for probability-of-default use cases, because the sigmoid in <a href="#eq-lda-sigmoid" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-lda-sigmoid</span></a> is derived under the Gaussian assumption, and that assumption is what guarantees the sigmoid is correct.</p>
+<p>Consumer credit features are not joint Gaussian. They are a mix of continuous amounts (loan principal, income, balances) with heavy skew, integer counts (number of open accounts, hard inquiries), binary flags (homeowner status, paystub verified), ordinal categories (employment length buckets), and high-cardinality nominals (state, purpose, funding channel). Every one of these violates the LDA generative model. The violation is not fatal for ranking, as the German benchmark shows: LDA’s hyperplane recovers roughly the same ordering as the logit’s hyperplane because both are linear in the same features. The violation is fatal for calibration and for probability-of-default use cases, because the sigmoid in <a href="#eq-lda-sigmoid" class="quarto-xref">Eq.&nbsp;<span>6.10</span></a> is derived under the Gaussian assumption, and that assumption is what guarantees the sigmoid is correct.</p>
 </section>
 <section id="failure-mode-heavy-categoricals" class="level3" data-number="6.5.2">
 <h3 data-number="6.5.2" class="anchored" data-anchor-id="failure-mode-heavy-categoricals"><span class="header-section-number">6.5.2</span> Failure mode: heavy categoricals</h3>
@@ -2624,7 +2624,7 @@ existing_credits                1.42            1.37          -0.090
 <p><span id="eq-pricing"><span class="math display">\[
 s(p) = \frac{p \cdot \mathrm{LGD} + \mathrm{cost} + \kappa \cdot \mathrm{RWA}(p)}{1 - p},
 \tag{6.26}\]</span></span></p>
-<p>where <span class="math inline">\(\mathrm{RWA}(p)\)</span> is the risk-weighted assets produced by the regulatory IRB formula and <span class="math inline">\(\kappa\)</span> is the target return on capital. For a rough illustration, if <span class="math inline">\(p = 0.02\)</span> and <span class="math inline">\(\mathrm{RWA}(0.02) = 0.45\)</span>, the required spread from <a href="#eq-pricing" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-pricing</span></a> sits around 190 basis points on top of the funding cost, which matches typical investment-grade loan pricing.</p>
+<p>where <span class="math inline">\(\mathrm{RWA}(p)\)</span> is the risk-weighted assets produced by the regulatory IRB formula and <span class="math inline">\(\kappa\)</span> is the target return on capital. For a rough illustration, if <span class="math inline">\(p = 0.02\)</span> and <span class="math inline">\(\mathrm{RWA}(0.02) = 0.45\)</span>, the required spread from <a href="#eq-pricing" class="quarto-xref">Eq.&nbsp;<span>6.26</span></a> sits around 190 basis points on top of the funding cost, which matches typical investment-grade loan pricing.</p>
 <p>The Z-score enters by mapping to <span class="math inline">\(p\)</span>. A raw Z-score is not a probability. The standard conversion fits a logit of observed defaults on the Z-score on a holdout, producing a sigmoid that maps Z directly to PD. <span class="citation" data-cites="altman2000predicting">Altman (<a href="11-trees-rules.html#ref-altman2000predicting" role="doc-biblioref">2000</a>)</span> gives the rough mapping for US manufacturers as roughly PD = 1 percent at Z = 3, 5 percent at Z = 2, 25 percent at Z = 1, and 70+ percent at Z = 0. That mapping is what turns a Z-score into a pricing input.</p>
 <div id="449ccbe6" class="cell" data-execution_count="24">
 <details class="code-fold">
@@ -2757,7 +2757,7 @@ s(p) = \frac{p \cdot \mathrm{LGD} + \mathrm{cost} + \kappa \cdot \mathrm{RWA}(p)
 </section>
 <section id="ecoa-and-fcra" class="level3" data-number="6.7.4">
 <h3 data-number="6.7.4" class="anchored" data-anchor-id="ecoa-and-fcra"><span class="header-section-number">6.7.4</span> ECOA and FCRA</h3>
-<p>On consumer-credit portfolios, the Equal Credit Opportunity Act prohibits the use of certain protected attributes, and the Fair Credit Reporting Act requires adverse-action reasoning to cite specific factors from the applicant’s file. LDA is compatible with adverse-action generation because each coefficient maps to a specific feature contribution. The reason-code algorithm is usually some variant of sorting features by <span class="math inline">\(|\beta_j (x_j - \bar{x}_j)|\)</span> on the rejected application and returning the top four to six contributors. <a href="#sec-ch05" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch05</span></a> walked through this.</p>
+<p>On consumer-credit portfolios, the Equal Credit Opportunity Act prohibits the use of certain protected attributes, and the Fair Credit Reporting Act requires adverse-action reasoning to cite specific factors from the applicant’s file. LDA is compatible with adverse-action generation because each coefficient maps to a specific feature contribution. The reason-code algorithm is usually some variant of sorting features by <span class="math inline">\(|\beta_j (x_j - \bar{x}_j)|\)</span> on the rejected application and returning the top four to six contributors. <a href="05-regulation.html" class="quarto-xref"><span>Chapter 5</span></a> walked through this.</p>
 </section>
 <section id="gdpr-article-22-and-the-eu-ai-act" class="level3" data-number="6.7.5">
 <h3 data-number="6.7.5" class="anchored" data-anchor-id="gdpr-article-22-and-the-eu-ai-act"><span class="header-section-number">6.7.5</span> GDPR Article 22 and the EU AI Act</h3>
@@ -2786,8 +2786,8 @@ s(p) = \frac{p \cdot \mathrm{LGD} + \mathrm{cost} + \kappa \cdot \mathrm{RWA}(p)
 </section>
 <section id="where-lda-connects-to-later-chapters" class="level2" data-number="6.9">
 <h2 data-number="6.9" class="anchored" data-anchor-id="where-lda-connects-to-later-chapters"><span class="header-section-number">6.9</span> Where LDA connects to later chapters</h2>
-<p>LDA’s linear decision rule is the simplest member of a family of techniques that later chapters build out. <a href="#sec-ch07" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch07</span></a> on logistic scorecards shows how to move from LDA’s Gaussian-derived sigmoid to a maximum-likelihood-derived sigmoid with regularization. <a href="#sec-ch08" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08</span></a> on structural models formalizes the Merton and KMV distance-to-default (<a href="#sec-ch08-kmv" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08-kmv</span></a>) that competed with Altman’s accounting model in the 1990s. <a href="#sec-ch09" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch09</span></a> on survival analysis generalizes the one-period hazard of Shumway to a full time-to-event framework. <a href="#sec-ch11" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch11</span></a> on trees and <a href="#sec-ch12" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch12</span></a> on ensembles show the non-linear gains available to a modeler willing to pay for them with interpretability.</p>
-<p>The Altman tradition does not disappear as the chapters progress. It reappears in <a href="#sec-ch28" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28</span></a> on causal credit, where the coefficients of a linear model are easier to interpret causally than a deep network’s weights, and in <a href="#sec-ch29-sme" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch29-sme</span></a> on corporate SME scoring, where LDA on six accounting ratios is still the default for small business lending when data are scarce.</p>
+<p>LDA’s linear decision rule is the simplest member of a family of techniques that later chapters build out. <a href="07-logistic-scorecard.html" class="quarto-xref"><span>Chapter 7</span></a> on logistic scorecards shows how to move from LDA’s Gaussian-derived sigmoid to a maximum-likelihood-derived sigmoid with regularization. <a href="08-structural-models.html" class="quarto-xref"><span>Chapter 8</span></a> on structural models formalizes the Merton and KMV distance-to-default (<a href="08-structural-models.html#sec-ch08-kmv" class="quarto-xref"><span>Section 8.5</span></a>) that competed with Altman’s accounting model in the 1990s. <a href="09-survival-analysis.html" class="quarto-xref"><span>Chapter 9</span></a> on survival analysis generalizes the one-period hazard of Shumway to a full time-to-event framework. <a href="11-trees-rules.html" class="quarto-xref"><span>Chapter 11</span></a> on trees and <a href="12-ensembles.html" class="quarto-xref"><span>Chapter 12</span></a> on ensembles show the non-linear gains available to a modeler willing to pay for them with interpretability.</p>
+<p>The Altman tradition does not disappear as the chapters progress. It reappears in <a href="28-causal-credit.html" class="quarto-xref"><span>Chapter 32</span></a> on causal credit, where the coefficients of a linear model are easier to interpret causally than a deep network’s weights, and in <a href="29-corporate-sme.html#sec-ch29-sme" class="quarto-xref"><span>Section 33.1</span></a> on corporate SME scoring, where LDA on six accounting ratios is still the default for small business lending when data are scarce.</p>
 <p>A reader who has finished this chapter should be able to: (1) derive Fisher’s direction and show it equals the Bayes direction under Gaussian equal-covariance; (2) implement a two-class LDA from a generalized eigenvalue solver and compare to <code>sklearn</code>; (3) read the Altman 1968 paper and explain why the coefficients look the way they do; (4) apply the Z, Z’, and Z’’ variants correctly across firm types; (5) benchmark LDA against logit on mixed-type consumer data and interpret where each wins; (6) diagnose an LDA calibration failure and patch it with Platt scaling; and (7) walk a governance reviewer through the coefficient table without jargon.</p>
 </section>
 <section id="vietnam-and-emerging-markets" class="level2 unnumbered">
@@ -2804,7 +2804,7 @@ s(p) = \frac{p \cdot \mathrm{LGD} + \mathrm{cost} + \kappa \cdot \mathrm{RWA}(p)
 </section>
 <section id="rationalization" class="level3" data-number="6.9.3">
 <h3 data-number="6.9.3" class="anchored" data-anchor-id="rationalization"><span class="header-section-number">6.9.3</span> Rationalization</h3>
-<p>LDA and Z’’-style models fit Vietnam best where the modeler has few defaults, a small feature list of accounting ratios, and a supervisor who insists on a readable coefficient table. Middle-market corporate scoring at a mid-tier joint-stock bank is the canonical case. The method fits poorly when the design matrix is dominated by CIC-derived behavioral indicators for retail obligors, because these are heavily one-hot and skewed. Consumer-credit scoring under eKYC workflows should use a WoE scorecard (<a href="#sec-ch07" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch07</span></a>) or a calibrated tree. A second contraindication is the lack of market-implied volatility for most obligors, which blocks the KMV-DD variable (<a href="#sec-ch08-kmv" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch08-kmv</span></a>) that would otherwise stabilize a corporate LDA in a hybrid model.</p>
+<p>LDA and Z’’-style models fit Vietnam best where the modeler has few defaults, a small feature list of accounting ratios, and a supervisor who insists on a readable coefficient table. Middle-market corporate scoring at a mid-tier joint-stock bank is the canonical case. The method fits poorly when the design matrix is dominated by CIC-derived behavioral indicators for retail obligors, because these are heavily one-hot and skewed. Consumer-credit scoring under eKYC workflows should use a WoE scorecard (<a href="07-logistic-scorecard.html" class="quarto-xref"><span>Chapter 7</span></a>) or a calibrated tree. A second contraindication is the lack of market-implied volatility for most obligors, which blocks the KMV-DD variable (<a href="08-structural-models.html#sec-ch08-kmv" class="quarto-xref"><span>Section 8.5</span></a>) that would otherwise stabilize a corporate LDA in a hybrid model.</p>
 </section>
 <section id="practical-notes" class="level3" data-number="6.9.4">
 <h3 data-number="6.9.4" class="anchored" data-anchor-id="practical-notes"><span class="header-section-number">6.9.4</span> Practical notes</h3>
@@ -3019,6 +3019,125 @@ Zmijewski, M. E. (1984). Methodological issues related to the estimation of fina
 </section>
 
 </main> <!-- /main -->
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+.mermaid-panzoom-wrap {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  background: #fafafa;
+  overflow: hidden;
+}
+.mermaid-panzoom-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 0.78em;
+  color: #555;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mermaid-panzoom-reset {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 0.78em;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cfd8dc;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+}
+.mermaid-panzoom-reset:hover { background: #e3f2fd; }
+</style>
+<script>
+(function () {
+  function isMermaidSvg(svg) {
+    if (!svg || svg.dataset.panzoomApplied) return false;
+    if (svg.closest('pre.mermaid, .mermaid')) return true;
+    if (svg.id && svg.id.startsWith('mermaid')) return true;
+    if (svg.classList && svg.classList.contains('mermaid')) return true;
+    if (svg.querySelector('g.nodes, g.node, g.edgePaths, g.edgePath')) return true;
+    const aria = svg.getAttribute('aria-roledescription') || '';
+    if (aria.includes('flowchart') || aria.includes('graph')) return true;
+    return false;
+  }
+
+  function attachPanZoom(svg) {
+    if (svg.dataset.panzoomApplied) return;
+    svg.dataset.panzoomApplied = '1';
+
+    const host = svg.parentNode;
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-panzoom-wrap';
+    host.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = '520px';
+    svg.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'mermaid-panzoom-hint';
+    hint.textContent = 'scroll to zoom · drag to pan';
+    wrap.appendChild(hint);
+
+    const reset = document.createElement('button');
+    reset.className = 'mermaid-panzoom-reset';
+    reset.type = 'button';
+    reset.textContent = 'reset';
+    wrap.appendChild(reset);
+
+    let pz;
+    try {
+      pz = svgPanZoom(svg, {
+        controlIconsEnabled: true,
+        fit: true,
+        center: true,
+        minZoom: 0.3,
+        maxZoom: 8,
+        zoomScaleSensitivity: 0.4,
+        contain: false,
+      });
+    } catch (e) {
+      reset.style.display = 'none';
+      hint.style.display = 'none';
+      return;
+    }
+    reset.addEventListener('click', () => {
+      pz.resetZoom();
+      pz.center();
+      pz.fit();
+    });
+  }
+
+  function scan() {
+    const svgs = document.querySelectorAll(
+      'div.cell-output-display svg, figure svg, pre.mermaid svg, .mermaid svg'
+    );
+    svgs.forEach((svg) => {
+      if (isMermaidSvg(svg)) attachPanZoom(svg);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(scan, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', scan);
+  }
+  window.addEventListener('load', scan);
+  // Mermaid sometimes renders late; rescan once after a short delay.
+  setTimeout(scan, 800);
+})();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     // Ensure there is a toggle, if there isn't float one in the top right

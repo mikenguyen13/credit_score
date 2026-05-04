@@ -954,7 +954,7 @@ window.Quarto = {
 </section>
 <section id="notation-and-the-exchangeability-assumption" class="level2" data-number="25.1">
 <h2 data-number="25.1" class="anchored" data-anchor-id="notation-and-the-exchangeability-assumption"><span class="header-section-number">25.1</span> Notation and the exchangeability assumption</h2>
-<p>Let <span class="math inline">\(\{(X_i, Y_i)\}_{i=1}^n\)</span> be the training and calibration data, and <span class="math inline">\((X_{n+1}, Y_{n+1})\)</span> a test point. All conformal guarantees require <em>exchangeability</em>: the joint distribution of <span class="math inline">\((X_1,Y_1,\dots,X_{n+1},Y_{n+1})\)</span> is invariant under permutations. This is implied by (and weaker than) the i.i.d. assumption. For credit scoring this is where the mathematical obligation meets the empirical reality: time-series splits violate exchangeability strictly, and supervisors will correctly flag any “95% coverage” claim based on a time-ordered calibration set as overstated. The Gibbs-Candes adaptive method in <a href="#sec-ch22d-adaptive" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch22d-adaptive</span></a> recovers coverage under controlled shift, and is the right default for production.</p>
+<p>Let <span class="math inline">\(\{(X_i, Y_i)\}_{i=1}^n\)</span> be the training and calibration data, and <span class="math inline">\((X_{n+1}, Y_{n+1})\)</span> a test point. All conformal guarantees require <em>exchangeability</em>: the joint distribution of <span class="math inline">\((X_1,Y_1,\dots,X_{n+1},Y_{n+1})\)</span> is invariant under permutations. This is implied by (and weaker than) the i.i.d. assumption. For credit scoring this is where the mathematical obligation meets the empirical reality: time-series splits violate exchangeability strictly, and supervisors will correctly flag any “95% coverage” claim based on a time-ordered calibration set as overstated. The Gibbs-Candes adaptive method in <a href="#sec-ch22d-adaptive" class="quarto-xref"><span>Section 25.6</span></a> recovers coverage under controlled shift, and is the right default for production.</p>
 <p>Define a <em>nonconformity score</em> <span class="math inline">\(s: \mathcal{X} \times \mathcal{Y} \to \mathbb{R}\)</span>. For classification the canonical choice is</p>
 <p><span id="eq-nc-class"><span class="math display">\[
 s(x, y) = 1 - \hat p_y(x),
@@ -1032,7 +1032,7 @@ s(x, y) = 1 - \hat p_y(x),
 </section>
 <section id="sec-ch22d-mondrian" class="level2" data-number="25.3">
 <h2 data-number="25.3" class="anchored" data-anchor-id="sec-ch22d-mondrian"><span class="header-section-number">25.3</span> Mondrian conformal prediction for subgroups</h2>
-<p>Marginal coverage (<a href="#eq-cp-marginal" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-cp-marginal</span></a>) is a statement over the joint distribution of <span class="math inline">\((X,Y)\)</span>. It says nothing about coverage conditional on a subgroup. A split CP set that covers 90% marginally can undercover Hispanic applicants (say, 78%) while overcovering white applicants (say, 96%), and remain valid under the marginal definition. For fair lending review this is inadequate.</p>
+<p>Marginal coverage (<a href="#eq-cp-marginal" class="quarto-xref">Eq.&nbsp;<span>25.1</span></a>) is a statement over the joint distribution of <span class="math inline">\((X,Y)\)</span>. It says nothing about coverage conditional on a subgroup. A split CP set that covers 90% marginally can undercover Hispanic applicants (say, 78%) while overcovering white applicants (say, 96%), and remain valid under the marginal definition. For fair lending review this is inadequate.</p>
 <p><em>Mondrian conformal prediction</em> <span class="citation" data-cites="vovk2005algorithmic">(<a href="11-trees-rules.html#ref-vovk2005algorithmic" role="doc-biblioref">Vovk et al., 2005</a>)</span> stratifies calibration by a taxonomy variable <span class="math inline">\(g(x)\)</span> (gender, race, geography, income band). Compute a group-specific quantile <span class="math inline">\(\hat q_\alpha^g\)</span> from the subset of calibration points with <span class="math inline">\(g(X_i) = g\)</span>. Then the prediction set for a test point with group <span class="math inline">\(g\)</span> uses <span class="math inline">\(\hat q_\alpha^g\)</span>. The coverage guarantee now holds <em>conditional on group</em>: <span class="math inline">\(\mathbb{P}(Y \in \widehat C_\alpha(X) \mid g(X) = g) \geq 1-\alpha\)</span> for every <span class="math inline">\(g\)</span>.</p>
 <div id="c1c9cf70" class="cell" data-execution_count="2">
 <details class="code-fold">
@@ -1436,6 +1436,125 @@ Vovk, V., Gammerman, A., &amp; Shafer, G. (2005). <em>Algorithmic learning in a 
 </section>
 
 </main> <!-- /main -->
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+.mermaid-panzoom-wrap {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  background: #fafafa;
+  overflow: hidden;
+}
+.mermaid-panzoom-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 0.78em;
+  color: #555;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mermaid-panzoom-reset {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 0.78em;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cfd8dc;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+}
+.mermaid-panzoom-reset:hover { background: #e3f2fd; }
+</style>
+<script>
+(function () {
+  function isMermaidSvg(svg) {
+    if (!svg || svg.dataset.panzoomApplied) return false;
+    if (svg.closest('pre.mermaid, .mermaid')) return true;
+    if (svg.id && svg.id.startsWith('mermaid')) return true;
+    if (svg.classList && svg.classList.contains('mermaid')) return true;
+    if (svg.querySelector('g.nodes, g.node, g.edgePaths, g.edgePath')) return true;
+    const aria = svg.getAttribute('aria-roledescription') || '';
+    if (aria.includes('flowchart') || aria.includes('graph')) return true;
+    return false;
+  }
+
+  function attachPanZoom(svg) {
+    if (svg.dataset.panzoomApplied) return;
+    svg.dataset.panzoomApplied = '1';
+
+    const host = svg.parentNode;
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-panzoom-wrap';
+    host.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = '520px';
+    svg.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'mermaid-panzoom-hint';
+    hint.textContent = 'scroll to zoom · drag to pan';
+    wrap.appendChild(hint);
+
+    const reset = document.createElement('button');
+    reset.className = 'mermaid-panzoom-reset';
+    reset.type = 'button';
+    reset.textContent = 'reset';
+    wrap.appendChild(reset);
+
+    let pz;
+    try {
+      pz = svgPanZoom(svg, {
+        controlIconsEnabled: true,
+        fit: true,
+        center: true,
+        minZoom: 0.3,
+        maxZoom: 8,
+        zoomScaleSensitivity: 0.4,
+        contain: false,
+      });
+    } catch (e) {
+      reset.style.display = 'none';
+      hint.style.display = 'none';
+      return;
+    }
+    reset.addEventListener('click', () => {
+      pz.resetZoom();
+      pz.center();
+      pz.fit();
+    });
+  }
+
+  function scan() {
+    const svgs = document.querySelectorAll(
+      'div.cell-output-display svg, figure svg, pre.mermaid svg, .mermaid svg'
+    );
+    svgs.forEach((svg) => {
+      if (isMermaidSvg(svg)) attachPanZoom(svg);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(scan, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', scan);
+  }
+  window.addEventListener('load', scan);
+  // Mermaid sometimes renders late; rescan once after a short delay.
+  setTimeout(scan, 800);
+})();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     // Ensure there is a toggle, if there isn't float one in the top right

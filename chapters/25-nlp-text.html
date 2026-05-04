@@ -1005,14 +1005,14 @@ window.Quarto = {
 <i class="callout-icon no-icon"></i>
 </div>
 <div class="callout-body-container">
-<p><strong>Scope: retail.</strong> NLP on consumer free-text: LendingClub loan descriptions, open-banking narratives, and call-center transcripts. Corporate-text applications (10-K filings, news) are deferred to <a href="#sec-ch26" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch26</span></a>.</p>
+<p><strong>Scope: retail.</strong> NLP on consumer free-text: LendingClub loan descriptions, open-banking narratives, and call-center transcripts. Corporate-text applications (10-K filings, news) are deferred to <a href="26-llm-credit.html" class="quarto-xref"><span>Chapter 30</span></a>.</p>
 </div>
 </div>
 </div>
 <section id="overview" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="overview">Overview</h2>
 <p>A credit decision is an act of compression. The lender converts a long record of observable signals into a single probability of default and a single accept or reject outcome. Most of the signals that get compressed are numeric: balances, utilization rates, income, tenure. Text sits in the gap between what a lender could know and what a lender typically measures. The borrower writes a loan description, the CFO reads a script on an earnings call, the analyst files a note, the 10-K buries a paragraph of risk-factor language, the disputing consumer writes a paragraph to the bureau. Each of those artifacts carries signal that does not map cleanly onto the numeric feature vectors used in a scorecard. The question of this chapter is how to turn that text into a feature that moves AUC, KS, or profit without breaking the governance constraints a regulated lender operates under.</p>
-<p>The argument unfolds in three steps. The first step is classical: bag of words, term frequency inverse document frequency, logistic regression (<a href="#sec-ch25-bow" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch25-bow</span></a>). That stack still produces most of the industry gains because the signal in a loan description is overwhelmingly in the unigrams and bigrams. The second step is distributional: static word embeddings that let the model generalize beyond exact-word matches (<a href="#sec-ch25-embeddings" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch25-embeddings</span></a>), and contextual embeddings from transformer encoders (<a href="#sec-ch25-transformers" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch25-transformers</span></a>) that capture local syntax and disambiguate polysemy. The third step is economic: what does the text actually measure? <span class="citation" data-cites="iyer2016screening">Iyer et al. (<a href="11-trees-rules.html#ref-iyer2016screening" role="doc-biblioref">2016</a>)</span> show that text in Prosper loan listings carries information about default beyond what the credit grade reveals. <span class="citation" data-cites="duarte2012trust">Duarte et al. (<a href="11-trees-rules.html#ref-duarte2012trust" role="doc-biblioref">2012</a>)</span> show that photographs do the same. <span class="citation" data-cites="loughran2011liability">Loughran &amp; McDonald (<a href="11-trees-rules.html#ref-loughran2011liability" role="doc-biblioref">2011</a>)</span> show that off-the-shelf sentiment dictionaries mislabel half of negative words in 10-Ks, which implies the domain-specific dictionary is a necessary intermediate step before any deep model.</p>
+<p>The argument unfolds in three steps. The first step is classical: bag of words, term frequency inverse document frequency, logistic regression (<a href="#sec-ch25-bow" class="quarto-xref"><span>Section 29.2</span></a>). That stack still produces most of the industry gains because the signal in a loan description is overwhelmingly in the unigrams and bigrams. The second step is distributional: static word embeddings that let the model generalize beyond exact-word matches (<a href="#sec-ch25-embeddings" class="quarto-xref"><span>Section 29.3</span></a>), and contextual embeddings from transformer encoders (<a href="#sec-ch25-transformers" class="quarto-xref"><span>Section 29.4</span></a>) that capture local syntax and disambiguate polysemy. The third step is economic: what does the text actually measure? <span class="citation" data-cites="iyer2016screening">Iyer et al. (<a href="11-trees-rules.html#ref-iyer2016screening" role="doc-biblioref">2016</a>)</span> show that text in Prosper loan listings carries information about default beyond what the credit grade reveals. <span class="citation" data-cites="duarte2012trust">Duarte et al. (<a href="11-trees-rules.html#ref-duarte2012trust" role="doc-biblioref">2012</a>)</span> show that photographs do the same. <span class="citation" data-cites="loughran2011liability">Loughran &amp; McDonald (<a href="11-trees-rules.html#ref-loughran2011liability" role="doc-biblioref">2011</a>)</span> show that off-the-shelf sentiment dictionaries mislabel half of negative words in 10-Ks, which implies the domain-specific dictionary is a necessary intermediate step before any deep model.</p>
 <p>Text-in-credit research has been written for English, with smaller bodies for Chinese and German. A Vietnamese lender reading this chapter is operating in a language that has morphological segmentation problems English does not, a tokenizer ecosystem younger than spaCy, and a pretraining corpus that until 2020 was too small to train a competitive encoder. That changed with PhoBERT <span class="citation" data-cites="nguyen2020phobert">(<a href="11-trees-rules.html#ref-nguyen2020phobert" role="doc-biblioref">D. Q. Nguyen &amp; Nguyen, 2020</a>)</span> and the VnCoreNLP toolkit <span class="citation" data-cites="vu2018vncorenlp">(<a href="11-trees-rules.html#ref-vu2018vncorenlp" role="doc-biblioref">Vu et al., 2018</a>)</span>. The Vietnam and emerging markets section at the end of the chapter walks through what an application-text pipeline looks like in Vietnamese.</p>
 <p>The engineering lives inside the same constraints that shape the rest of the book. Adverse-action notices under ECOA require a reason for denial, so feature importance on a transformer embedding is not enough. SR 11-7 requires documentation, so the pre-trained model version and its training corpus have to be pinned. The EU AI Act classifies consumer credit scoring as high risk. GDPR Article 22 restricts purely automated decisions that affect the data subject. Text features, being unstructured, are harder to audit than scorecard features. We write the chapter assuming the reader has to explain what each feature does.</p>
 <section id="notation" class="level3 unnumbered">
@@ -1074,7 +1074,7 @@ window.Quarto = {
 <p><span id="eq-rsj"><span class="math display">\[
 w_{\text{RSJ}}(w) = \log \frac{\Pr(w \in D \mid R) (1 - \Pr(w \in D \mid \bar{R}))}{(1 - \Pr(w \in D \mid R)) \Pr(w \in D \mid \bar{R})}.
 \tag{29.4}\]</span></span></p>
-<p>When relevance counts are unavailable, this collapses toward <span class="math inline">\(\log((N - n_j)/n_j) \approx \mathrm{idf}(w)\)</span> for small <span class="math inline">\(n_j/N\)</span>. In credit, <span class="math inline">\(R\)</span> is default and <span class="math inline">\(\bar{R}\)</span> is non-default. Training a logistic regression on TF-IDF features is, up to link function, an estimate of <a href="#eq-rsj" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-rsj</span></a> with shrinkage.</p>
+<p>When relevance counts are unavailable, this collapses toward <span class="math inline">\(\log((N - n_j)/n_j) \approx \mathrm{idf}(w)\)</span> for small <span class="math inline">\(n_j/N\)</span>. In credit, <span class="math inline">\(R\)</span> is default and <span class="math inline">\(\bar{R}\)</span> is non-default. Training a logistic regression on TF-IDF features is, up to link function, an estimate of <a href="#eq-rsj" class="quarto-xref">Eq.&nbsp;<span>29.4</span></a> with shrinkage.</p>
 </section>
 <section id="from-bow-to-bm25" class="level3" data-number="29.2.3">
 <h3 data-number="29.2.3" class="anchored" data-anchor-id="from-bow-to-bm25"><span class="header-section-number">29.2.3</span> From BoW to BM25</h3>
@@ -1082,7 +1082,7 @@ w_{\text{RSJ}}(w) = \log \frac{\Pr(w \in D \mid R) (1 - \Pr(w \in D \mid \bar{R}
 <p><span id="eq-bm25"><span class="math display">\[
 \mathrm{BM25}(w_j, d_i) = \mathrm{idf}(w_j) \cdot \frac{c_{i,j} (k_1 + 1)}{c_{i,j} + k_1 \bigl(1 - b + b \frac{|d_i|}{\bar{|d|}}\bigr)},
 \tag{29.5}\]</span></span></p>
-<p>where <span class="math inline">\(|d_i|\)</span> is the length of document <span class="math inline">\(i\)</span>, <span class="math inline">\(\bar{|d|}\)</span> is the mean document length across the corpus, and <span class="math inline">\(k_1 \in [1.2, 2.0]\)</span>, <span class="math inline">\(b \in [0.5, 0.75]\)</span> are tunable. BM25 is rarely used as a classifier feature in credit but shows up as a retrieval component inside RAG-style systems discussed in <a href="#sec-ch26" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch26</span></a>.</p>
+<p>where <span class="math inline">\(|d_i|\)</span> is the length of document <span class="math inline">\(i\)</span>, <span class="math inline">\(\bar{|d|}\)</span> is the mean document length across the corpus, and <span class="math inline">\(k_1 \in [1.2, 2.0]\)</span>, <span class="math inline">\(b \in [0.5, 0.75]\)</span> are tunable. BM25 is rarely used as a classifier feature in credit but shows up as a retrieval component inside RAG-style systems discussed in <a href="26-llm-credit.html" class="quarto-xref"><span>Chapter 30</span></a>.</p>
 </section>
 <section id="stopwords-stemming-and-n-grams" class="level3" data-number="29.2.4">
 <h3 data-number="29.2.4" class="anchored" data-anchor-id="stopwords-stemming-and-n-grams"><span class="header-section-number">29.2.4</span> Stopwords, stemming, and n-grams</h3>
@@ -1257,7 +1257,7 @@ Top positive coefficients (predict default):
 <p><span id="eq-sg"><span class="math display">\[
 \mathcal{L}_{\text{SG}}(\theta) = \frac{1}{T} \sum_{t=1}^{T} \sum_{\substack{-m \le j \le m \\ j \ne 0}} \log \Pr(w_{t+j} \mid w_t),
 \tag{29.6}\]</span></span></p>
-<p>where <span class="math inline">\(T\)</span> is the total number of tokens. Each word <span class="math inline">\(w\)</span> has two vectors: an input embedding <span class="math inline">\(v_w \in \mathbb{R}^d\)</span> and an output embedding <span class="math inline">\(u_w \in \mathbb{R}^d\)</span>. The conditional probability in <a href="#eq-sg" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-sg</span></a> is the softmax</p>
+<p>where <span class="math inline">\(T\)</span> is the total number of tokens. Each word <span class="math inline">\(w\)</span> has two vectors: an input embedding <span class="math inline">\(v_w \in \mathbb{R}^d\)</span> and an output embedding <span class="math inline">\(u_w \in \mathbb{R}^d\)</span>. The conditional probability in <a href="#eq-sg" class="quarto-xref">Eq.&nbsp;<span>29.6</span></a> is the softmax</p>
 <p><span id="eq-sg-softmax"><span class="math display">\[
 \Pr(w_O \mid w_I) = \frac{\exp(u_{w_O}^\top v_{w_I})}{\sum_{w \in \mathcal{V}} \exp(u_w^\top v_{w_I})}.
 \tag{29.7}\]</span></span></p>
@@ -1266,7 +1266,7 @@ Top positive coefficients (predict default):
 \mathcal{L}_{\text{NS}}(w_I, w_O) = \log \sigma(u_{w_O}^\top v_{w_I})
 + \sum_{n=1}^{k} \mathbb{E}_{w_n \sim P_n}\!\left[\log \sigma(-u_{w_n}^\top v_{w_I})\right],
 \tag{29.8}\]</span></span></p>
-<p>where <span class="math inline">\(\sigma(x) = 1/(1 + e^{-x})\)</span>. The total loss is the sum over all positive pairs. The negative-sampling loss is a proper binary cross-entropy on a logistic discriminator that separates true context words from noise samples. It approximates <a href="#eq-sg" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-sg</span></a> under the assumption that the discriminator is near optimal.</p>
+<p>where <span class="math inline">\(\sigma(x) = 1/(1 + e^{-x})\)</span>. The total loss is the sum over all positive pairs. The negative-sampling loss is a proper binary cross-entropy on a logistic discriminator that separates true context words from noise samples. It approximates <a href="#eq-sg" class="quarto-xref">Eq.&nbsp;<span>29.6</span></a> under the assumption that the discriminator is near optimal.</p>
 </section>
 <section id="glove" class="level3" data-number="29.3.2">
 <h3 data-number="29.3.2" class="anchored" data-anchor-id="glove"><span class="header-section-number">29.3.2</span> GloVe</h3>
@@ -1282,7 +1282,7 @@ Top positive coefficients (predict default):
 </section>
 <section id="implementation-a-minimal-skip-gram-from-numpy" class="level3" data-number="29.3.4">
 <h3 data-number="29.3.4" class="anchored" data-anchor-id="implementation-a-minimal-skip-gram-from-numpy"><span class="header-section-number">29.3.4</span> Implementation: a minimal skip-gram from NumPy</h3>
-<p>The canonical Word2Vec library is <code>gensim</code>. The environment this book runs in does not include it. We implement a small skip-gram with negative sampling directly in NumPy so the math in <a href="#eq-ns" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-ns</span></a> is concrete, then show neighbor queries on the resulting vectors. The implementation is deliberately small (200 iterations, 32-dimensional vectors) but produces sensible structure on the synthetic corpus.</p>
+<p>The canonical Word2Vec library is <code>gensim</code>. The environment this book runs in does not include it. We implement a small skip-gram with negative sampling directly in NumPy so the math in <a href="#eq-ns" class="quarto-xref">Eq.&nbsp;<span>29.8</span></a> is concrete, then show neighbor queries on the resulting vectors. The implementation is deliberately small (200 iterations, 32-dimensional vectors) but produces sensible structure on the synthetic corpus.</p>
 <div id="bbe70529" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1524,7 +1524,7 @@ Q = X W^Q, \quad K = X W^K, \quad V = X W^V,
 <h3 data-number="29.5.3" class="anchored" data-anchor-id="two-stage-fine-tuning"><span class="header-section-number">29.5.3</span> Two-stage fine-tuning</h3>
 <p>The canonical two-stage recipe:</p>
 <ol type="1">
-<li>Continue MLM pre-training (<a href="#eq-mlm" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-mlm</span></a>) on domain-specific unlabeled text for <span class="math inline">\(E_1\)</span> epochs. Learning rate <span class="math inline">\(\eta_1 \approx 10^{-4}\)</span>, batch size 32 to 128, sequence length 128 to 512.</li>
+<li>Continue MLM pre-training (<a href="#eq-mlm" class="quarto-xref">Eq.&nbsp;<span>29.13</span></a>) on domain-specific unlabeled text for <span class="math inline">\(E_1\)</span> epochs. Learning rate <span class="math inline">\(\eta_1 \approx 10^{-4}\)</span>, batch size 32 to 128, sequence length 128 to 512.</li>
 <li>Fine-tune on labeled classification data for <span class="math inline">\(E_2\)</span> epochs, typically <span class="math inline">\(E_2 \in \{2, 3, 4\}\)</span>, learning rate <span class="math inline">\(\eta_2 \in \{2 \times 10^{-5}, 5 \times 10^{-5}\}\)</span>, batch size 16 to 32, with a linear learning-rate schedule with warmup.</li>
 </ol>
 <p>For a lender with a medium-sized unlabeled corpus (say, 5 million loan descriptions or application free-text fields) and a labeled default set (say, 50,000 labels), the stage-1 MLM on the full corpus plus stage-2 fine-tuning on the labels is the strongest empirical setup. With only labeled data and no unlabeled domain corpus, skipping stage 1 is rational.</p>
@@ -1699,7 +1699,7 @@ Leaderboard on held-out synthetic loan descriptions:
 <p><span id="eq-flesch"><span class="math display">\[
 \mathrm{Flesch}(d) = 206.835 - 1.015 \cdot \frac{\#\text{words}}{\#\text{sentences}} - 84.6 \cdot \frac{\#\text{syllables}}{\#\text{words}},
 \tag{29.15}\]</span></span></p>
-<p>with higher values easier. Flesch-Kincaid grade level inverts <a href="#eq-flesch" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-flesch</span></a> into a US school-grade scale.</p>
+<p>with higher values easier. Flesch-Kincaid grade level inverts <a href="#eq-flesch" class="quarto-xref">Eq.&nbsp;<span>29.15</span></a> into a US school-grade scale.</p>
 <p><span class="citation" data-cites="li2008annual">Li (<a href="11-trees-rules.html#ref-li2008annual" role="doc-biblioref">2008</a>)</span> shows that 10-Ks with a higher Fog index have less persistent earnings. <span class="citation" data-cites="loughran2016textual">Loughran &amp; McDonald (<a href="11-trees-rules.html#ref-loughran2016textual" role="doc-biblioref">2016</a>)</span> argue that Fog has identification problems on financial text because financial terms are frequently multi-syllabic by convention, and propose file size of the 10-K as a simpler proxy. <span class="citation" data-cites="bodnaruk2015usingten">Bodnaruk et al. (<a href="11-trees-rules.html#ref-bodnaruk2015usingten" role="doc-biblioref">2015</a>)</span> construct a constraining-words index from 10-K text and show it predicts financial constraints at the firm level. <span class="citation" data-cites="dyer2017evolution">Dyer et al. (<a href="11-trees-rules.html#ref-dyer2017evolution" role="doc-biblioref">2017</a>)</span> document the explosion of 10-K length and boilerplate across the 2000s and 2010s using LDA.</p>
 <p>For credit, readability of a loan description carries a specific signal: short, clear descriptions from the borrower tend to be associated with lower default. Readability is less informative in corporate filings because they are written by counsel and standardized. The engineering pattern is to compute Fog or Flesch per document, bin it, and add as a feature alongside sentiment scores and length itself.</p>
 </section>
@@ -2220,6 +2220,125 @@ Yang, Y., Uy, M. C. S., &amp; Huang, A. (2020). <span>FinBERT</span>: A pretrain
 </section>
 
 </main> <!-- /main -->
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+.mermaid-panzoom-wrap {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  background: #fafafa;
+  overflow: hidden;
+}
+.mermaid-panzoom-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 0.78em;
+  color: #555;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mermaid-panzoom-reset {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 0.78em;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cfd8dc;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+}
+.mermaid-panzoom-reset:hover { background: #e3f2fd; }
+</style>
+<script>
+(function () {
+  function isMermaidSvg(svg) {
+    if (!svg || svg.dataset.panzoomApplied) return false;
+    if (svg.closest('pre.mermaid, .mermaid')) return true;
+    if (svg.id && svg.id.startsWith('mermaid')) return true;
+    if (svg.classList && svg.classList.contains('mermaid')) return true;
+    if (svg.querySelector('g.nodes, g.node, g.edgePaths, g.edgePath')) return true;
+    const aria = svg.getAttribute('aria-roledescription') || '';
+    if (aria.includes('flowchart') || aria.includes('graph')) return true;
+    return false;
+  }
+
+  function attachPanZoom(svg) {
+    if (svg.dataset.panzoomApplied) return;
+    svg.dataset.panzoomApplied = '1';
+
+    const host = svg.parentNode;
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-panzoom-wrap';
+    host.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = '520px';
+    svg.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'mermaid-panzoom-hint';
+    hint.textContent = 'scroll to zoom · drag to pan';
+    wrap.appendChild(hint);
+
+    const reset = document.createElement('button');
+    reset.className = 'mermaid-panzoom-reset';
+    reset.type = 'button';
+    reset.textContent = 'reset';
+    wrap.appendChild(reset);
+
+    let pz;
+    try {
+      pz = svgPanZoom(svg, {
+        controlIconsEnabled: true,
+        fit: true,
+        center: true,
+        minZoom: 0.3,
+        maxZoom: 8,
+        zoomScaleSensitivity: 0.4,
+        contain: false,
+      });
+    } catch (e) {
+      reset.style.display = 'none';
+      hint.style.display = 'none';
+      return;
+    }
+    reset.addEventListener('click', () => {
+      pz.resetZoom();
+      pz.center();
+      pz.fit();
+    });
+  }
+
+  function scan() {
+    const svgs = document.querySelectorAll(
+      'div.cell-output-display svg, figure svg, pre.mermaid svg, .mermaid svg'
+    );
+    svgs.forEach((svg) => {
+      if (isMermaidSvg(svg)) attachPanZoom(svg);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(scan, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', scan);
+  }
+  window.addEventListener('load', scan);
+  // Mermaid sometimes renders late; rescan once after a short delay.
+  setTimeout(scan, 800);
+})();
+</script>
 <script type="application/vnd.jupyter.widget-state+json">
 {"state":{"039b7aecf6dc4135b7e82f1c45384e45":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"0bf0f2bda486478d90c0a43c073be6d8":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","background":null,"description_width":"","font_size":null,"text_color":null}},"1055add1cf184807a6b81737d4c06677":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_a7646af981884f80a10ad5b9998920d9","IPY_MODEL_8e622b20ac0d461b9e2344c0167d5d32","IPY_MODEL_19f0a706c105441b8d2202ebca4a85ff"],"layout":"IPY_MODEL_d3f0f46d6d714dc89422bb0c3241f865","tabbable":null,"tooltip":null}},"19f0a706c105441b8d2202ebca4a85ff":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HTMLView","description":"","description_allow_html":false,"layout":"IPY_MODEL_a6c6436d802e46d9b90246672666ce83","placeholder":"​","style":"IPY_MODEL_a5be63c6d8a241d3b198ced83207c515","tabbable":null,"tooltip":null,"value":" 100/100 [00:00&lt;00:00, 4750.11it/s]"}},"21c818fc662548df8ebbaffb6148011a":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_b3933a8622534b6b8c2318e1d51a2e47","IPY_MODEL_9326fffc46b7436b99b6adaeacf5f836","IPY_MODEL_367d6d290dad4f99b32524fc6d04b758"],"layout":"IPY_MODEL_35187dce031444648ebef0b5da49873f","tabbable":null,"tooltip":null}},"35187dce031444648ebef0b5da49873f":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"367d6d290dad4f99b32524fc6d04b758":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HTMLView","description":"","description_allow_html":false,"layout":"IPY_MODEL_b645434531a7442db85d4017dc4a78e9","placeholder":"​","style":"IPY_MODEL_0bf0f2bda486478d90c0a43c073be6d8","tabbable":null,"tooltip":null,"value":" 100/100 [00:00&lt;00:00, 6337.63it/s]"}},"3eb9c15c6528431abc6a22daa008e329":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"41133d2eecf548cb823f57c6bbbfeaac":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"6b86b6a2746040b1a534a81d5d245eee":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"8c6dd110e40a458b85356ff7d09e788c":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"8e622b20ac0d461b9e2344c0167d5d32":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"ProgressView","bar_style":"success","description":"","description_allow_html":false,"layout":"IPY_MODEL_8e6f0b6012b74315905d02c50aba8f50","max":100,"min":0,"orientation":"horizontal","style":"IPY_MODEL_8c6dd110e40a458b85356ff7d09e788c","tabbable":null,"tooltip":null,"value":100}},"8e6f0b6012b74315905d02c50aba8f50":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"9326fffc46b7436b99b6adaeacf5f836":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"ProgressView","bar_style":"success","description":"","description_allow_html":false,"layout":"IPY_MODEL_039b7aecf6dc4135b7e82f1c45384e45","max":100,"min":0,"orientation":"horizontal","style":"IPY_MODEL_41133d2eecf548cb823f57c6bbbfeaac","tabbable":null,"tooltip":null,"value":100}},"a5be63c6d8a241d3b198ced83207c515":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","background":null,"description_width":"","font_size":null,"text_color":null}},"a6c6436d802e46d9b90246672666ce83":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"a7646af981884f80a10ad5b9998920d9":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HTMLView","description":"","description_allow_html":false,"layout":"IPY_MODEL_6b86b6a2746040b1a534a81d5d245eee","placeholder":"​","style":"IPY_MODEL_d4b336a430eb43ebbb1a03e54faac21a","tabbable":null,"tooltip":null,"value":"Loading weights: 100%"}},"b3933a8622534b6b8c2318e1d51a2e47":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"2.0.0","_view_name":"HTMLView","description":"","description_allow_html":false,"layout":"IPY_MODEL_3eb9c15c6528431abc6a22daa008e329","placeholder":"​","style":"IPY_MODEL_c434009bffc5499b9604440ceecd1bae","tabbable":null,"tooltip":null,"value":"Loading weights: 100%"}},"b645434531a7442db85d4017dc4a78e9":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"c434009bffc5499b9604440ceecd1bae":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","background":null,"description_width":"","font_size":null,"text_color":null}},"d3f0f46d6d714dc89422bb0c3241f865":{"model_module":"@jupyter-widgets/base","model_module_version":"2.0.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"2.0.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border_bottom":null,"border_left":null,"border_right":null,"border_top":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"d4b336a430eb43ebbb1a03e54faac21a":{"model_module":"@jupyter-widgets/controls","model_module_version":"2.0.0","model_name":"HTMLStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"2.0.0","_model_name":"HTMLStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"2.0.0","_view_name":"StyleView","background":null,"description_width":"","font_size":null,"text_color":null}}},"version_major":2,"version_minor":0}
 </script>

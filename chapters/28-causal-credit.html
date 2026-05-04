@@ -988,7 +988,7 @@ window.Quarto = {
 <section id="overview" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="overview">Overview</h2>
 <p>A scorecard is a prediction machine. A credit policy is a causal intervention. Confusing the two is the most common, most expensive mistake in credit analytics. A model that predicts who will default conditional on a bank’s existing mix of marketing, pricing, and approval rules is not the same object as a model that tells the bank what happens to defaults if the cutoff moves by ten points, if an auto-decisioning engine replaces human underwriters, or if a new disclosure rule takes effect in California but not in Arizona. The first object is a conditional expectation. The second is a counterfactual.</p>
-<p>This chapter walks through the toolkit that credit teams need when the question stops being “what is the probability of default for this applicant” and starts being “what is the effect of this decision on outcomes we care about.” Selection bias and feedback loops from the acceptance rule (<a href="#sec-ch10" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch10</span></a>) motivate every identification strategy that follows. The chapter covers instrumental variables (<a href="#sec-ch28-iv" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-iv</span></a>) <span class="citation" data-cites="angrist1996identification">Imbens &amp; Angrist (<a href="11-trees-rules.html#ref-imbens1994identification" role="doc-biblioref">1994</a>)</span>, difference-in-differences (<a href="#sec-ch28-did" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-did</span></a>) <span class="citation" data-cites="card1994minimum">Bertrand et al. (<a href="11-trees-rules.html#ref-bertrand2004howmuch" role="doc-biblioref">2004</a>)</span>, regression discontinuity at score cutoffs (<a href="#sec-ch28-rdd" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-rdd</span></a>) <span class="citation" data-cites="hahn2001identification">Lee &amp; Lemieux (<a href="11-trees-rules.html#ref-lee2010regression" role="doc-biblioref">2010</a>)</span>, and double machine learning (<a href="#sec-ch28-dml" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-dml</span></a>) for high-dimensional controls <span class="citation" data-cites="chernozhukov2018double">Belloni et al. (<a href="11-trees-rules.html#ref-belloni2014inference" role="doc-biblioref">2014</a>)</span>. It closes with a practical protocol for causal validation of a deployed model: how to distinguish covariate drift from a genuine policy shift, and how to retrain without amplifying feedback bias.</p>
+<p>This chapter walks through the toolkit that credit teams need when the question stops being “what is the probability of default for this applicant” and starts being “what is the effect of this decision on outcomes we care about.” Selection bias and feedback loops from the acceptance rule (<a href="10-reject-inference.html" class="quarto-xref"><span>Chapter 10</span></a>) motivate every identification strategy that follows. The chapter covers instrumental variables (<a href="#sec-ch28-iv" class="quarto-xref"><span>Section 32.3</span></a>) <span class="citation" data-cites="angrist1996identification">Imbens &amp; Angrist (<a href="11-trees-rules.html#ref-imbens1994identification" role="doc-biblioref">1994</a>)</span>, difference-in-differences (<a href="#sec-ch28-did" class="quarto-xref"><span>Section 32.4</span></a>) <span class="citation" data-cites="card1994minimum">Bertrand et al. (<a href="11-trees-rules.html#ref-bertrand2004howmuch" role="doc-biblioref">2004</a>)</span>, regression discontinuity at score cutoffs (<a href="#sec-ch28-rdd" class="quarto-xref"><span>Section 32.5</span></a>) <span class="citation" data-cites="hahn2001identification">Lee &amp; Lemieux (<a href="11-trees-rules.html#ref-lee2010regression" role="doc-biblioref">2010</a>)</span>, and double machine learning (<a href="#sec-ch28-dml" class="quarto-xref"><span>Section 32.6</span></a>) for high-dimensional controls <span class="citation" data-cites="chernozhukov2018double">Belloni et al. (<a href="11-trees-rules.html#ref-belloni2014inference" role="doc-biblioref">2014</a>)</span>. It closes with a practical protocol for causal validation of a deployed model: how to distinguish covariate drift from a genuine policy shift, and how to retrain without amplifying feedback bias.</p>
 <section id="notation" class="level3 unnumbered">
 <h3 class="unnumbered anchored" data-anchor-id="notation">Notation</h3>
 <p>Let <span class="math inline">\(Y \in \{0, 1\}\)</span> be the observed default indicator, <span class="math inline">\(D \in \{0, 1\}\)</span> a binary treatment (a loan, a policy, a product), <span class="math inline">\(X \in \mathbb{R}^p\)</span> a vector of pre-treatment covariates, and <span class="math inline">\(Z\)</span> an instrument. Following <span class="citation" data-cites="rubin1974estimating">Rubin (<a href="11-trees-rules.html#ref-rubin1974estimating" role="doc-biblioref">1974</a>)</span> and <span class="citation" data-cites="holland1986statistics">Holland (<a href="11-trees-rules.html#ref-holland1986statistics" role="doc-biblioref">1986</a>)</span>, potential outcomes are written <span class="math inline">\(Y(1), Y(0)\)</span>, with <span class="math inline">\(Y = D Y(1) + (1 - D) Y(0)\)</span>. The average treatment effect is <span class="math inline">\(\tau = \mathbb{E}[Y(1) - Y(0)]\)</span>. The conditional average treatment effect (CATE) is <span class="math inline">\(\tau(x) = \mathbb{E}[Y(1) - Y(0) \mid X = x]\)</span>. The local average treatment effect (LATE) is <span class="math inline">\(\tau_{\text{LATE}} = \mathbb{E}[Y(1) - Y(0) \mid \text{compliers}]\)</span>. Expectations are over the population unless indexed otherwise. All code uses fixed seeds.</p>
@@ -1053,7 +1053,7 @@ True population default rate under blanket acceptance: 0.190</code></pre>
 <h2 data-number="32.2" class="anchored" data-anchor-id="sec-ch28-selection"><span class="header-section-number">32.2</span> Selection bias and feedback loops</h2>
 <section id="the-accepted-only-problem" class="level3" data-number="32.2.1">
 <h3 data-number="32.2.1" class="anchored" data-anchor-id="the-accepted-only-problem"><span class="header-section-number">32.2.1</span> The accepted-only problem</h3>
-<p><a href="#sec-ch10" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch10</span></a> laid out reject inference for the static case. The causal framing sharpens the picture. Let <span class="math inline">\(S \in \{0, 1\}\)</span> indicate whether an applicant is observed with a realized outcome. In the simplest bank, <span class="math inline">\(S = D\)</span>: only accepted applicants generate <span class="math inline">\(Y\)</span>. The training sample is selected on <span class="math inline">\(D = 1\)</span>. Suppose the bank runs logistic regression:</p>
+<p><a href="10-reject-inference.html" class="quarto-xref"><span>Chapter 10</span></a> laid out reject inference for the static case. The causal framing sharpens the picture. Let <span class="math inline">\(S \in \{0, 1\}\)</span> indicate whether an applicant is observed with a realized outcome. In the simplest bank, <span class="math inline">\(S = D\)</span>: only accepted applicants generate <span class="math inline">\(Y\)</span>. The training sample is selected on <span class="math inline">\(D = 1\)</span>. Suppose the bank runs logistic regression:</p>
 <p><span id="eq-selected-logit"><span class="math display">\[
 \widehat{\Pr}(Y = 1 \mid X, D = 1) = \sigma(X^\top \widehat{\beta}).
 \tag{32.1}\]</span></span></p>
@@ -1143,7 +1143,7 @@ True population default rate under blanket acceptance: 0.190</code></pre>
 </div>
 </div>
 </div>
-<p>Two things happen. The mean predicted PD drifts downward because each model trains on a progressively safer book. The Brier score on the full population drifts upward because the model’s predictions become less informative outside the region where it still sees data. The drift is not a bug in logistic regression. It is a consequence of feeding the output of the selection rule back into the training loop without correction. Reject inference <span class="citation" data-cites="heckman1979sample">(<a href="11-trees-rules.html#ref-heckman1979sample" role="doc-biblioref">Heckman, 1979</a>)</span> (see <a href="#sec-ch10" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch10</span></a>) is one fix. The rest of this chapter offers complementary fixes that use randomization or quasi-randomization in the acceptance rule itself.</p>
+<p>Two things happen. The mean predicted PD drifts downward because each model trains on a progressively safer book. The Brier score on the full population drifts upward because the model’s predictions become less informative outside the region where it still sees data. The drift is not a bug in logistic regression. It is a consequence of feeding the output of the selection rule back into the training loop without correction. Reject inference <span class="citation" data-cites="heckman1979sample">(<a href="11-trees-rules.html#ref-heckman1979sample" role="doc-biblioref">Heckman, 1979</a>)</span> (see <a href="10-reject-inference.html" class="quarto-xref"><span>Chapter 10</span></a>) is one fix. The rest of this chapter offers complementary fixes that use randomization or quasi-randomization in the acceptance rule itself.</p>
 </section>
 </section>
 <section id="sec-ch28-iv" class="level2" data-number="32.3">
@@ -1256,7 +1256,7 @@ Y_{it} = \alpha_i + \gamma_t + \tau G_i T_t + \varepsilon_{it},
 </section>
 <section id="modern-did-caveats" class="level3" data-number="32.4.2">
 <h3 data-number="32.4.2" class="anchored" data-anchor-id="modern-did-caveats"><span class="header-section-number">32.4.2</span> Modern DiD caveats</h3>
-<p>TWFE has known problems under heterogeneous or staggered treatment <span class="citation" data-cites="goodmanbacon2021difference">Roth et al. (<a href="11-trees-rules.html#ref-roth2023what" role="doc-biblioref">2023</a>)</span>. When units adopt treatment at different times and the treatment effect varies across units, TWFE is a weighted average with negative weights on some comparisons. The recent literature (Callaway-Sant’Anna, de Chaisemartin-D’Haultfoeuille, Sun-Abraham) develops estimators that avoid this. For a single policy that kicks in at a single date across one group, the classical estimator in <a href="#eq-did-twfe" class="quarto-xref">Eq.&nbsp;<span class="quarto-unresolved-ref">eq-did-twfe</span></a> still works.</p>
+<p>TWFE has known problems under heterogeneous or staggered treatment <span class="citation" data-cites="goodmanbacon2021difference">Roth et al. (<a href="11-trees-rules.html#ref-roth2023what" role="doc-biblioref">2023</a>)</span>. When units adopt treatment at different times and the treatment effect varies across units, TWFE is a weighted average with negative weights on some comparisons. The recent literature (Callaway-Sant’Anna, de Chaisemartin-D’Haultfoeuille, Sun-Abraham) develops estimators that avoid this. For a single policy that kicks in at a single date across one group, the classical estimator in <a href="#eq-did-twfe" class="quarto-xref">Eq.&nbsp;<span>32.3</span></a> still works.</p>
 <p><span class="citation" data-cites="bertrand2004howmuch">Bertrand et al. (<a href="11-trees-rules.html#ref-bertrand2004howmuch" role="doc-biblioref">2004</a>)</span>’s classic paper on DiD standard errors reminds us that inference must cluster at the unit level because unobserved shocks are serially correlated. Cluster-robust variance estimators are the default.</p>
 </section>
 <section id="simulated-policy-change" class="level3" data-number="32.4.3">
@@ -1757,7 +1757,7 @@ True theta: -0.08</code></pre>
 Approx true marginal effect on PD: -0.1102</code></pre>
 </div>
 </div>
-<p>The DML estimate matches the true marginal effect to two decimal places. In production, analysts use these numbers for stress-testing (<a href="#sec-ch35" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch35</span></a>): what happens to PD if income falls 5 percent across a portfolio segment? A DML estimate, not a logistic regression coefficient, is the honest answer.</p>
+<p>The DML estimate matches the true marginal effect to two decimal places. In production, analysts use these numbers for stress-testing (<a href="35-ifrs9-cecl-stress.html" class="quarto-xref"><span>Chapter 39</span></a>): what happens to PD if income falls 5 percent across a portfolio segment? A DML estimate, not a logistic regression coefficient, is the honest answer.</p>
 </section>
 </section>
 <section id="causal-validation-of-deployed-models" class="level2" data-number="32.7">
@@ -1819,7 +1819,7 @@ Conditional drift    : 0.0130</code></pre>
 <section id="counterfactual-calibration" class="level3" data-number="32.7.2">
 <h3 data-number="32.7.2" class="anchored" data-anchor-id="counterfactual-calibration"><span class="header-section-number">32.7.2</span> Counterfactual calibration</h3>
 <p>A deployed model is calibrated if <span class="math inline">\(\Pr(Y = 1 \mid s(X) = s) = s\)</span> where <span class="math inline">\(s\)</span> is the predicted PD. Counterfactual calibration is the stronger requirement: if the acceptance rule changed and the model were exposed to applicants it currently rejects, it would still be calibrated. Counterfactual calibration is not testable directly on production data. It is testable on random-holdout trials, which some lenders run on a small slice of applications to preserve the ability to learn about the rejected margin <span class="citation" data-cites="khandani2010consumer">Kleinberg et al. (<a href="11-trees-rules.html#ref-kleinberg2018human" role="doc-biblioref">2018</a>)</span>.</p>
-<p>An honest practitioner runs a random-holdout slice: with probability <span class="math inline">\(\epsilon\)</span>, accept an applicant regardless of model score. This generates unbiased outcome data on the low-score tail that would otherwise be censored. The slice costs the expected loss on the unprofitable applications. The benefit is a stream of causally valid data that keeps the next vintage from collapsing into the feedback-loop fixed point of <a href="#sec-ch28-selection" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-selection</span></a>.</p>
+<p>An honest practitioner runs a random-holdout slice: with probability <span class="math inline">\(\epsilon\)</span>, accept an applicant regardless of model score. This generates unbiased outcome data on the low-score tail that would otherwise be censored. The slice costs the expected loss on the unprofitable applications. The benefit is a stream of causally valid data that keeps the next vintage from collapsing into the feedback-loop fixed point of <a href="#sec-ch28-selection" class="quarto-xref"><span>Section 32.2</span></a>.</p>
 <div id="bba5a019" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -1907,7 +1907,7 @@ bin
 </section>
 <section id="feedback-loop-simulation-and-bias-amplification" class="level2" data-number="32.8">
 <h2 data-number="32.8" class="anchored" data-anchor-id="feedback-loop-simulation-and-bias-amplification"><span class="header-section-number">32.8</span> Feedback loop simulation and bias amplification</h2>
-<p><a href="#sec-ch28-selection" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-selection</span></a> showed drift over vintages. This section closes the loop by quantifying the counterfactual bias a naive retraining procedure accumulates, and by comparing a causally aware fix based on random-holdout data.</p>
+<p><a href="#sec-ch28-selection" class="quarto-xref"><span>Section 32.2</span></a> showed drift over vintages. This section closes the loop by quantifying the counterfactual bias a naive retraining procedure accumulates, and by comparing a causally aware fix based on random-holdout data.</p>
 <div id="803128bb" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
@@ -2232,15 +2232,15 @@ DML ATE of 'high limit' on default (pseudo, observational): -0.0549</code></pre>
 <h2 data-number="32.12" class="anchored" data-anchor-id="regulatory-considerations"><span class="header-section-number">32.12</span> Regulatory considerations</h2>
 <p>Causal reasoning shows up in four active regulatory threads.</p>
 <p>SR 11-7 model risk management asks for evidence that a model’s predictions behave sensibly under intervention. A model that performs well on random holdouts but whose predictions collapse when an input shifts by a standard deviation fails the outcome-analysis leg of SR 11-7. A DML probe, where a key feature is perturbed across a hypothetical distribution and the average change in PD is reported, is exactly this kind of evidence.</p>
-<p>ECOA and fair-lending adjacent law require lenders to justify that a model does not disparately impact protected groups. <a href="#sec-ch24" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch24</span></a> covered the measurement. The causal tools in this chapter are the intervention-level complement. A DML estimate of a protected attribute’s effect on PD, conditioning on a rich observable set, gives a decomposition of the disparity into “explained by legitimate observables” and “residual.” Regulators increasingly expect this decomposition.</p>
-<p>Basel IRB models require a through-the-cycle (TTC) PD that is stable across business cycles. The decomposition in <a href="#sec-ch28-drift" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch28-drift</span></a>, separating covariate drift from conditional drift, is a diagnostic tool for TTC calibration. Conditional drift that persists across cycles is a warning that the model’s identification is breaking down.</p>
+<p>ECOA and fair-lending adjacent law require lenders to justify that a model does not disparately impact protected groups. <a href="24-fairness-empirical.html" class="quarto-xref"><span>Chapter 28</span></a> covered the measurement. The causal tools in this chapter are the intervention-level complement. A DML estimate of a protected attribute’s effect on PD, conditioning on a rich observable set, gives a decomposition of the disparity into “explained by legitimate observables” and “residual.” Regulators increasingly expect this decomposition.</p>
+<p>Basel IRB models require a through-the-cycle (TTC) PD that is stable across business cycles. The decomposition in <a href="#sec-ch28-drift" class="quarto-xref"><span>Section 32.7.1</span></a>, separating covariate drift from conditional drift, is a diagnostic tool for TTC calibration. Conditional drift that persists across cycles is a warning that the model’s identification is breaking down.</p>
 <p>The EU AI Act’s “high-risk” classification for credit scoring systems puts additional weight on causal testing. Providers must document that the model behaves consistently under realistic deployment conditions. A causal validation protocol with random-holdout slices and counterfactual calibration checks is a concrete way to produce that documentation.</p>
 <p>A CRO who has to defend a causal analysis in front of a regulator will face one question repeatedly: “what is the identifying variation?” For IV, the answer is an argument that the instrument is exogenous and excluded. For DiD, it is an argument that the control group’s trend is the counterfactual. For RDD, it is the sharpness and no-manipulation assumption at the cutoff. For DML, it is the unconfoundedness of the control set, which is the weakest and the hardest to defend. A senior practitioner sequences the tools accordingly: RDD and DiD first when the design supports them, IV next when there is a credible instrument, DML last when only observational controls are available.</p>
 </section>
 <section id="deployment-considerations" class="level2" data-number="32.13">
 <h2 data-number="32.13" class="anchored" data-anchor-id="deployment-considerations"><span class="header-section-number">32.13</span> Deployment considerations</h2>
 <p>Causal estimators in production need three things predictive models do not. First, a standing random-holdout slice: a sampling layer in the decisioning engine that overrides the policy at probability <span class="math inline">\(\epsilon\)</span>, logged separately so downstream training pipelines can use it. Second, an identification registry: for each deployed causal estimator, a documented description of the assumption it relies on, plus a monitoring metric that proxies assumption validity. For RDD, this is a live McCrary density check on the running variable. For IV, a live first-stage F. For DiD, a pre-period placebo that is recomputed on a rolling window. Third, a versioned counterfactual grid: a table of hypothetical applicants with known covariates at which the model’s predictions are logged every retraining cycle, so shifts in the counterfactual surface become visible even when the overall AUC looks stable.</p>
-<p>Most of these live in an MLOps layer next to the scorecard. <code>MLflow</code> can log counterfactual contrasts as metrics. <code>FastAPI</code> can expose a counterfactual endpoint that takes an applicant record plus a hypothetical intervention (for example, a DTI reduction) and returns the DML-adjusted PD change. Nothing about this is exotic; it just needs to be part of the deployment checklist. <a href="#sec-ch34" class="quarto-xref"><span class="quarto-unresolved-ref">sec-ch34</span></a> details the full MLOps stack. The hook for causal estimators is the <code>log_counterfactual</code> endpoint and the <code>random_holdout</code> sampler, both of which should be wired during the initial deploy rather than retrofitted later.</p>
+<p>Most of these live in an MLOps layer next to the scorecard. <code>MLflow</code> can log counterfactual contrasts as metrics. <code>FastAPI</code> can expose a counterfactual endpoint that takes an applicant record plus a hypothetical intervention (for example, a DTI reduction) and returns the DML-adjusted PD change. Nothing about this is exotic; it just needs to be part of the deployment checklist. <a href="34-mlops-deployment.html" class="quarto-xref"><span>Chapter 38</span></a> details the full MLOps stack. The hook for causal estimators is the <code>log_counterfactual</code> endpoint and the <code>random_holdout</code> sampler, both of which should be wired during the initial deploy rather than retrofitted later.</p>
 </section>
 <section id="where-the-literature-is-heading" class="level2" data-number="32.14">
 <h2 data-number="32.14" class="anchored" data-anchor-id="where-the-literature-is-heading"><span class="header-section-number">32.14</span> Where the literature is heading</h2>
@@ -2458,6 +2458,125 @@ World Bank. (2022). <em>The global findex database 2021</em>. World Bank Group. 
 </section>
 
 </main> <!-- /main -->
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+.mermaid-panzoom-wrap {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  background: #fafafa;
+  overflow: hidden;
+}
+.mermaid-panzoom-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 0.78em;
+  color: #555;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mermaid-panzoom-reset {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 0.78em;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cfd8dc;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+}
+.mermaid-panzoom-reset:hover { background: #e3f2fd; }
+</style>
+<script>
+(function () {
+  function isMermaidSvg(svg) {
+    if (!svg || svg.dataset.panzoomApplied) return false;
+    if (svg.closest('pre.mermaid, .mermaid')) return true;
+    if (svg.id && svg.id.startsWith('mermaid')) return true;
+    if (svg.classList && svg.classList.contains('mermaid')) return true;
+    if (svg.querySelector('g.nodes, g.node, g.edgePaths, g.edgePath')) return true;
+    const aria = svg.getAttribute('aria-roledescription') || '';
+    if (aria.includes('flowchart') || aria.includes('graph')) return true;
+    return false;
+  }
+
+  function attachPanZoom(svg) {
+    if (svg.dataset.panzoomApplied) return;
+    svg.dataset.panzoomApplied = '1';
+
+    const host = svg.parentNode;
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-panzoom-wrap';
+    host.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = '520px';
+    svg.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'mermaid-panzoom-hint';
+    hint.textContent = 'scroll to zoom · drag to pan';
+    wrap.appendChild(hint);
+
+    const reset = document.createElement('button');
+    reset.className = 'mermaid-panzoom-reset';
+    reset.type = 'button';
+    reset.textContent = 'reset';
+    wrap.appendChild(reset);
+
+    let pz;
+    try {
+      pz = svgPanZoom(svg, {
+        controlIconsEnabled: true,
+        fit: true,
+        center: true,
+        minZoom: 0.3,
+        maxZoom: 8,
+        zoomScaleSensitivity: 0.4,
+        contain: false,
+      });
+    } catch (e) {
+      reset.style.display = 'none';
+      hint.style.display = 'none';
+      return;
+    }
+    reset.addEventListener('click', () => {
+      pz.resetZoom();
+      pz.center();
+      pz.fit();
+    });
+  }
+
+  function scan() {
+    const svgs = document.querySelectorAll(
+      'div.cell-output-display svg, figure svg, pre.mermaid svg, .mermaid svg'
+    );
+    svgs.forEach((svg) => {
+      if (isMermaidSvg(svg)) attachPanZoom(svg);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(scan, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', scan);
+  }
+  window.addEventListener('load', scan);
+  // Mermaid sometimes renders late; rescan once after a short delay.
+  setTimeout(scan, 800);
+})();
+</script>
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     // Ensure there is a toggle, if there isn't float one in the top right
