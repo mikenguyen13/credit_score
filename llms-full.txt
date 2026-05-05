@@ -7766,9 +7766,9 @@ The target is the conditional on $S=1$. When the decision rule depends on $X$, t
 
 The distinction matters because there exist rules that induce covariate shift without selection bias. If $s(X, Z) = \mathbf{1}\{Z > 0\}$ and $Z$ is independent of $(Y, X)$, then $P(Y \mid X, S=1) = P(Y \mid X)$ and there is nothing to correct. The pathology is when $s$ depends on $X$ in a way that covaries with the residual in the outcome model, or when $s$ depends on latent information unobserved to the modeler that is also predictive of $Y$. In consumer credit both are the norm. Loan officers read free-text notes, underwriters flag informal income, overlays include desk-level intuition, and all of that ends up baked into the accept decision but absent from the feature store.
 
-### Two mechanisms, side by side 
+### Two mechanisms 
 
-To make the distinction concrete, fix one outcome model and run two selection rules through it. The outcome model has one observable feature $X$ and one latent residual $U$ that stands in for everything not in the feature store: informal-income flags, free-text underwriter notes, desk overlays. Two selection rules differ only in what drives the accept decision. @fig-ch10-two-mechanisms shows the mechanism graphs side by side; the only structural difference is the arrow into $S$ in the right panel.
+To make the distinction concrete, fix one outcome model and run two selection rules through it. The outcome model has one observable feature $X$ and one latent residual $U$ that stands in for everything not in the feature store: informal-income flags, free-text underwriter notes, desk overlays. Two selection rules differ only in what drives the accept decision. @fig-ch10-two-mechanisms-a and @fig-ch10-two-mechanisms-b show the mechanism graphs in turn; the only structural difference is the arrow into $S$ in the second graph.
 
 Now drive the two graphs through a simulation. Both scenarios share the through-the-door feature $X$, the outcome residual $U$, and the outcome rule $Y = \mathbf{1}\{0.7\,X + U > 0.5\}$. Scenario A's accept rule depends on an independent noise $W$, so within any $X$-bin the accept slice is a uniform random subsample of the bin and inherits the bin's $U$ distribution. Scenario B's accept rule depends on $V$ with $\mathrm{Corr}(U, V) = 0.6$, so within any $X$-bin the accepted ones are exactly the applicants with the lowest $V$, which by correlation are the applicants with the lowest $U$, which by the outcome rule are the applicants least likely to default. The marginal accept rate and the marginal $P(X \mid S=1)$ are identical across the two scenarios by construction.
 
@@ -7776,7 +7776,7 @@ Read the table column by column. The first numeric column is the truth: the bin-
 
 The geometric reading is that Scenario A's accept set is a uniform random sample of each $X$-slice of the through-the-door population, while Scenario B's accept set is the lower-$V$ tail of each $X$-slice, and the lower-$V$ tail is also the lower-$U$ tail because of the $\rho$ arrow. An importance-weighting estimator that targets $P(X)$ from $P(X \mid S=1)$ corrects both scenarios' marginal shift identically; the Scenario B residual gap survives the reweighting because the bin-conditional $U$ distribution is no longer $N(0,1)$ inside $S=1$.
 
-This is the gap @sec-ch10-heckman-selection-correction writes as $\rho \sigma \lambda(\cdot)$ and adds as an extra regressor, the gap @sec-ch10-modern attacks with AIPW, copulas, and importance weighting, and the gap @sec-ch10-bureau-extrapolation sidesteps by importing $Y_B$ for the rejects directly. Each method takes a different position on what structure or what data is available to identify $\rho$ (or its non-Gaussian generalization), but every method in this chapter exists because of the right panel of @fig-ch10-two-mechanisms, not the left.
+This is the gap @sec-ch10-heckman-selection-correction writes as $\rho \sigma \lambda(\cdot)$ and adds as an extra regressor, the gap @sec-ch10-modern attacks with AIPW, copulas, and importance weighting, and the gap @sec-ch10-bureau-extrapolation sidesteps by importing $Y_B$ for the rejects directly. Each method takes a different position on what structure or what data is available to identify $\rho$ (or its non-Gaussian generalization), but every method in this chapter exists because of @fig-ch10-two-mechanisms-b, not @fig-ch10-two-mechanisms-a.
 
 ### Rubin's missing-data taxonomy
 
@@ -7889,7 +7889,7 @@ $$
 
 where $w_i = \tau(X_i) \hat p_0(X_i)$ is the soft-label weight.
 
-Setting $\tau \equiv 1$ is the MAR assumption in disguise: the accepted PD curve, extrapolated to the rejected region, is the true PD curve. Setting $\tau > 1$ is a hand-tuned adjustment. Industry lore uses $\tau \in [2, 5]$, with higher values for riskier product segments. There is no data-driven way to pin $\tau$ from the accepted-only sample; it comes from either bureau data or a champion-challenger test. Any justification beyond expert judgment is an auxiliary data source in disguise.
+Setting $\tau \equiv 1$ is the MAR assumption in disguise: the accepted PD curve, extrapolated to the rejected region, is the true PD curve. Setting $\tau > 1$ is a hand-tuned adjustment. Industry lore uses $\tau \in [2, 5]$, with higher values for riskier product segments. The *policy*-accepted sample alone cannot pin $\tau$, because every applicant in it survived a selection rule that depends on $(U, V)$; the conditional default rate it reveals is $P(Y \mid X, S=1)$, not $P(Y \mid X)$. To identify $\tau(x)$ data-driven, the modeller needs a sample whose acceptance was assigned independently of the policy decision. Two such sources exist in production: a bureau pull on rejected applicants (@sec-ch10-bureau-extrapolation), or a champion-challenger random-accept holdout where a small fraction of applicants is approved regardless of policy score (@sec-ch10-design-based, D1). The latter delivers a banded estimator $\hat\tau(x)$ with bootstrap confidence intervals; we work it out end-to-end on the synthetic lender in @sec-ch10-tau-from-holdout.
 
 ### A pen-and-paper trace 
 
@@ -8013,7 +8013,7 @@ which is the expectation of the log-likelihood under a $\mathrm{Bernoulli}(\bar\
 
 The oracle reject bad rate per band is systematically higher than $\bar\pi_b$ in the low bands and lower in the highest band. That mismatch is the fingerprint of MNAR: even after conditioning on $\hat p_A$, rejects in any given band are not a random sample of the through-the-door population in that band. With real data the oracle column is unobservable, which is exactly why the impossibility result bites. Nothing in the augmentation procedure can detect or correct this gap from the accepted-only sample alone.
 
-**What changes if we set** $\tau \neq 1$. Multiplying every $\bar\pi_b$ by a constant $\tau$ shifts the weights toward the "bad" row uniformly. This raises the refit's overall PD level (the intercept rises) but barely tilts the slope, because every band's rate moves by the same factor. A practitioner who knows from bureau pulls that the rejected population is roughly $\tau = 1.5$ times riskier than the same-band accepteds can use $\tau = 1.5$ as a level shift. There is no way to extract this $\tau$ from the accepted sample; it has to come in from outside, which is the topic of @sec-ch10-bureau-extrapolation.
+**What changes if we set** $\tau \neq 1$. Multiplying every $\bar\pi_b$ by a constant $\tau$ shifts the weights toward the "bad" row uniformly. This raises the refit's overall PD level (the intercept rises) but barely tilts the slope, because every band's rate moves by the same factor. A practitioner who knows from bureau pulls that the rejected population is roughly $\tau = 1.5$ times riskier than the same-band accepteds can use $\tau = 1.5$ as a level shift. The policy-accepted sample alone cannot deliver this $\tau$; it has to come in from outside. Two principled sources are available: bureau extrapolation (@sec-ch10-bureau-extrapolation) and a random-accept champion-challenger holdout, which yields a banded $\hat\tau(x)$ estimator we implement and benchmark in @sec-ch10-tau-from-holdout.
 
 ## Bureau-based extrapolation and downturn adjustment 
 
@@ -8313,7 +8313,7 @@ In practice, banks rely on the cluster bootstrap. It is easier to audit, gives c
 
 Heckman is a model-based correction: it imposes structure on the unobservables to identify $\beta$ from observed-only data. When the lender actually controls the acceptance engine, identification can be earned from the *design* of the policy rather than from a parametric joint. Design-based estimation does not need bivariate normality, an exclusion restriction, or a correct selection link. It needs an exogenous source of variation deliberately injected into the policy. The chapter develops these tools in @sec-ch10-observable; we list them here in increasing order of operational cost so the modeler can match the design to the constraint.
 
-D1. **Random small holdout (champion-challenger).** A fixed fraction (typically 1 to 5 percent) of marginal applicants is approved at random regardless of the policy score, and another fraction is declined at random regardless of the policy score. The holdout gives identical features in both arms, so the accept-arm $Y$ on the random-accept holdout is an unbiased estimate of the through-the-door $P(Y \mid X)$ on the marginal cohort. Cost: 1 to 5 percent of policy precision. Identification: clean, parametric-free, ECOA-compatible when the random rule is documented (@howell2024lender). Estimator: simple sample mean within strata, or AIPW with a known propensity (@sec-ch10-meta).
+D1. **Random small holdout (champion-challenger).** A fixed fraction (typically 1 to 5 percent) of marginal applicants is approved at random regardless of the policy score, and another fraction is declined at random regardless of the policy score. The holdout gives identical features in both arms, so the accept-arm $Y$ on the random-accept holdout is an unbiased estimate of the through-the-door $P(Y \mid X)$ on the marginal cohort. Restricted to the would-have-been-rejected subset of that holdout, it estimates the rejected PD $P(Y \mid X, S=0)$ directly; the ratio against the policy-accepted PD identifies the fuzzy-augmentation scalar $\tau(x)$ from @eq-fuzzy-augmentation without bureau data. Cost: 1 to 5 percent of policy precision. Identification: clean, parametric-free, ECOA-compatible when the random rule is documented (@howell2024lender). Estimator: simple sample mean within strata, or AIPW with a known propensity (@sec-ch10-meta); the banded $\hat\tau(x)$ implementation, with bootstrap intervals and empirical-Bayes shrinkage for thin bands, is in @sec-ch10-tau-from-holdout.
 
 D2. **Stochastic acceptance overlay.** The deterministic cutoff $S = \mathbf{1}\{R > \tau\}$ is replaced by a smooth probability $P(S = 1 \mid R) = \pi(R)$ with $\pi$ strictly between 0 and 1 on a band around $\tau$. Exact-propensity weighting (@sec-ch10-observable) recovers the through-the-door PD without parametric assumptions. Thompson-sampling and $\epsilon$-greedy bandit overlays are special cases. Cost: marginal applicants get a probabilistic decision, which complicates explainability under GDPR Article 22.
 
@@ -8488,6 +8488,28 @@ The bootstrap interval on $\rho$ covers the simulation truth (0.6), and the boot
 The fuzzy augmentation procedure follows @eq-fuzzy-augmentation. Fit an accepted-only PD, score the rejects, scale their PD by $\tau$, and refit a weighted logistic with fractional labels. We report two values of $\tau$: the MAR baseline ($\tau = 1$) and a moderate industry value ($\tau = 2$).
 
 Fuzzy augmentation with $\tau = 1$ barely moves the estimates away from the naive fit, which is what the theory predicts: under MAR and with a correctly specified accepted PD, the augmentation pulls the fitted PD back toward the accepted-only curve. With $\tau = 2$ the intercept rises (the bank's belief that rejects are riskier shows up as a higher baseline PD), but the slopes move further from the oracle rather than toward it. This matches the @sec-ch10-heckman-selection-correction impossibility result: without an exogenous source of information about the rejected PD, a hand-tuned $\tau$ is not a principled correction.
+
+### Estimating $\tau(x)$ from a random-accept holdout 
+
+The closing sentence of the previous block is the chapter's standing claim: a hand-tuned $\tau$ is not principled. The same arithmetic, run on a random-accept holdout, *is* principled, because the holdout breaks the dependence between selection and the latent error $V$ by design. This subsection takes the D1 design (@sec-ch10-design-based) and turns it into a banded $\hat\tau(x)$ estimator with bootstrap intervals, empirical-Bayes shrinkage for thin bands, and a head-to-head comparison against the hand-tuned scalar.
+
+**Identification.** Let $A$ index the policy-accepted population (where $S = 1$ under the deterministic engine) and $R$ index the would-have-been-rejected population (where $S = 0$). Define $p_A(x) = P(Y = 1 \mid X = x, S = 1)$ and $p_R(x) = P(Y = 1 \mid X = x, S = 0)$. The fuzzy-augmentation scalar is $\tau(x) = p_R(x) / p_A(x)$. A random-accept holdout assigns $S = 1$ to a fraction $h$ of all applicants by coin flip, independent of $(X, U, V)$. On this holdout slice, $S \perp (U, V) \mid X$ by construction, so $P(Y = 1 \mid X = x, \text{in holdout}) = P(Y = 1 \mid X = x)$, the through-the-door PD. Restrict the holdout to the would-have-been-rejected subset (those whose policy decision was decline before the random override) and the conditional becomes $p_R(x)$ exactly. The ratio against $p_A(x)$ from the policy arm identifies $\tau(x)$ without bureau data and without parametric structure.
+
+**Holdout overlay on the synthetic lender.** We approve a 3 percent random slice of all applicants regardless of the policy decision and observe $Y$ on every member. The deterministic policy `s` from the simulation in @sec-ch10-implementation-from-scratch is unchanged; the random override is a separate column.
+
+**Banded $\hat\tau(x)$ estimator.** The estimator bins applicants by the policy-accepted PD score $\hat p_A(x)$, computes the empirical default rate inside each band on the policy-only arm and on the holdout-reject arm, and reports their ratio. Bands are quintiles of $\hat p_A$ on the policy-only arm so they are stable across bootstrap resamples. Empirical-Bayes shrinkage stabilises bands with few holdout-reject observations by pulling the band-level $\hat\tau$ toward a global ratio with weight inversely proportional to the band's posterior variance.
+
+The point estimates and confidence intervals tell three things at once: which bands contain enough holdout-reject observations to pin $\hat\tau$ at all (the `n_R` column), how much the empirical-Bayes prior pulls thin bands toward the global ratio (compare `tau_raw` to `tau_shrunk`), and how wide the bootstrap interval is (`ci_hi - ci_lo`). At a 3 percent holdout share with $n = 20{,}000$, the deepest score band typically gets only a few dozen rejected observations, and the unshrunk $\hat\tau$ on that band is unstable; the shrunk estimate is the production-grade choice.
+
+**Refit with $\hat\tau(x)$ instead of a scalar.** The fuzzy augmentation procedure becomes data-driven once we feed it the banded $\hat\tau(x)$. The function below mirrors `fit_fuzzy_augmentation` from the previous subsection, but takes a per-band $\tau$ vector and applies it row-wise to each rejected applicant by their score band.
+
+The `fuzzy_tau_hat` column is the augmentation refit using $\hat\tau(x)$ from the holdout; the `fuzzy_tau2_hand` column is the same procedure with a scalar $\tau = 2$. On this DGP the holdout-driven coefficients land closest to the oracle on every parameter (intercept, X1 slope, X2 slope), where the hand-tuned $\tau = 2$ pushes all three further from the oracle than even the naive fit. The reason is direction. The DGP in @sec-ch10-implementation-from-scratch is parameterised so that within a band of the policy PD score, the rejected population is *less* risky than the accepted one (because rejection within band is driven mostly by the excluded score $Z$, which carries no default signal in this construction); the size-weighted holdout estimate $\hat\tau \approx 0.68$ catches this cleanly. Industry lore that says "rejects are 2x to 5x riskier than accepts" assumes a regime that this DGP does not satisfy, and the hand-tuned $\tau = 2$ pays for that mismatch with a worse fit. The lesson is not that $\tau < 1$ always; it is that the *sign* of $\tau - 1$ is itself an empirical question the policy-accepted sample cannot answer, and the holdout is the smallest external data source that can.
+
+**Sample-size and cost guidance.** A 1 percent holdout on $n = 20{,}000$ produces only $\approx 90$ would-have-been-rejected observations spread across $n_{\text{bands}} = 5$ bands; the within-band counts are too thin to drive a refit. The break-even point on this DGP is closer to a 3 percent holdout, which produces $\approx 270$ rejected observations and tightens the 95 percent bootstrap interval on the global $\hat\tau$ to roughly $\pm 0.4$. Banks running mid-sized portfolios ($n \gtrsim 100{,}000$ per vintage) can recover the same precision at a 1 percent cost. For the smaller portfolios common in Vietnamese consumer finance (@sec-ch10-vietnam-and-emerging-markets), pool the holdout across vintages and apply the through-the-cycle adjustment from @sec-ch10-vintage-worked before reading $\hat\tau$.
+
+**Why this is not double-dipping.** The naive fit, the policy-accepted PD $\hat p_A$, and the band edges all use the policy arm only. The holdout enters only through the numerator $\hat p_R$ inside each band. The bootstrap resamples applicants, not bands, so the variance estimate covers the joint sampling of both arms. Validators routinely flag fuzzy-augmentation pipelines that fit the band edges on the same holdout used to estimate $\hat\tau$; this construction sidesteps that critique by separating the two roles.
+
+**Connection to AIPW.** When the policy propensity $\pi(x) = P(\text{policy accept} \mid x)$ is logged, the same holdout supports a richer AIPW estimator that conditions on $x$ continuously rather than through bands; the wrapper in @sec-ch10-meta plugs $\hat\tau(x)$ in as the augmentation correction and reports the doubly robust efficient influence function. The banded $\hat\tau$ estimator above is the audit-friendly version that runs without the propensity log; the AIPW version is the efficient version that needs it.
 
 ### Self-training via sklearn
 
@@ -8981,6 +9003,36 @@ Both stages are linear models with a standard normal CDF applied at the end. ONN
 A reject-inference deployment needs more telemetry than a vanilla PD model. The selection probit, the propensity distribution, and the calibration of the corrected score all need their own panels. @fig-ch10-monitor shows a four-panel mock that surfaces every load-bearing diagnostic at a glance. We render it on the synthetic lender's holdout to make the panel layout concrete.
 
 Read the panels as a single object. If the accept rate drifts outside the tolerance band, the propensity distribution shifts, and the IMR tail thickens, the selection environment is changing and the Heckman fit is no longer the same model that was validated. If only the calibration panel degrades, the outcome stage is misspecified. If everything moves together, the macro environment is shifting and the through-the-cycle anchors need a refresh. SR 11-7 reviewers want each panel as a separate metric in the model performance report; rolling them into one dashboard is operational hygiene, not a regulatory requirement.
+
+### Periodic retraining and policy adaptation: the production package 
+
+The dashboard above signals when something is off; it does not retrain. Production deployment closes the loop with a periodic retrain that handles three regimes:
+
+1. *Inside the bank, observable engine.* The lender logs $\pi_i$ at decision time. Retrain reads $\pi$ from the feature store, refits the outcome stage with AIPW, and keeps Heckman as the SR 11-7 sensitivity anchor.
+2. *Inside the bank, unobservable engine.* No logged $\pi$. Retrain refits Heckman stage 1, re-runs the exclusion-restriction recheck (including the IMR control so a valid IV is not flagged spuriously), and stacks AIPW on the estimated propensity.
+3. *Alt-data provider.* The lender's policy is opaque. Per-lender stage 1 with shrinkage to a pooled coefficient vector, cold-start pseudo-prior for new lenders from lookalike peers, and a feedback-loop guard that detects when the provider's own score has entered the lender's policy.
+
+Each retrain produces a `RetrainArtifact`; promotion runs through `gated_promote()`, which applies the multi-metric gate (DeLong AUC, Brier, calibration slope, ECE, per-segment AUC, ECOA disparate impact), the Basel TTC multi-vintage gate, and emits the SR 11-7 model-change memo.
+
+The package lives at [book/code/reject_inference_pipeline/](../code/reject_inference_pipeline/) and ships a FastAPI wrapper at [book/deployment/reject_inference_app.py](../deployment/reject_inference_app.py). The remainder of this section drives the package end-to-end on a synthetic three-vintage cohort.
+
+The package is laid out as one module per concern: `schema.py` for the validated snapshots, `policy.py` for the immutable policy-version log, `propensity.py` and `outcome.py` for the two estimator stacks, `drift.py` for the three-kind drift classifier with hysteresis, `champion_challenger.py` for the gate, `governance.py` for the SR 11-7 memo and Basel TTC check, `alt_data.py` for the per-lender hierarchical workflow, `cfrm.py` for counterfactual risk minimisation, `pipeline.py` for the orchestrator, and `model_card.py` for the auto-generated card. The smoke test at [book/code/reject_inference_pipeline/_smoke.py](../code/reject_inference_pipeline/_smoke.py) walks every module on a tiny synthetic cohort.
+
+The validated snapshot is the boundary contract: every estimator in the pipeline trusts the schema and never re-validates downstream. Point-in-time correctness is enforced by `join_snapshot_outcomes`: applicants whose `as_of` is later than `snapshot_date - performance_window_months` are held out as the censored tail and never feed the matured-label fit.
+
+Both retrain modes report a Heckman versus AIPW gap as the SR 11-7 sensitivity anchor. The IV diagnostic now conditions on the IMR; without that control, a valid instrument is silently flagged as significant in the outcome equation because $Z$ enters $y$ through $\hat\lambda$ on the funded slice. This was a real failure mode of the previous deployment sketch in this chapter; the package fixes it.
+
+The trigger separates covariate drift, concept drift, and selection drift; the orchestrator uses the kind to pick the cheapest defensible fix (recalibration vs full retrain vs stage-1-only). Hysteresis is the implementation of "do not retrain on a single noisy day": the trigger fires only after the same drift kind has crossed threshold for `min_consecutive` consecutive observation days, or when an operator manually overrides (e.g., a policy version bump pre-announced by the lender).
+
+`gated_promote` returns a single `promote` boolean and the full reasoning. Even when the synthetic produces nearly-identical champion and challenger (so the AUC test is a wash), the Basel TTC gate hard-blocks because the challenger does not strictly improve on enough vintages to warrant a swap. This is the desired behaviour: through-the-cycle calibration is not a single-vintage statistic, and a challenger that fits one vintage by luck is not a TTC-promotion candidate.
+
+CFRM is the lever the alt-data provider pulls when the bank pre-announces a policy change. Importance weights $\pi_{\text{new}} / \pi_{\text{logged}}$ produce an unbiased PD-under-new-policy estimate as long as support is contained and the effective sample size stays above the documented floor (10 percent here, following @swaminathan2015counterfactual). When the new policy moves so far from logged that ESS collapses, the package returns `trustworthy=False` and the orchestrator escalates to a small live experiment instead of shipping a counterfactual.
+
+The alt-data retrain refits one Heckman stage 1 per lender with shrinkage toward the pooled coefficient vector. Lenders below the minimum-rows threshold inherit the pooled coefficients via the cold-start pseudo-prior. The feedback-loop guard (not run in this minimal cell; see [alt_data.py](../code/reject_inference_pipeline/alt_data.py)) regresses the lender's accept on `(X, Z, own_score_logged)` and flags when the provider's own score has become a determinant of the lender's policy: at that point the provider is training against its own predictions and the next fit must partial-out `own_score_logged` before estimating the selection coefficients.
+
+The model card travels with every artifact: intended use, out-of-scope cases, the diagnostic contract, the escalation rules, and the references. SR 11-7 reviewers consume this as the model-validation document; ECOA and Basel reviewers consume the auto-generated change memo. The FastAPI service [reject_inference_app.py](../deployment/reject_inference_app.py) exposes `/retrain/observable`, `/retrain/unobservable`, `/retrain/alt_data`, `/cfrm`, and `/promote` endpoints; the heavy retrain runs as a nightly batch job and the registry promotion is gated by the same `gated_promote` function.
+
+This is the production stack the chapter promised. The Heckman two-step is one estimator inside it; the AIPW master template is another; the gate, the governance memo, the drift trigger, and the per-lender hierarchical propensity are the engineering pieces that turn the estimators into a defensible service. A bank or alt-data provider that adopts the package gets a retrainable, policy-aware, fair-lending-checked, SR 11-7-documentable PD pipeline; what they have to add is the model registry, the data warehouse, and the operational runbook.
 
 ## Regulatory considerations
 
@@ -9544,23 +9596,19 @@ A few operational defaults have earned their keep on Vietnamese consumer portfol
 ## Further reading
 
 -   @breiman1984classification is the book. Read the first six chapters.
--   @quinlan1993c45 for ID3 and C4.5 as originally described.
--   @friedman2008predictive for the RuleFit algorithm.
--   @hothorn2006unbiased for conditional inference trees and unbiased splitting.
--   @loh2014fifty for a survey of 50 years of tree algorithms.
--   @breiman2001random and @breiman1996bagging for variance-reduction through ensembles.
--   @rudin2019stop for the case against black-box models in high-stakes decisions.
--   @angelino2018learning and @hu2019optimal for certifiably optimal sparse trees.
--   @bertsimas2017optimal for the mixed-integer formulation of globally optimal trees.
--   @lessmann2015benchmarking and @baesens2003benchmarking for the empirical comparisons of trees against logistic regression and ensembles on credit-scoring benchmarks.
--   @potharst2002classification and @feelders2010monotone for monotone classification trees.
--   @letham2015interpretable for Bayesian rule lists, a relative of RuleFit with formal interpretability claims.
+-   @quinlan1986induction is the original ID3 paper; @quinlan1993c45 covers C4.5 in book form.
+-   @loh2014fifty surveys fifty years of tree algorithms; @loh2011classification is the shorter companion review.
+-   @hothorn2006unbiased develops conditional inference trees and unbiased splitting that addresses the selection bias of greedy CART.
+-   @strobl2007bias documents how impurity-based variable importance is biased toward high-cardinality and continuous predictors and proposes a permutation-based fix.
+-   @mingers1989empirical and @esposito1997comparative compare pruning methods empirically; @breiman1996heuristics motivates pruning as variance control.
+-   @friedman2008predictive is the RuleFit paper; @cohen1995fast (RIPPER) and @frank1998using (PART) are the classical rule-induction algorithms that compete with tree-extracted rule sets.
+-   @letham2015interpretable develops Bayesian rule lists, a relative of RuleFit with formal interpretability guarantees.
+-   @rudin2019stop argues against black-box models in high-stakes decisions; @angelino2018learning and @hu2019optimal give certifiably optimal sparse rule lists and trees; @bertsimas2017optimal formulates globally optimal trees as a mixed-integer program.
+-   @breiman2001random and @breiman1996bagging are the variance-reduction-through-ensembles canon; @buja2005observations dissects when bagging actually helps.
+-   @potharst2002classification, @feelders2010monotone, and @ben1995monotonicity cover monotone classification trees and the underlying monotonicity-maintenance literature.
+-   @lessmann2015benchmarking and @baesens2003benchmarking are the standard empirical comparisons of trees against logistic regression and ensembles on credit-scoring benchmarks.
 
 A tree or rule-based scorecard does not run alone in production: it sits next to a loan officer or credit committee whose discretion can override the model. @costello2020machineman implement a randomized field experiment in which lenders are given a "slider" that lets them adjust the model recommendation by hand; the override-induced adjustments turn out to be informative, suggesting that machine + human dominates either alone in this setting. @berg2020loanofficer analyze loan-officer manipulation of internal rating-model inputs at a large European bank and find that volume-based incentives drive systematic upward bias even when the rating uses only hard information. @paravisini2015incentive randomize the displayed score in a credit committee and show that committee members revise approval decisions toward the score, which has implications for how loud or quiet the model's voice should be in the room.
-
-## References {.unnumbered}
-
-:::
 
 
 ================================================================================
@@ -11241,6 +11289,32 @@ A simplified FT-Transformer fits in sixty lines of PyTorch and is trainable in u
 On an 8,000-row subsample the from-scratch FT-Transformer matches or beats XGBoost on the same subsample, at roughly 10 to 15 seconds of training time. The full-data picture (30,000 rows) narrows; at 8,000 rows, variance is high and a lucky seed is easy to mistake for a real win. We discuss this more in the next section.
 
 TabTransformer [@huang2020tabtransformer] is a predecessor that tokenizes only categorical features and concatenates them with raw numerics. NODE [@popov2020neural] uses differentiable oblivious decision trees as the core building block. All three architectures converge to similar performance on large tabular benchmarks; FT-Transformer is the cleanest design and tends to be the reference baseline in the 2020s literature.
+
+## Double descent on tabular credit 
+
+The classical bias-variance picture says test error is U-shaped in model capacity: too small underfits, too large overfits. @belkin2019reconciling showed that this curve is incomplete. Past the *interpolation threshold*, the point at which a model has just enough capacity to fit the training labels exactly, test error frequently *drops again*, sometimes below the classical sweet spot. @nakkiran2020deep generalized the phenomenon to deep nets and identified three flavors:
+
+- **Model-wise double descent.** Sweep capacity (width, depth, parameter count) at fixed sample size. Test error rises as capacity approaches the interpolation threshold ($\,p \approx n\,$ effective parameters), peaks there, and falls in the overparameterized regime.
+- **Sample-wise double descent.** At fixed capacity, increasing $n$ can *hurt* test error in the regime where $n$ approaches the model's parameter count, before improving again as $n$ grows past it. The relevant ratio is $n/p_\mathrm{eff}$, not $n$ alone.
+- **Epoch-wise double descent.** With no early stopping, validation loss can rise then fall again as training proceeds past the point of zero training loss.
+
+Whether any of this matters in production credit scoring depends entirely on where the portfolio sits relative to the interpolation threshold. The classical regime (regularized GBM, $n \gg p_\mathrm{eff}$, early stopping on a held-out fold) suppresses all three flavors. The danger zone is small samples, wide feature engineering (transaction embeddings, text features, large categorical cardinality with one-hot encoding), and underregularized deep nets trained to interpolation. Three concrete credit settings live in that zone:
+
+- **Thin portfolios.** New product launches, niche subprime segments, or country-level rollouts with $n$ in the thousands. Augmenting Taiwan-style features with one-hot encoded merchant categories or transaction embeddings can push the effective parameter count close to $n$.
+- **Reject inference with augmentation.** Parcelling, reweighting, and the M-step of EM-style reject inference (@sec-ch10) inflate the effective sample but inflate the variance of features more. The $n/p_\mathrm{eff}$ ratio shrinks even as the row count grows.
+- **Deep tabular nets without weight decay or early stopping.** A wide FT-Transformer or NODE trained to interpolation on a thin portfolio is the canonical setup for an epoch-wise descent curve. The width sweep below makes the model-wise version visible on the Taiwan dataset.
+
+We reproduce model-wise double descent on Taiwan by subsampling to 800 rows, adding 15% label noise (which Belkin et al. and Nakkiran et al. both used to make the peak unmissable), and sweeping the width of a two-layer MLP from underparameterized to heavily overparameterized.
+
+The visible peak in test AUC is the interpolation threshold. Below it the network underfits even the clean signal. At the threshold it perfectly memorizes noisy labels and pays for it on the test set. Past it, the implicit bias of gradient descent toward minimum-norm interpolators kicks in and test AUC recovers. The same effect appears, less dramatically, when label noise is replaced by feature noise or by a small genuine $n/p$ ratio without any added noise.
+
+Three practical implications for credit modelling:
+
+- **Do not stop the width sweep at the first validation peak.** If the validation curve rises after a small initial improvement, the model may be sitting at the interpolation peak rather than the optimum. Push capacity up by an order of magnitude before concluding the architecture is too large.
+- **Weight decay and early stopping suppress double descent.** @nakkiran2020optimal proved (in linear regression) that the optimally tuned ridge penalty produces a monotone test-error curve and matches the optimum of the second descent. In credit, the cheapest defence is `weight_decay` $\in [10^{-4}, 10^{-2}]$ on AdamW plus early stopping on validation AUC.
+- **Re-run capacity sweeps when data shifts.** The interpolation threshold is a function of $n$ and $p_\mathrm{eff}$. After a reject-inference augmentation, after adding a transaction-embedding block, or after a portfolio expansion that changes $n$ by more than $2\times$, the previous "right size" is stale.
+
+Double descent is not an LLM-only phenomenon. It is visible in linear regression, kernel methods, random forests, and gradient boosting [@belkin2019reconciling], and shows up in credit scoring whenever a high-capacity model is trained without regularization on a sample close to its interpolation threshold. The reason it is rarely *seen* in production credit dashboards is that the standard recipe (regularized GBM, large $n$, early stopping) avoids the regime by construction, not because the phenomenon does not apply.
 
 ## Deep learning vs gradient boosting on tabular credit
 
