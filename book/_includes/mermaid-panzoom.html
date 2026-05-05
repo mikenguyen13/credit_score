@@ -1,0 +1,120 @@
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+.mermaid-panzoom-wrap {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 0.5em 0;
+  background: #fafafa;
+  overflow: hidden;
+}
+.mermaid-panzoom-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 0.78em;
+  color: #555;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mermaid-panzoom-reset {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 0.78em;
+  color: #1565c0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cfd8dc;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+}
+.mermaid-panzoom-reset:hover { background: #e3f2fd; }
+</style>
+<script>
+(function () {
+  function isMermaidSvg(svg) {
+    if (!svg || svg.dataset.panzoomApplied) return false;
+    if (svg.closest('.no-panzoom')) return false;
+    if (svg.closest('pre.mermaid, .mermaid')) return true;
+    if (svg.id && svg.id.startsWith('mermaid')) return true;
+    if (svg.classList && svg.classList.contains('mermaid')) return true;
+    if (svg.querySelector('g.nodes, g.node, g.edgePaths, g.edgePath')) return true;
+    const aria = svg.getAttribute('aria-roledescription') || '';
+    if (aria.includes('flowchart') || aria.includes('graph')) return true;
+    return false;
+  }
+
+  function attachPanZoom(svg) {
+    if (svg.dataset.panzoomApplied) return;
+    svg.dataset.panzoomApplied = '1';
+
+    const host = svg.parentNode;
+    const wrap = document.createElement('div');
+    wrap.className = 'mermaid-panzoom-wrap';
+    host.insertBefore(wrap, svg);
+    wrap.appendChild(svg);
+
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = '520px';
+    svg.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'mermaid-panzoom-hint';
+    hint.textContent = 'scroll to zoom · drag to pan';
+    wrap.appendChild(hint);
+
+    const reset = document.createElement('button');
+    reset.className = 'mermaid-panzoom-reset';
+    reset.type = 'button';
+    reset.textContent = 'reset';
+    wrap.appendChild(reset);
+
+    let pz;
+    try {
+      pz = svgPanZoom(svg, {
+        controlIconsEnabled: true,
+        fit: true,
+        center: true,
+        minZoom: 0.3,
+        maxZoom: 8,
+        zoomScaleSensitivity: 0.4,
+        contain: false,
+      });
+    } catch (e) {
+      reset.style.display = 'none';
+      hint.style.display = 'none';
+      return;
+    }
+    reset.addEventListener('click', () => {
+      pz.resetZoom();
+      pz.center();
+      pz.fit();
+    });
+  }
+
+  function scan() {
+    const svgs = document.querySelectorAll(
+      'div.cell-output-display svg, figure svg, pre.mermaid svg, .mermaid svg'
+    );
+    svgs.forEach((svg) => {
+      if (isMermaidSvg(svg)) attachPanZoom(svg);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(scan, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', scan);
+  }
+  window.addEventListener('load', scan);
+  // Mermaid sometimes renders late; rescan once after a short delay.
+  setTimeout(scan, 800);
+})();
+</script>
