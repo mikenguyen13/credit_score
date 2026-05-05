@@ -922,6 +922,112 @@ On an 8,000-row subsample the from-scratch FT-Transformer matches or beats XGBoo
 
 TabTransformer [@huang2020tabtransformer] is a predecessor that tokenizes only categorical features and concatenates them with raw numerics. NODE [@popov2020neural] uses differentiable oblivious decision trees as the core building block. All three architectures converge to similar performance on large tabular benchmarks; FT-Transformer is the cleanest design and tends to be the reference baseline in the 2020s literature.
 
+## Double descent on tabular credit {#sec-ch14-double-descent}
+
+The classical bias-variance picture says test error is U-shaped in model capacity: too small underfits, too large overfits. @belkin2019reconciling showed that this curve is incomplete. Past the *interpolation threshold*, the point at which a model has just enough capacity to fit the training labels exactly, test error frequently *drops again*, sometimes below the classical sweet spot. @nakkiran2020deep generalized the phenomenon to deep nets and identified three flavors:
+
+- **Model-wise double descent.** Sweep capacity (width, depth, parameter count) at fixed sample size. Test error rises as capacity approaches the interpolation threshold ($p \approx n$ effective parameters), peaks there, and falls in the overparameterized regime.
+- **Sample-wise double descent.** At fixed capacity, increasing $n$ can *hurt* test error in the regime where $n$ approaches the model's parameter count, before improving again as $n$ grows past it. The relevant ratio is $n/p_\mathrm{eff}$, not $n$ alone.
+- **Epoch-wise double descent.** With no early stopping, validation loss can rise then fall again as training proceeds past the point of zero training loss.
+
+Whether any of this matters in production credit scoring depends entirely on where the portfolio sits relative to the interpolation threshold. The classical regime (regularized GBM, $n \gg p_\mathrm{eff}$, early stopping on a held-out fold) suppresses all three flavors. The danger zone is small samples, wide feature engineering (transaction embeddings, text features, large categorical cardinality with one-hot encoding), and underregularized deep nets trained to interpolation. Three concrete credit settings live in that zone:
+
+- **Thin portfolios.** New product launches, niche subprime segments, or country-level rollouts with $n$ in the thousands. Augmenting Taiwan-style features with one-hot encoded merchant categories or transaction embeddings can push the effective parameter count close to $n$.
+- **Reject inference with augmentation.** Parcelling, reweighting, and the M-step of EM-style reject inference (@sec-ch10) inflate the effective sample but inflate the variance of features more. The $n/p_\mathrm{eff}$ ratio shrinks even as the row count grows.
+- **Deep tabular nets without weight decay or early stopping.** A wide FT-Transformer or NODE trained to interpolation on a thin portfolio is the canonical setup for an epoch-wise descent curve. The width sweep below makes the model-wise version visible on the Taiwan dataset.
+
+We reproduce model-wise double descent on Taiwan by subsampling to 800 rows, adding 15% label noise (which Belkin et al. and Nakkiran et al. both used to make the peak unmissable), and sweeping the width of a two-layer MLP from underparameterized to heavily overparameterized.
+
+```{python}
+#| label: ddesc-setup
+rng_dd = np.random.default_rng(0)
+n_sub = 800
+sub_idx = rng_dd.choice(len(X_tr), size=n_sub, replace=False)
+X_dd = X_tr[sub_idx].astype("float32")
+y_dd = y_tr[sub_idx].astype("int64")
+flip = rng_dd.random(n_sub) < 0.15
+y_dd_noisy = np.where(flip, 1 - y_dd, y_dd).astype("float32")
+
+X_dd_t = torch.tensor(X_dd)
+y_dd_t = torch.tensor(y_dd_noisy)
+X_te_dd = torch.tensor(X_te.astype("float32"))
+print(f"n={n_sub}, p_in={X_dd.shape[1]}, "
+      f"label-flip rate={flip.mean():.3f}")
+```
+
+```{python}
+#| label: ddesc-sweep
+class TwoLayerMLP(nn.Module):
+    def __init__(self, p_in, h):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(p_in, h), nn.ReLU(),
+            nn.Linear(h, h), nn.ReLU(),
+            nn.Linear(h, 1),
+        )
+
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
+
+widths = [2, 4, 8, 16, 24, 32, 48, 64, 128, 256, 512, 1024]
+records = []
+for h in widths:
+    torch.manual_seed(0)
+    net = TwoLayerMLP(X_dd.shape[1], h)
+    opt = torch.optim.AdamW(net.parameters(), lr=3e-3, weight_decay=0.0)
+    loss_fn = nn.BCEWithLogitsLoss()
+    for epoch in range(4000):
+        net.train()
+        opt.zero_grad()
+        loss = loss_fn(net(X_dd_t), y_dd_t)
+        loss.backward(); opt.step()
+        if loss.item() < 1e-4:
+            break
+    net.eval()
+    with torch.no_grad():
+        p_tr = torch.sigmoid(net(X_dd_t)).numpy()
+        p_te = torch.sigmoid(net(X_te_dd)).numpy()
+    n_params = sum(p.numel() for p in net.parameters())
+    records.append({
+        "width": h,
+        "n_params": n_params,
+        "train_loss": float(loss.item()),
+        "train_auc_noisy": roc_auc_score(y_dd_noisy, p_tr),
+        "test_auc_clean":  roc_auc_score(y_te, p_te),
+        "epochs": epoch + 1,
+    })
+
+ddesc = pd.DataFrame(records)
+ddesc.round(4)
+```
+
+```{python}
+#| label: fig-ddesc
+#| fig-cap: "Model-wise double descent on Taiwan ($n=800$, 15% label noise). Test AUC on the clean held-out test set rises into the interpolation peak around $n_\\text{params}\\approx n$, then improves again as the network is widened past the threshold. The dashed vertical line marks the interpolation threshold (parameter count equal to training-set size)."
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.plot(ddesc["n_params"], ddesc["test_auc_clean"], marker="o", label="Test AUC (clean)")
+ax.plot(ddesc["n_params"], ddesc["train_auc_noisy"], marker="s", linestyle="--",
+        alpha=0.6, label="Train AUC (noisy labels)")
+ax.axvline(n_sub, color="grey", linestyle=":", label=f"$n_\\mathrm{{params}} = n = {n_sub}$")
+ax.set_xscale("log")
+ax.set_xlabel("Trainable parameters")
+ax.set_ylabel("AUC")
+ax.set_title("Model-wise double descent")
+ax.legend(loc="lower right")
+plt.tight_layout()
+```
+
+The visible peak in test AUC is the interpolation threshold. Below it the network underfits even the clean signal. At the threshold it perfectly memorizes noisy labels and pays for it on the test set. Past it, the implicit bias of gradient descent toward minimum-norm interpolators kicks in and test AUC recovers. The same effect appears, less dramatically, when label noise is replaced by feature noise or by a small genuine $n/p$ ratio without any added noise.
+
+Three practical implications for credit modelling:
+
+- **Do not stop the width sweep at the first validation peak.** If the validation curve rises after a small initial improvement, the model may be sitting at the interpolation peak rather than the optimum. Push capacity up by an order of magnitude before concluding the architecture is too large.
+- **Weight decay and early stopping suppress double descent.** @nakkiran2020optimal proved (in linear regression) that the optimally tuned ridge penalty produces a monotone test-error curve and matches the optimum of the second descent. In credit, the cheapest defence is `weight_decay` $\in [10^{-4}, 10^{-2}]$ on AdamW plus early stopping on validation AUC.
+- **Re-run capacity sweeps when data shifts.** The interpolation threshold is a function of $n$ and $p_\mathrm{eff}$. After a reject-inference augmentation, after adding a transaction-embedding block, or after a portfolio expansion that changes $n$ by more than $2\times$, the previous "right size" is stale.
+
+Double descent is not an LLM-only phenomenon. It is visible in linear regression, kernel methods, random forests, and gradient boosting [@belkin2019reconciling], and shows up in credit scoring whenever a high-capacity model is trained without regularization on a sample close to its interpolation threshold. The reason it is rarely *seen* in production credit dashboards is that the standard recipe (regularized GBM, large $n$, early stopping) avoids the regime by construction, not because the phenomenon does not apply.
+
 ## Deep learning vs gradient boosting on tabular credit
 
 The empirical case is close to decided. @grinsztajn2022why ran a head-to-head evaluation on 45 medium-sized tabular datasets with a unified hyperparameter search budget and reported:
