@@ -810,9 +810,9 @@ print(f"\nraw rows in train     : {len(X_aug_b)}")
 print(f"effective sample size : {ess:.0f}")
 ```
 
-The bureau-augmented estimates land close to the oracle. Slope and intercept move materially from the naive accepted-only fit because rejected applicants now contribute their own labels rather than borrowed band rates. The effective sample size is `len(X_acc_b) + 0.7 * len(X_rej_b)`, smaller than the raw row count, and any standard error or Wald test must be computed against the ESS, not the raw N. In practice that means passing `var_weights = w_aug_b` into `statsmodels.GLM` (or running a cluster bootstrap on `app_id`) rather than reading the unweighted Hessian off the sklearn fit.
+The bureau-augmented estimates land close to the oracle. Slope and intercept move materially from the naive accepted-only fit because rejected applicants now contribute their own labels rather than borrowed band rates. The effective sample size is `len(X_acc_b) + 0.7 * len(X_rej_b)`, smaller than the raw row count, and any standard error or Wald test must be computed against the ESS, not the raw N. In practice, that means passing `var_weights = w_aug_b` into `statsmodels.GLM` (or running a cluster bootstrap on `app_id`) rather than reading the unweighted Hessian off the sklearn fit.
 
-**Calibration tracked by source.** The two slices are not interchangeable. Accepteds give a clean calibration check because $Y$ is the contract outcome at lender A. Bureau-imputed rejects give a calibration check on the surrogate, which is what the model is being trained to predict for the reject region. A divergence between the two reliability curves is the production signal that the surrogate is biased, and it is the first plot a model risk team will pull at validation time.
+**Calibration tracked by source.** The two slices are not interchangeable. Accepteds give a clean calibration check because $Y$ is the contract outcome at lender A. Bureau-imputed rejects give a calibration check on the surrogate, which is what the model is being trained to predict for the reject region. A divergence between the two reliability curves is the production signal that the surrogate is biased, and it is the first plot a model risk team will pull at validation time. To make the diagnostic concrete we hold the deployed PDs fixed (the same `m_bureau` predictions on accepteds and on bureau-observed rejects) and synthesize three surrogate regimes on the reject slice. The accepted-side curve is therefore the same in every panel of @fig-ch10-bureau-calibration-by-source; only the bureau-side curve moves.
 
 ```{python}
 def reliability(p, y_true, n_bins=5):
@@ -827,13 +827,66 @@ def reliability(p, y_true, n_bins=5):
 
 p_acc = m_bureau.predict_proba(X_acc_b)[:, 1]
 p_rej = m_bureau.predict_proba(X_rej_b)[:, 1]
+
+y_oracle_obs = y_oracle_rej[mask_obs]
+
+def synth_surrogate(p_good_to_bad, p_bad_to_good, seed):
+    r = np.random.default_rng(seed)
+    u = r.random(len(y_oracle_obs))
+    flip = (((y_oracle_obs == 0) & (u < p_good_to_bad))
+            | ((y_oracle_obs == 1) & (u < p_bad_to_good)))
+    return np.where(flip, 1 - y_oracle_obs, y_oracle_obs)
+
+scenarios = {
+    "faithful":    synth_surrogate(0.05, 0.05, seed=11),
+    "pessimistic": synth_surrogate(0.18, 0.04, seed=12),
+    "optimistic":  synth_surrogate(0.04, 0.30, seed=13),
+}
+
+acc_tab = reliability(p_acc, y[s == 1])
 print("accepteds (Y from lender A):")
-print(reliability(p_acc, y[s == 1]).to_string(index=False))
-print("\nbureau-imputed rejects (Y^B):")
-print(reliability(p_rej, y_rej_b).to_string(index=False))
+print(acc_tab.to_string(index=False))
+for name, y_b in scenarios.items():
+    print(f"\nbureau-imputed rejects, {name} surrogate:")
+    print(reliability(p_rej, y_b).to_string(index=False))
 ```
 
-If the two tables agree bin by bin, the surrogate is behaving like the contract outcome on average. If the bureau-imputed reliability runs systematically higher (predicted PD too low for the observed bureau default rate), the surrogate is picking up product-mix risk that the model is not parameterized to absorb; the right next steps are to add product-mix features ($Z^B$ such as bureau-product type, exposure relative to lender-A request, and time-to-first-trade-line) on the rejected side, or to lower $w_{\text{bureau}}$ until the calibration gap closes.
+```{python}
+#| label: fig-ch10-bureau-calibration-by-source
+#| fig-cap: "Source-stratified reliability under three surrogate regimes. Predicted PDs from `m_bureau` are held fixed across panels; the accepted-side curve (blue, $Y$ at lender A) is identical in every panel. Only the bureau-side surrogate $Y^B$ varies. (a) Faithful surrogate (symmetric 5 percent flip): the bureau curve tracks the diagonal alongside the accepted curve; surrogate is unbiased on average. (b) Pessimistic surrogate (good-to-bad flip 0.18, bad-to-good flip 0.04, modelling rejects who take higher-cost credit elsewhere): the bureau curve sits above the diagonal at every bin; observed bureau default rates exceed predicted PDs by 5 to 15 points. (c) Optimistic surrogate (bad-to-good flip 0.30, modelling rejects who take much smaller exposures elsewhere): the bureau curve sits below the diagonal; observed bureau defaults run lower than predicted PDs."
+
+import matplotlib.pyplot as plt
+
+panel_titles = {
+    "faithful":    "(a) faithful surrogate",
+    "pessimistic": "(b) pessimistic surrogate",
+    "optimistic":  "(c) optimistic surrogate",
+}
+
+fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.9),
+                         sharex=True, sharey=True)
+for ax, (name, y_b) in zip(axes, scenarios.items()):
+    rej_tab = reliability(p_rej, y_b)
+    ax.plot([0, 1], [0, 1], color="grey", lw=1.0, ls=":")
+    ax.plot(acc_tab["p_pred"], acc_tab["y_obs"], "-o",
+            color="#1976d2", lw=1.6, ms=5,
+            label=f"accepteds, $Y$ (n={int(acc_tab['n'].sum())})")
+    ax.plot(rej_tab["p_pred"], rej_tab["y_obs"], "-s",
+            color="#d32f2f", lw=1.6, ms=5,
+            label=f"bureau rejects, $Y^B$ (n={int(rej_tab['n'].sum())})")
+    ax.set_title(panel_titles[name], fontsize=10)
+    ax.set_xlabel("predicted PD")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.grid(alpha=0.25)
+
+axes[0].set_ylabel("observed default rate")
+axes[0].legend(loc="upper left", fontsize=8.0)
+fig.tight_layout()
+plt.show()
+```
+
+**Reading the three panels.** Panel (a) is the null result a validator wants to see: the red bureau curve overlaps the blue accepted curve and both ride the diagonal. The surrogate is behaving like the contract outcome on average, so $w_{\text{bureau}} = 0.7$ is defensible and no product-mix correction is required. Panel (b) is the production failure mode the prose around @sec-ch10-bureau-extrapolation warned about: the red curve runs systematically above the diagonal even though the blue curve is on it. The model is correctly calibrated against $Y$ at lender A, but the bureau labels report more defaults than the model predicts at every PD bin, so the surrogate is picking up risk the model is not parameterized to absorb (typically because rejects roll into higher-cost credit elsewhere). The validator-visible fixes are to add product-mix features $Z^B$ (bureau-product type, exposure relative to lender-A request, time-to-first-trade-line) on the rejected side or to lower $w_{\text{bureau}}$ until the calibration gap closes; raising $w_{\text{bureau}}$ in this regime would import surrogate bias directly into the slope and intercept. Panel (c) is the mirror failure: the bureau curve runs below the diagonal because rejects take much smaller exposures elsewhere and the bureau-loan default rate undershoots the lender-A counterfactual. The confidence weight is again the dial, but the corrective direction is opposite. A bank that uses the same $w_{\text{bureau}}$ across both regimes will under-reserve in (b) and over-reserve in (c). The single aggregate calibration plot would show neither problem because the accepted slice is on the diagonal in all three panels; only the source-stratified plot exposes the bias.
 
 **Production workflow.** A working bureau reject-inference loop has six concrete artefacts.
 
@@ -844,17 +897,287 @@ If the two tables agree bin by bin, the surrogate is behaving like the contract 
 5.  *Stratified retraining.* Refit the PD model on the union of accepteds and bureau-observed rejects with the weights above. Hold out bureau-unobserved rejects entirely; they are not training data, they are a residual MNAR slice for the Heckman or AIPW step.
 6.  *Source-stratified monitoring.* Production calibration dashboards split predicted-versus-observed by source (accepted, bureau-imputed, bureau-missing-and-Heckman-corrected). A single aggregate calibration plot will hide a bureau-side divergence until the next vintage's losses materialize.
 
-The architecture diagram at @fig-ch10-deploy-arch shows where the bureau pull and the AIPW retrain sit relative to the decision-time scoring path. Decision-time inference uses only the applicant snapshot and the propensity log; the bureau augmentation is a nightly or weekly batch job that closes the training loop on a 12 to 24 month lag. The credit officer never sees a bureau-imputed prediction at scoring time; they see a PD that was trained on the augmented dataset and whose calibration is monitored against the bureau-observed slice. That separation matters for governance: the model is reproducible from the application-time features alone, even though the training labels include surrogate outcomes.
+The architecture diagram at @fig-ch10-deploy-arch shows where the bureau pull and the AIPW retrain sit relative to the decision-time scoring path. Decision-time inference uses only the applicant snapshot and the propensity log; the bureau augmentation is a nightly or weekly batch job that closes the training loop on a 12 to 24 month lag. The credit officer never sees a bureau-imputed prediction at scoring time; they see a PD that was trained on the augmented dataset and whose calibration is monitored against the bureau-observed slice. That separation matters for governance: the model is reproducible from the application-time features alone, even though the training labels include surrogate outcomes. Each of the six artefacts has a runnable counterpart on the running synthetic lender in @sec-ch10-bureau-six-artefacts; that section also folds in the source-tag dimension (credit-card, personal-loan, payday) that drives the confidence-weight dial in artefact 4 and the per-source divergence pattern that artefact 6 has to surface.
+
+### Six artefacts in code: source tagging, weight dials, and per-source monitoring {#sec-ch10-bureau-six-artefacts}
+
+The six artefacts on the prior page are an architecture story. This section is the implementation: each artefact materializes as a small piece of pandas that operates on the running synthetic lender from @sec-ch10-parceling-worked-example. The point is to make the production loop reproducible end-to-end on a working dataset and to expose the *cases* a validator will ask about, namely what the deployed PD looks like when the surrogate is faithful, when it is biased upward by a payday-loan tail, and when the modeller blindly applies a uniform 0.7 weight across heterogeneous bureau sources.
+
+**Artefact 1: application-time bureau snapshot.** Hash the bureau pull at decision time and persist it keyed by `app_id` and `decision_date`. The hash is the immutable feature signature; if a future re-render produces a different hash for the same `app_id`, the join is broken and the training table cannot be rebuilt. In production this is a parquet write under a partitioned `decision_date=YYYY-MM-DD/` prefix; here we materialize an in-memory dataframe and check that the hash is stable.
+
+```{python}
+import hashlib, json
+
+n_total = len(x)
+app_id  = np.array([f"APP-{i:06d}" for i in range(n_total)])
+
+def feature_hash(xv, sv):
+    payload = json.dumps({"x": float(xv), "s": int(sv)}, sort_keys=True).encode()
+    return hashlib.sha256(payload).hexdigest()[:12]
+
+snap_t0 = pd.DataFrame({
+    "app_id":          app_id,
+    "decision_date":   "2024-01-15",
+    "x":               x,
+    "s":               s,
+    "policy_decision": np.where(s == 1, "approve", "decline"),
+})
+snap_t0["feature_hash"] = [feature_hash(xv, sv) for xv, sv in zip(x, s)]
+print(snap_t0.head().to_string(index=False))
+print(f"\nrows: {len(snap_t0)}, "
+      f"unique hashes: {snap_t0['feature_hash'].nunique()}")
+```
+
+The hash count below the row count is expected with one-dimensional $X$: many applicants share the same `(x, s)` after rounding. With a real feature vector the hash is unique up to genuine duplicates, and a re-render that touches the feature pipeline (a new scaler, a column rename) breaks every hash and forces a deliberate re-snapshot rather than a silent drift.
+
+**Artefact 2: performance-window re-pull and join.** Twelve to twenty-four months later, the bureau is re-pulled on the same `app_id` set. The re-pull returns one row per opened trade-line; for the chapter we collapse to one row per applicant with a single source tag. The product mix is realistic for a Vietnamese consumer-finance reject pool: roughly a third roll into a credit card with another lender, roughly a third into a personal loan, fifteen percent into a payday-style product, and one in five never opens any line in the window. The join is the engineering bottleneck the prose flagged: in production it is a Polars `scan_parquet` chain (the @sec-ch10-modern sketch), and the runtime is dominated by the merge, not the model fit.
+
+```{python}
+rng_b = np.random.default_rng(20260601)
+rej_mask = snap_t0["s"] == 0
+rej_pop  = snap_t0.loc[rej_mask, ["app_id"]].copy()
+n_rej    = len(rej_pop)
+
+source = rng_b.choice(
+    ["cc", "pl", "payday", "none"], size=n_rej,
+    p=[0.35, 0.30, 0.15, 0.20],
+)
+
+flip_table = {
+    "cc":     {"g_to_b": 0.05, "b_to_g": 0.10},  # CC limits smaller -> fewer bads
+    "pl":     {"g_to_b": 0.04, "b_to_g": 0.05},  # same product, near-faithful
+    "payday": {"g_to_b": 0.20, "b_to_g": 0.03},  # payday inflates bads
+}
+
+y_or_rej = y[s == 0]
+y_b      = np.full(n_rej, -1, dtype=int)
+for src, ft in flip_table.items():
+    m_src = source == src
+    yo    = y_or_rej[m_src]
+    u     = rng_b.random(int(m_src.sum()))
+    flip  = ((yo == 0) & (u < ft["g_to_b"])) | ((yo == 1) & (u < ft["b_to_g"]))
+    y_b[m_src] = np.where(flip, 1 - yo, yo)
+
+bureau_t24 = pd.DataFrame({
+    "app_id":          rej_pop["app_id"].values,
+    "bureau_source":   source,
+    "y_bureau":        y_b,
+    "trade_open_date": "2024-08-12",
+})
+print(bureau_t24.groupby("bureau_source").size().rename("n").to_frame())
+```
+
+**Artefact 3: surrogate construction with three states and a source tag.** The training table is the left-join of `snap_t0` with `bureau_t24` on `app_id`. Accepteds carry `label_source = "accepted"` and `y_train = y` from the lender-A contract; rejects carry the bureau source plus a three-state surrogate. The `bureau-missing` rows are kept in the table for monitoring but excluded from training in artefact 5.
+
+```{python}
+acc_part = snap_t0.loc[snap_t0["s"] == 1, ["app_id", "x"]].copy()
+acc_part["bureau_source"] = "accepted"
+acc_part["y_train"]       = y[s == 1]
+acc_part["y_observed"]    = 1
+
+rej_part = (snap_t0.loc[rej_mask, ["app_id", "x"]]
+                  .merge(bureau_t24[["app_id", "bureau_source", "y_bureau"]],
+                         on="app_id"))
+rej_part["y_train"]    = rej_part["y_bureau"]
+rej_part["y_observed"] = (rej_part["y_bureau"] != -1).astype(int)
+
+training = pd.concat([acc_part, rej_part], ignore_index=True, sort=False)
+training["label_source"] = np.where(
+    training["bureau_source"] == "accepted", "accepted",
+    np.where(training["bureau_source"] == "none", "bureau-missing",
+             training["bureau_source"]),
+)
+
+state_summary = (training
+                 .groupby("label_source")
+                 .agg(n=("app_id", "size"),
+                      observed=("y_observed", "sum"),
+                      bad_rate=("y_train",
+                                lambda v: float(v[v != -1].mean())
+                                if (v != -1).sum() else float("nan")))
+                 .round(3))
+print(state_summary)
+```
+
+The `bureau-missing` row has a `bad_rate` of `NaN` because no surrogate exists; that row is the residual MNAR slice that artefact 5 hands off to Heckman or AIPW. The `payday` row's bad rate runs visibly higher than `pl` and `cc` because the asymmetric flip in the surrogate moves goods to bads at four times the reverse rate.
+
+**Artefact 4: confidence-weight registry as a model-registry artefact.** The dial is a JSON document, version-tagged, signed off by model risk. `accepted` is anchored at 1.0 because $Y$ is the contract-level outcome. `pl` is the default 0.7 because the same-product bureau outcome is the closest counterfactual to the lender-A loan. `cc` drops to 0.6 because limit and term differ. `payday` drops to 0.5 because the product gap distorts the surrogate, and a bank that is squeamish about the product gap will lower this further or drop the source entirely. `bureau-missing` carries weight 0 in training, which is what hands the slice off to the residual selection step.
+
+```{python}
+weight_registry = {
+    "version":   "2026-05-08",
+    "weights": {
+        "accepted":       1.00,
+        "pl":             0.70,
+        "cc":             0.60,
+        "payday":         0.50,
+        "bureau-missing": 0.00,
+    },
+    "rationale": (
+        "PL same-product (0.70 default). "
+        "CC product-distant on limit/term (0.60). "
+        "Payday surrogate is risk-distorted; capped at 0.50 and audited "
+        "every retraining cycle against per-source calibration drift. "
+        "bureau-missing is held out of training and routed to "
+        "Heckman/AIPW for the residual MNAR slice."
+    ),
+}
+print(json.dumps(weight_registry, indent=2))
+```
+
+**Artefact 5: stratified retraining under three weight dials.** We compare three schemes that a bank might run side-by-side at the same retraining cycle. Scheme A is the textbook *naive uniform* dial (accepted = 1, every bureau row = 0.7), the configuration that ignores source heterogeneity. Scheme B is the *source-aware* dial from the registry above. Scheme C *drops payday entirely* and uses only PL and CC surrogates. Comparing the three to oracle (full-label MLE, unobservable in production) and to the truth (DGP coefficients) shows which dial bias is bought back and which is kept.
+
+```{python}
+def fit_weighted(train, weight_map):
+    sub = train[train["label_source"].isin(weight_map.keys())].copy()
+    w   = sub["label_source"].map(weight_map).to_numpy()
+    keep = w > 0
+    sub  = sub.loc[keep]
+    w    = w[keep]
+    Xs   = sub[["x"]].to_numpy()
+    ys   = sub["y_train"].astype(int).to_numpy()
+    m    = LogisticRegression().fit(Xs, ys, sample_weight=w)
+    return m, float(w.sum()), int(len(sub))
+
+scheme_a = {"accepted": 1.0, "pl": 0.7, "cc": 0.7, "payday": 0.7}
+scheme_b = {k: v for k, v in weight_registry["weights"].items() if v > 0}
+scheme_c = {"accepted": 1.0, "pl": 0.7, "cc": 0.6}
+
+m_a, ess_a, n_a = fit_weighted(training, scheme_a)
+m_b, ess_b, n_b = fit_weighted(training, scheme_b)
+m_c, ess_c, n_c = fit_weighted(training, scheme_c)
+m_oracle_six = LogisticRegression().fit(x.reshape(-1, 1), y)
+
+retrain_compare = pd.DataFrame({
+    "scheme":    ["truth (DGP)", "oracle (full-y MLE)",
+                  "A: naive uniform 0.7",
+                  "B: source-aware (1 / 0.7 / 0.6 / 0.5)",
+                  "C: drop payday (1 / 0.7 / 0.6)"],
+    "intercept": [beta_true[0], float(m_oracle_six.intercept_[0]),
+                  float(m_a.intercept_[0]),
+                  float(m_b.intercept_[0]),
+                  float(m_c.intercept_[0])],
+    "slope":     [beta_true[1], float(m_oracle_six.coef_[0, 0]),
+                  float(m_a.coef_[0, 0]),
+                  float(m_b.coef_[0, 0]),
+                  float(m_c.coef_[0, 0])],
+    "rows":      [None, len(x), n_a, n_b, n_c],
+    "ESS":       [None, len(x), round(ess_a, 1), round(ess_b, 1),
+                  round(ess_c, 1)],
+})
+print(retrain_compare.round(3).to_string(index=False))
+```
+
+Reading the table. All three schemes pull the slope close to the oracle ($\hat\beta_1 \approx 1.28$); the differences are small in absolute terms but interpretable. Scheme A treats every bureau row as equally trustworthy, so the payday rows (whose surrogate flattens the rank order) enter at the same weight as the faithful PL rows; the slope ends up roughly 0.07 below the oracle. Scheme B's source-aware dial discounts payday and credit-card rows, and the slope edges back toward the oracle. Scheme C drops the payday rows entirely and lands closest to the oracle slope (within 0.02), at the cost of around 60 ESS and a wider standard error on $\hat\beta_1$. The intercepts of all three schemes sit visibly above the oracle, by roughly 0.13 units; this is the residual MNAR-on-the-bureau-missing-slice gap that no weight choice on the bureau-observed rows can close, and it is precisely the slice that artefact 6 routes to a Heckman or AIPW correction (@sec-ch10-heckman-selection-correction, @sec-ch10-modern).
+
+**Artefact 6: source-stratified monitoring.** Score every row in the training table with the deployed model (Scheme B in this run) and pull a reliability table per `label_source`. The accepted slice is the contract-level calibration check. The PL slice is the same-product surrogate check. The CC and payday slices expose product-mix bias.
+
+```{python}
+def reliability_panel(p, y_obs, n_bins=5):
+    if len(p) == 0:
+        return pd.DataFrame(columns=["bin", "n", "p_pred", "y_obs"])
+    bins = np.quantile(p, np.linspace(0, 1, n_bins + 1))
+    bins[0], bins[-1] = -np.inf, np.inf
+    b = np.digitize(p, bins[1:-1])
+    rows = []
+    for k in range(n_bins):
+        m = b == k
+        if m.sum() == 0:
+            continue
+        rows.append({"bin": k + 1, "n": int(m.sum()),
+                     "p_pred": float(p[m].mean()),
+                     "y_obs":  float(y_obs[m].mean())})
+    return pd.DataFrame(rows)
+
+training["pred_pd"] = m_b.predict_proba(training[["x"]].to_numpy())[:, 1]
+
+sources_to_plot = ["accepted", "pl", "cc", "payday"]
+panels = {}
+for src in sources_to_plot:
+    sub = training[(training["label_source"] == src) & (training["y_observed"] == 1)]
+    panels[src] = reliability_panel(sub["pred_pd"].to_numpy(),
+                                    sub["y_train"].to_numpy())
+for src, tab in panels.items():
+    print(f"\n[{src}]  n_observed = {int(tab['n'].sum())}")
+    print(tab.round(3).to_string(index=False))
+```
+
+```{python}
+#| label: fig-ch10-bureau-six-source-calibration
+#| fig-cap: "Source-stratified reliability under the source-aware Scheme B retrain. Each panel holds the deployed PDs from `m_b` fixed and plots observed default rate against predicted PD by quantile bin, on a single source. (a) Accepted slice ($Y$ from lender A): tracks the diagonal at low and mid bins and runs a few percentage points above at the highest bin, the residual MNAR fingerprint at $\\rho = 0.4$ that Heckman or AIPW would close. (b) Personal-loan surrogate (same product, weight 0.70): tracks the accepted pattern within sampling noise; the 0.70 dial is defensible. (c) Credit-card surrogate (weight 0.60): similar shape, with bin-by-bin noise that a model-risk team will tolerate at this n. (d) Payday surrogate (very product-distant, weight 0.50): visibly *flatter* than the diagonal. Predicted PDs span 0.21 to 0.82 but observed bureau-default rates compress into the 0.40-to-0.67 range, because the payday surrogate rank-orders applicants on a different risk axis than the lender-A PD model. The fix is to lower the payday weight further or drop the source (Scheme C); raising it would import the rank-order distortion directly into the slope."
+fig, axes = plt.subplots(1, 4, figsize=(13.5, 3.6),
+                         sharex=True, sharey=True)
+panel_titles = {
+    "accepted": "(a) accepted, $Y$ at lender A (w=1.0)",
+    "pl":       "(b) bureau personal loan (w=0.7)",
+    "cc":       "(c) bureau credit card (w=0.6)",
+    "payday":   "(d) bureau payday loan (w=0.5)",
+}
+panel_color = {"accepted": "#1976d2", "pl": "#2e7d32",
+               "cc":       "#fb8c00", "payday": "#c62828"}
+for ax, src in zip(axes, sources_to_plot):
+    tab = panels[src]
+    ax.plot([0, 1], [0, 1], color="grey", lw=1.0, ls=":")
+    ax.plot(tab["p_pred"], tab["y_obs"], "-o",
+            color=panel_color[src], lw=1.6, ms=5,
+            label=f"n={int(tab['n'].sum())}")
+    ax.set_title(panel_titles[src], fontsize=9.5)
+    ax.set_xlabel("predicted PD")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.grid(alpha=0.25)
+    ax.legend(loc="upper left", fontsize=8.5)
+axes[0].set_ylabel("observed default rate")
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-ch10-bureau-six-coefficient-cases
+#| fig-cap: "Slope and intercept of the bureau-augmented PD across three weight dials, against the oracle (full-label MLE) and the truth (DGP). The naive uniform dial (Scheme A) absorbs payday-surrogate bias because every bureau row enters at 0.7. The source-aware dial (Scheme B) and the payday-drop dial (Scheme C) both pull the coefficients toward the oracle, with Scheme C losing ESS in exchange for a smaller residual to the oracle."
+fig, axes = plt.subplots(1, 2, figsize=(10.0, 3.6))
+labels = ["truth", "oracle", "A: uniform 0.7",
+          "B: source-aware", "C: drop payday"]
+intercepts = retrain_compare["intercept"].to_numpy()
+slopes     = retrain_compare["slope"].to_numpy()
+colors     = ["#000000", "#444444", "#9e9e9e", "#1976d2", "#c62828"]
+
+for ax, vals, name in zip(axes, [intercepts, slopes],
+                          ["intercept", "slope"]):
+    ax.bar(np.arange(len(labels)), vals, color=colors,
+           edgecolor="black", linewidth=0.6)
+    ax.axhline(vals[0], color="black", lw=0.8, ls=":")  # truth line
+    ax.set_xticks(np.arange(len(labels)))
+    ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8.5)
+    ax.set_ylabel(name)
+    ax.grid(axis="y", alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+**The case-by-case fix table.** A model-risk team reading the per-source panel runs the following decision tree against each source. The fix is mechanical once the panel and the registry are in place.
+
+| Source | What the panel shows | Reading | Fix in next retrain |
+|--------|---------------------|---------|---------------------|
+| `accepted` | tracks diagonal except a small upward gap at the top bin | residual MNAR signature at $\rho = 0.4$ | weight stays at 1.0; the residual is what Heckman / AIPW closes on the bureau-missing slice |
+| `pl` | tracks the accepted pattern within bin noise | same-product surrogate is faithful | weight stays at 0.70 |
+| `cc` | tracks the accepted pattern with wider bin-noise | product-distant on limit and term but rank-orders correctly | weight stays at 0.60; flag for product-mix audit if the bin-noise band widens past 10pp |
+| `payday` | flatter than diagonal: observed defaults compressed into a narrow range across all predicted-PD bins | rank-order distortion, not just a level shift | lower weight to 0.40 or drop the source (Scheme C); raising the weight would import the rank-order distortion into the slope |
+| `bureau-missing` | no calibration possible (no $Y^B$) | residual MNAR slice; weight 0 in training | route to Heckman (@sec-ch10-heckman-selection-correction) or AIPW (@sec-ch10-modern); track the share of the slice over time |
+
+The last row is what matters for the impossibility result of @sec-ch10-impossibility. The bureau-missing slice is not training data; it is a population the augmented model has no direct evidence on, and a Heckman or AIPW correction is the only principled way to produce a PD on it. A bank that drops the row entirely from its monitoring (because there is no $Y^B$ to plot against) loses the ability to detect when this slice grows or its underlying covariate mix shifts. Production dashboards should plot the share of bureau-missing rows alongside the per-source calibration panels; a rising share is the leading indicator that the next vintage will require a re-estimated Heckman correction.
+
+A note on the run-to-run reproducibility of artefact 1. The hash column produced above is a function of `(x, s)` only. In a real pipeline the inputs are the full feature vector plus the model-version tag of the upstream feature pipeline (scaler, encoder, imputer). The discipline is that any change to any of those bumps every hash, and a hash mismatch on a re-render is a stop-the-line incident, not a quiet warning: it means the model that booked the loan and the model that scored the same applicant in the retraining table are no longer reading the same feature space.
 
 ### Downturn adjustment
 
 A complication that reject inference inherits from the broader scorecard literature is the vintage effect. Default rates in a single vintage depend on the macro environment. A portfolio of 2005 vintage loans defaulted at twice the rate of 2003 vintage loans at the same score. Reject inference done in 2018 used a tight-credit 2008 to 2012 window as the reject-bureau outcome, and that window is not representative of the 2018 through-the-door population's expected life.
 
-The Basel supervisory guidance on downturn loss given default (LGD) applies by analogy. The industry reflex is to adjust the reject-inferred PD curve upward by a scalar that reflects the ratio of a long-run average default rate to the reject-bureau window default rate, preserving the shape of the curve while shifting the level. This is a crude fix that introduces an untestable scalar into the PD, and it is the first thing a model validator (ch 5) will question. The clean alternative is stratified reject inference by vintage and macro state, with a separate PD level estimate for each stratum, aggregated under the bank's expected portfolio mix. The statistical efficiency loss is nontrivial, so banks typically combine both.
+The Basel supervisory guidance on downturn loss given default (LGD) applies by analogy. The industry reflex is to adjust the reject-inferred PD curve upward by a scalar that reflects the ratio of a long-run average default rate to the reject-bureau window default rate, preserving the shape of the curve while shifting the level. This is a crude fix that introduces an untestable scalar into the PD, and it is the first thing a model validator (see @sec-sr117) will question. The clean alternative is stratified reject inference by vintage and macro state, with a separate PD level estimate for each stratum, aggregated under the bank's expected portfolio mix. The statistical efficiency loss is nontrivial, so banks typically combine both.
 
 #### A worked vintage example {#sec-ch10-vintage-worked}
 
-A worked vintage example makes the choice concrete. Three vintages stand in for a downturn, a benign window, and a normal window. The downturn shifts both the level (intercept) and the slope of the latent default equation: in stress, high-$x$ applicants default at a disproportionately higher rate because thin liquidity buffers compound the risk profile. The benign window does the opposite. The bank's expected portfolio mix is set by ALCO from the strategic plan and is treated as a versioned model input.
+A worked vintage example makes the choice concrete. Three vintages stand in for a downturn, a benign window, and a normal window. The downturn shifts both the level (intercept) and the slope of the latent default equation: in stress, high-$x$ applicants default at a disproportionately higher rate because thin liquidity buffers compound the risk profile. The benign window does the opposite. The bank's expected portfolio mix is set by ALCO (Asset-Liability Committee) from the strategic plan and is treated as a versioned model input.
 
 ```{python}
 import matplotlib.pyplot as plt
@@ -925,7 +1248,7 @@ print(f"scalar uplift  (k = {scalar:.3f}) : mean |err| = {err_scalar:.4f}")
 print(f"stratified mix                : mean |err| = {err_stratified:.4f}")
 ```
 
-The scalar fixes the mean PD level (its mean absolute error is much smaller than the no-adjustment case) but leaves a residual that widens at the tails of $X$, because the downturn slope is steeper than the long-run slope and a constant multiplier cannot compress that extra curvature back to the target. The stratified estimator gets it exactly because the aggregation reproduces the mix definition.
+The scalar fixes the mean PD level (its mean absolute error is much smaller than the no-adjustment case), but leaves a residual that widens at the tails of $X$, because the downturn slope is steeper than the long-run slope and a constant multiplier cannot compress that extra curvature back to the target. The stratified estimator gets it exactly because the aggregation reproduces the mix definition.
 
 ```{python}
 #| label: fig-ch10-vintage-downturn
@@ -956,6 +1279,126 @@ plt.show()
 3.  *Sensitivity table.* The model development document reports the through-the-cycle PD under at least two extreme mix scenarios: 100 percent downturn and 100 percent benign. The spread between those bounds is the macro uncertainty band. SR 11-7 validators read this band as a load-bearing artefact: a model whose PD doubles under a plausible mix shift is not a calibrated PD. It is a point estimate with a wide and largely undisclosed prior on the macro path.
 
 The combination is what banks actually deploy. Stratified estimates carry the right shape per vintage. The scalar uplift is reserved for vintages where the per-stratum sample is too thin for an independent slope fit, and it is documented as such with an explicit caveat in the model document. Validators will accept a scalar adjustment if and only if the per-vintage data limitation is shown numerically (per-vintage ESS, coefficient standard error) and the spread between the scalar-only and stratified-only PDs is within the model uncertainty band reported under @sec-ch10-impossibility.
+
+#### Train, validate, test under a vintage effect {#sec-ch10-vintage-splits}
+
+Once a vintage tag exists in the feature store, the next question is how the bank splits its data into training, validation, test, and through-the-cycle backtest sets. A random row-level shuffle is wrong: it lets the model train on rows that share a calendar quarter (and therefore a macro shock) with the rows it is evaluated on, which inflates every reported metric and hides exactly the drift the vintage tag was introduced to surface. Four split disciplines are needed, each answering a different question.
+
+1.  *Within-vintage K-fold on application-id for nuisance cross-fitting.* The AIPW second stage in @sec-ch10-modern requires that the propensity $\hat\pi$ and the outcome regression $\hat g$ are not fit on the same rows where the score $\psi_i = \hat g_i + (s_i / \hat\pi_i)(y_i - \hat g_i)$ is evaluated, otherwise own-observation bias contaminates the rate result in @eq-dml-rate. The folder is `GroupKFold` keyed on `applicant_id`, with `accept` stratified within each fold so accepted and rejected applicants appear in proportion. The fold *index* is the applicant key, not the vintage: the goal is bias removal at the second stage, not external validity. The production implementation is in `fit_aipw_outcome` at [book/code/reject_inference_pipeline/outcome.py:145](../code/reject_inference_pipeline/outcome.py#L145).
+2.  *Vintage-stratified frozen holdout for the multi-metric gate.* The champion-challenger gate evaluates AUC, Brier, calibration slope, ECE, and per-segment AUC on a holdout that no model has ever trained on. The holdout is reserved at the first ever retrain, frozen on disk, and a fixed share (typically 10 to 20 percent) is drawn *within each vintage* so the holdout's vintage mix mirrors the training table's vintage mix. This is the only discipline that cleanly separates "the new model overfit to the most recent quarter" from "the new model genuinely improved." The production implementation is `make_frozen_holdout` at [book/code/reject_inference_pipeline/champion_challenger.py:48](../code/reject_inference_pipeline/champion_challenger.py#L48).
+3.  *Walk-forward (out-of-time) backtest for TTC calibration.* For $V$ chronologically ordered vintages $v_1, \ldots, v_V$, the walk-forward fold $k$ trains on vintages $v_1, \ldots, v_k$ and scores vintage $v_{k+1}$. The per-vintage Brier (or per-vintage AUC) on the OOT vintage is the through-the-cycle metric. A challenger that improves on the in-sample frozen holdout but regresses on a single OOT vintage is a model that has memorised the training mix and will degrade in production once that mix shifts. The production version is `basel_ttc_multi_vintage_gate` at [book/code/reject_inference_pipeline/governance.py:49](../code/reject_inference_pipeline/governance.py#L49), which hard-blocks promotion if any vintage regresses by more than `vintage_regression_max` (default `0.005` in Brier units) or if fewer than `min_vintages` distinct vintages strictly improve.
+4.  *Cluster bootstrap by vintage for standard errors.* Every coefficient and every per-vintage PD level estimate inherits within-vintage residual dependence from the macro shock. Independent-row bootstrap underestimates SE by exactly the within-vintage intraclass correlation. Resampling whole vintages with replacement, refitting end to end, and taking the across-bootstrap standard deviation gives the cluster-robust SE. The production implementation is the `cluster_key` argument in `fit_heckman_outcome` at [book/code/reject_inference_pipeline/outcome.py:106](../code/reject_inference_pipeline/outcome.py#L106).
+
+The four disciplines do not substitute for each other. K-fold removes own-observation bias but does not detect macro drift. Frozen holdout detects in-sample overfitting but not out-of-time degradation. Walk-forward is the only one that catches a vintage-conditional regression, but on its own it produces a single point estimate per fold with no inferential band. The cluster bootstrap supplies the band but is silent about which calendar segment is degrading. SR 11-7 validators read these as four cells of one table, not four interchangeable knobs.
+
+The runnable demonstration uses the same `vintage_data` from the worked example so the three vintages are downturn (`2008-2010`), benign (`2014-2016`), and normal (`2018-2020`). We assemble a long applicant table and step through each split.
+
+```{python}
+#| label: ch10-vintage-splits-demo
+from sklearn.model_selection import GroupKFold
+
+rows = []
+for v in vintages:
+    xv, yv, sv = vintage_data[v]
+    for i in range(len(xv)):
+        rows.append((v, f"{v}-{i:05d}", float(xv[i]),
+                     int(yv[i]), int(sv[i])))
+apps_long = pd.DataFrame(
+    rows, columns=["vintage", "applicant_id", "x", "y", "s"])
+print(apps_long.groupby(["vintage", "s"]).size().unstack(fill_value=0))
+```
+
+```{python}
+#| label: ch10-vintage-splits-kfold
+funded = apps_long.query("s == 1").reset_index(drop=True)
+gkf = GroupKFold(n_splits=5)
+fold_briers = []
+for tr_i, te_i in gkf.split(
+        funded[["x"]], funded["y"], groups=funded["applicant_id"]):
+    m = LogisticRegression().fit(
+        funded.loc[tr_i, ["x"]], funded.loc[tr_i, "y"])
+    p = m.predict_proba(funded.loc[te_i, ["x"]])[:, 1]
+    fold_briers.append(float(np.mean(
+        (p - funded.loc[te_i, "y"].to_numpy())**2)))
+print("within-vintage GroupKFold Brier per fold:",
+      [round(b, 4) for b in fold_briers])
+print("                            mean Brier:",
+      round(float(np.mean(fold_briers)), 4))
+```
+
+```{python}
+#| label: ch10-vintage-splits-frozen-holdout
+def vintage_stratified_holdout(df, holdout_share=0.15, seed=20260504):
+    rng_h = np.random.default_rng(seed)
+    mask = np.zeros(len(df), dtype=bool)
+    for _, idxs in df.groupby("vintage").groups.items():
+        idxs_arr = np.asarray(idxs)
+        k = max(1, int(round(len(idxs_arr) * holdout_share)))
+        mask[rng_h.choice(idxs_arr, size=k, replace=False)] = True
+    return mask
+
+holdout = vintage_stratified_holdout(apps_long, holdout_share=0.15)
+print(f"frozen holdout: {holdout.sum()} of {len(apps_long)} rows "
+      f"({holdout.mean():.1%})")
+print("holdout share by vintage:")
+print(apps_long.assign(in_holdout=holdout)
+      .groupby("vintage")["in_holdout"].mean().round(3))
+```
+
+```{python}
+#| label: ch10-vintage-splits-walk-forward
+order = ["2008-2010", "2014-2016", "2018-2020"]
+wf_rows = []
+for k in range(1, len(order)):
+    past, future = order[:k], order[k]
+    tr = apps_long.query("vintage in @past and s == 1")
+    te = apps_long.query("vintage == @future and s == 1")
+    m = LogisticRegression().fit(tr[["x"]], tr["y"])
+    p = m.predict_proba(te[["x"]])[:, 1]
+    wf_rows.append({
+        "train_vintages": " + ".join(past),
+        "test_vintage":   future,
+        "n_train":        int(len(tr)),
+        "n_test":         int(len(te)),
+        "oot_brier":      float(np.mean((p - te["y"].to_numpy())**2)),
+        "oot_default_rate": float(te["y"].mean()),
+    })
+print(pd.DataFrame(wf_rows).round(4))
+```
+
+```{python}
+#| label: ch10-vintage-splits-cluster-bootstrap
+funded_x = apps_long.query("s == 1").reset_index(drop=True)
+B = 200
+unique_v = funded_x["vintage"].unique()
+idx_by_v = {v: np.flatnonzero(funded_x["vintage"].values == v)
+            for v in unique_v}
+
+slopes_cluster, slopes_iid = [], []
+rng_b = np.random.default_rng(20260504)
+for _ in range(B):
+    drawn = rng_b.choice(unique_v, size=len(unique_v), replace=True)
+    sel = np.concatenate([idx_by_v[v] for v in drawn])
+    m = LogisticRegression().fit(
+        funded_x.loc[sel, ["x"]], funded_x.loc[sel, "y"])
+    slopes_cluster.append(float(m.coef_[0, 0]))
+
+    sel_iid = rng_b.choice(len(funded_x), size=len(funded_x), replace=True)
+    m_iid = LogisticRegression().fit(
+        funded_x.loc[sel_iid, ["x"]], funded_x.loc[sel_iid, "y"])
+    slopes_iid.append(float(m_iid.coef_[0, 0]))
+
+se_cluster = float(np.std(slopes_cluster, ddof=1))
+se_iid     = float(np.std(slopes_iid,     ddof=1))
+print(f"slope SE, vintage-clustered bootstrap = {se_cluster:.3f}")
+print(f"slope SE, independent-row bootstrap   = {se_iid:.3f}")
+print(f"ratio (cluster / iid)                  = "
+      f"{se_cluster / max(se_iid, 1e-9):.2f}")
+```
+
+The walk-forward table is the validator-visible artefact. The downturn-trained model (`train_vintages = '2008-2010'`, `test_vintage = '2014-2016'`) carries the downturn intercept and slope into the benign vintage; the OOT Brier and the OOT default rate columns price that mismatch directly. The next fold (`train = 2008-2010 + 2014-2016`, `test = 2018-2020`) is the realistic production case: a 2018 deployment trained on the two prior vintages. The Brier on that fold is what enters the per-vintage column of `basel_ttc_multi_vintage_gate`. The bootstrap chunk computes both the vintage-clustered SE and the independent-row SE on the same rows so the ratio is observable: when the cluster SE exceeds the independent-row SE, the within-vintage macro residual is doing real work and the independent-row interval is anti-conservative; the printed ratio is what a model risk team will quote in the SR 11-7 sensitivity discussion.
+
+A note on what this section does *not* implement. The `macro_state` flag (downturn / benign / normal) referenced in the production workflow above is not a column on the production schema today: [`schema.py`](../code/reject_inference_pipeline/schema.py) has `vintage` and `segment`, and a deployment that needs the macro overlay derives `macro_state` at scoring time from a published macro index joined on `vintage`. Likewise, the mix-dictionary aggregator $\widehat{PD}_{\text{long-run}}(x) = \sum_v w_v \widehat{PD}_v(x)$ is shown in the toy here but is not a stand-alone module in the production package; banks layer it on top of the per-vintage outcome artefacts the package already produces. The end-to-end production walkthrough that wires the four disciplines into a single retrain cycle, including the SR 11-7 memo and the Basel TTC gate emit, is in @sec-ch10-pipeline-package.
 
 ## Heckman selection correction {#sec-ch10-heckman-selection-correction}
 
