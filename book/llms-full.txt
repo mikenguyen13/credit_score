@@ -7726,8 +7726,9 @@ Panel (a) is what reweighting fixes: the feature distribution differs between fu
 
 Before tackling the methods in turn, it helps to map every stage where selection bias enters and every identification condition a corrective method might lean on. We use three views in turn. @fig-ch10-funnel-volumes plots the typical drop-off in counts at each gate, so the order-of-magnitude problem is visible at a glance. @fig-ch10-selection-roadmap is a stage-level DAG of the same pipeline, with the labelled exits where $Y$ is missing or imported from a bureau. @tbl-ch10-bias-dimensions then catalogues the seven *selection-bias dimensions* (D1 through D7) that any reject inference exercise has to take an explicit position on, the stage at which each one binds, and the section of the chapter that addresses it. A note on terminology. We call D1 through D7 *selection-bias dimensions* (or *identification checkpoints*) rather than *moderators*: in the standard statistical usage a moderator is a variable that interacts with $X$ to shift the $X \to Y$ relationship, whereas D1 through D7 are a mix of bias *sources* (D2, D3), positivity and identification *assumptions* (D1, D4), and external-validity *threats* (D5, D6, D7). Each subsequent section of the chapter targets one or more of these dimensions, and the impossibility result of @sec-ch10-impossibility says exactly which combinations the accepted-only sample can never settle on its own.
 
+::: no-panzoom
 | ID | Selection-bias dimension | Stage where it binds | Section that addresses it |
-|---------------|--------------------|-----------------|---------------------|
+|-----------------|-------------------|-----------------|--------------------|
 | D1 | Policy overlap: is $P(S{=}1 \mid x) > 0$ everywhere on the support of $X$? | Stage 1 hard pre-screens; Stage 2 score cut | @sec-ch10-observable, @sec-ch10-rdd |
 | D2 | Covariate shift on $X$: $P(X \mid S{=}1) \neq P(X)$ | Stage 2 (and Stage 1 if it depends on $X$) | @sec-ch10-augmentation-hsias-parceling-and-its-fuz, @sec-ch10-modern |
 | D3 | Selection on unobservables: $\mathrm{Corr}(U,V) \neq 0$ | Stage 2 (underwriter signals not in $X$) | @sec-ch10-heckman-selection-correction, @sec-ch10-modern |
@@ -7770,6 +7771,8 @@ The distinction matters because there exist rules that induce covariate shift wi
 
 To make the distinction concrete, fix one outcome model and run two selection rules through it. The outcome model has one observable feature $X$ and one latent residual $U$ that stands in for everything not in the feature store: informal-income flags, free-text underwriter notes, desk overlays. Two selection rules differ only in what drives the accept decision. @fig-ch10-two-mechanisms-a and @fig-ch10-two-mechanisms-b show the mechanism graphs in turn; the only structural difference is the arrow into $S$ in the second graph. In both graphs $Y$ is the latent default that *would* be realized if the applicant were funded; $S$ governs whether we observe $Y$, not whether it occurs, which is why no arrow runs from $S$ into $Y$.
 
+::: no-panzoom
+::: no-panzoom
 Now drive the two graphs through a simulation. Both scenarios share the through-the-door feature $X$, the outcome residual $U$, and the outcome rule $Y = \mathbf{1}\{0.7X + U > 0.5\}$. Scenario A's accept rule depends on an independent noise $W$, so within any $X$-bin the accept slice is a uniform random subsample of the bin and inherits the bin's $U$ distribution. Scenario B's accept rule depends on $V$ with $\mathrm{Corr}(U, V) = 0.6$, so within any $X$-bin the accepted ones are exactly the applicants with the highest $V$, which by correlation are the applicants with the highest $U$, which by the outcome rule are the applicants most likely to default. The marginal accept rate and the marginal $P(X \mid S=1)$ are identical across the two scenarios by construction.
 
 Read the table column by column. The first numeric column is the truth: the bin-conditional default rate on the full applicant pool. The Scenario A column matches it bin-by-bin within Monte-Carlo noise, which is exactly the statement that covariate shift alone does not move the conditional. The Scenario B column is higher than the truth in every bin, and the gap is uniform in sign. That uniform upward shift is what "selection bias proper" looks like in numbers: the accepted slice is *riskier* than the through-the-door population at every value of $X$, not because the lender accepted harder-$X$ applicants (the marginal $E[X \mid S=1]$ is identical across A and B by construction), but because within each $X$-bin the accepted ones have systematically higher $U$.
@@ -7837,15 +7840,15 @@ $$
 
 where:
 
-- $\mathcal{L}(\theta)$ is the observed-data likelihood as a function of the full parameter vector $\theta = (\beta, \gamma_X, \gamma_Z, \rho)$, that is, the default coefficients, the selection coefficients, and the error correlation.
-- $\theta$ collects every parameter the model needs to estimate, so maximizing $\mathcal{L}(\theta)$ jointly fits the default equation, the selection equation, and their dependence.
-- $i = 1, \ldots, n$ indexes the i.i.d. applicants in the through-the-door population, both accepted and rejected.
-- $S_i \in \{0, 1\}$ is the selection indicator: $S_i = 1$ if applicant $i$ was accepted (booked), $S_i = 0$ if rejected.
-- $Y_i \in \{0, 1\}$ is the default outcome, observed only for $S_i = 1$.
-- $X_i$ is the vector of covariates that enters both the default and selection equations (income, debt-to-income, bureau score, and so on).
-- $Z_i$ is the vector of exclusion-restriction variables that enter the selection equation only (for example, branch capacity or a policy threshold), not the default equation.
-- $\prod_{i: S_i = 0} P(S_i = 0 \mid X_i, Z_i; \theta)$ is the rejected-side contribution: for each rejected applicant we observe only that they were rejected, so the likelihood contains only the marginal selection probability.
-- $\prod_{i: S_i = 1} P(S_i = 1, Y_i \mid X_i, Z_i; \theta)$ is the accepted-side contribution: for each accepted applicant we observe both acceptance and the default label, so the likelihood contains the joint probability of being accepted and defaulting (or not).
+-   $\mathcal{L}(\theta)$ is the observed-data likelihood as a function of the full parameter vector $\theta = (\beta, \gamma_X, \gamma_Z, \rho)$, that is, the default coefficients, the selection coefficients, and the error correlation.
+-   $\theta$ collects every parameter the model needs to estimate, so maximizing $\mathcal{L}(\theta)$ jointly fits the default equation, the selection equation, and their dependence.
+-   $i = 1, \ldots, n$ indexes the i.i.d. applicants in the through-the-door population, both accepted and rejected.
+-   $S_i \in \{0, 1\}$ is the selection indicator: $S_i = 1$ if applicant $i$ was accepted (booked), $S_i = 0$ if rejected.
+-   $Y_i \in \{0, 1\}$ is the default outcome, observed only for $S_i = 1$.
+-   $X_i$ is the vector of covariates that enters both the default and selection equations (income, debt-to-income, bureau score, and so on).
+-   $Z_i$ is the vector of exclusion-restriction variables that enter the selection equation only (for example, branch capacity or a policy threshold), not the default equation.
+-   $\prod_{i: S_i = 0} P(S_i = 0 \mid X_i, Z_i; \theta)$ is the rejected-side contribution: for each rejected applicant we observe only that they were rejected, so the likelihood contains only the marginal selection probability.
+-   $\prod_{i: S_i = 1} P(S_i = 1, Y_i \mid X_i, Z_i; \theta)$ is the accepted-side contribution: for each accepted applicant we observe both acceptance and the default label, so the likelihood contains the joint probability of being accepted and defaulting (or not).
 
 The joint factor on the accepted side is what distinguishes Heckman from a naive fit: $P(S=1, Y \mid X, Z)$ integrates over $(U, V)$ with the joint distribution, so $P(Y \mid X, Z, S=1) \neq P(Y \mid X)$ whenever $\rho \neq 0$.
 
@@ -7867,13 +7870,13 @@ For outcomes, we consider two canonical cases. In the linear case (used mostly i
 
 **Output.** Refit PD model $\hat p_{\text{aug}}(\cdot)$.
 
-1. **Fit accepted-only PD.** Estimate $\hat p_A$ by maximum likelihood on $\{(X_i, Y_i) : S_i = 1\}$.
-2. **Score everyone.** Compute $s_i = \hat p_A(X_i)$ for all applicants, accepted and rejected.
-3. **Cut bands.** Set band edges $q_0 < q_1 < \cdots < q_K$ as $K$-quantiles of $\{s_i : S_i = 1\}$; let $B_b = [q_{b-1}, q_b)$ for $b = 1, \ldots, K$.
-4. **Compute band bad rates.** For each band, $\displaystyle \bar\pi_b = \frac{\sum_{i: S_i=1, s_i \in B_b} Y_i}{\sum_{i: S_i=1, s_i \in B_b} 1}$.
-5. **Assign rejects to bands.** For each $j$ with $S_j = 0$, set $b(j) = b$ such that $s_j \in B_b$.
-6. **Build the soft label weight.** $w_j = \min(1, \tau \cdot \bar\pi_{b(j)})$ for each reject; $\tau = 1$ recovers the band rate exactly.
-7. **Refit.** Solve the weighted maximum-likelihood problem in @eq-fuzzy-augmentation with rows: $(X_i, Y_i, 1)$ for each accepted, and the pair $(X_j, 1, w_j),\; (X_j, 0, 1 - w_j)$ for each reject.
+1.  **Fit accepted-only PD.** Estimate $\hat p_A$ by maximum likelihood on $\{(X_i, Y_i) : S_i = 1\}$.
+2.  **Score everyone.** Compute $s_i = \hat p_A(X_i)$ for all applicants, accepted and rejected.
+3.  **Cut bands.** Set band edges $q_0 < q_1 < \cdots < q_K$ as $K$-quantiles of $\{s_i : S_i = 1\}$; let $B_b = [q_{b-1}, q_b)$ for $b = 1, \ldots, K$.
+4.  **Compute band bad rates.** For each band, $\displaystyle \bar\pi_b = \frac{\sum_{i: S_i=1, s_i \in B_b} Y_i}{\sum_{i: S_i=1, s_i \in B_b} 1}$.
+5.  **Assign rejects to bands.** For each $j$ with $S_j = 0$, set $b(j) = b$ such that $s_j \in B_b$.
+6.  **Build the soft label weight.** $w_j = \min(1, \tau \cdot \bar\pi_{b(j)})$ for each reject; $\tau = 1$ recovers the band rate exactly.
+7.  **Refit.** Solve the weighted maximum-likelihood problem in @eq-fuzzy-augmentation with rows: $(X_i, Y_i, 1)$ for each accepted, and the pair $(X_j, 1, w_j),\; (X_j, 0, 1 - w_j)$ for each reject.
 
 The convention is that each rejected applicant contributes total weight 1 across the two augmented rows, so the refit treats accepteds and rejects on equal footing per applicant. Increasing $\tau$ shifts mass from the $Y=0$ row to the $Y=1$ row but does not create a new applicant.
 
@@ -7895,55 +7898,53 @@ Setting $\tau \equiv 1$ is the MAR assumption in disguise: the accepted PD curve
 
 Before scaling to the simulation in @sec-ch10-parceling-worked-example, we walk every step of the algorithm on a 12-applicant accepted sample with three rejects and $K = 3$ bands. The numbers are small enough to verify by hand and large enough to show non-degenerate band rates.
 
-| $i$ | $X_i$ | $S_i$ | $Y_i$ | $\hat p_A(X_i)$ | band |
-|---:|:----:|:---:|:---:|:------:|:-----:|
-| 1 | $-1.5$ | 1 | 0 | 0.05 | 1 |
-| 2 | $-1.0$ | 1 | 0 | 0.10 | 1 |
-| 3 | $-0.7$ | 1 | 0 | 0.15 | 1 |
-| 4 | $-0.4$ | 1 | 1 | 0.20 | 1 |
-| 5 | $-0.1$ | 1 | 0 | 0.30 | 2 |
-| 6 |  $0.2$ | 1 | 0 | 0.40 | 2 |
-| 7 |  $0.5$ | 1 | 1 | 0.50 | 2 |
-| 8 |  $0.7$ | 1 | 1 | 0.55 | 2 |
-| 9 |  $0.9$ | 1 | 0 | 0.65 | 3 |
-| 10 | $1.1$ | 1 | 1 | 0.75 | 3 |
-| 11 | $1.3$ | 1 | 1 | 0.82 | 3 |
-| 12 | $1.5$ | 1 | 1 | 0.88 | 3 |
-| R1 | $-0.3$ | 0 | (unobs.) | 0.18 | 1 |
-| R2 |  $0.3$ | 0 | (unobs.) | 0.45 | 2 |
-| R3 |  $1.2$ | 0 | (unobs.) | 0.80 | 3 |
+| $i$ | $X_i$  | $S_i$ |  $Y_i$   | $\hat p_A(X_i)$ | band |
+|----:|:------:|:-----:|:--------:|:---------------:|:----:|
+|   1 | $-1.5$ |   1   |    0     |      0.05       |  1   |
+|   2 | $-1.0$ |   1   |    0     |      0.10       |  1   |
+|   3 | $-0.7$ |   1   |    0     |      0.15       |  1   |
+|   4 | $-0.4$ |   1   |    1     |      0.20       |  1   |
+|   5 | $-0.1$ |   1   |    0     |      0.30       |  2   |
+|   6 | $0.2$  |   1   |    0     |      0.40       |  2   |
+|   7 | $0.5$  |   1   |    1     |      0.50       |  2   |
+|   8 | $0.7$  |   1   |    1     |      0.55       |  2   |
+|   9 | $0.9$  |   1   |    0     |      0.65       |  3   |
+|  10 | $1.1$  |   1   |    1     |      0.75       |  3   |
+|  11 | $1.3$  |   1   |    1     |      0.82       |  3   |
+|  12 | $1.5$  |   1   |    1     |      0.88       |  3   |
+|  R1 | $-0.3$ |   0   | (unobs.) |      0.18       |  1   |
+|  R2 | $0.3$  |   0   | (unobs.) |      0.45       |  2   |
+|  R3 | $1.2$  |   0   | (unobs.) |      0.80       |  3   |
 
 **Steps 1 to 3.** $\hat p_A$ is fit on rows 1 to 12 (the accepteds). The score column $\hat p_A(X_i)$ ranks applicants by predicted PD. Cutting at the tertiles of the 12 accepted scores produces three bands of size 4: $B_1 = [0, 0.25]$, $B_2 = (0.25, 0.60]$, $B_3 = (0.60, 1]$. Each reject is dropped into the band whose interval contains its score.
 
 **Step 4 (band bad rates).** Band 1: 1 bad among 4 accepteds, $\bar\pi_1 = 0.25$. Band 2: 2 bads among 4, $\bar\pi_2 = 0.50$. Band 3: 3 bads among 4, $\bar\pi_3 = 0.75$. The bad rate increases monotonically with band, which is the regularity condition every implementation should check (a non-monotone column is a sign of too many bands or too small a sample).
 
-**Steps 5 to 6 (assign and weight, $\tau = 1$).**
+**Steps 5 to 6 (assign and weight,** $\tau = 1$).
 
 | reject | band | $w_j = \bar\pi_{b(j)}$ | $1 - w_j$ |
-|:-:|:-:|:-:|:-:|
-| R1 | 1 | $0.25$ | $0.75$ |
-| R2 | 2 | $0.50$ | $0.50$ |
-| R3 | 3 | $0.75$ | $0.25$ |
+|:------:|:----:|:----------------------:|:---------:|
+|   R1   |  1   |         $0.25$         |  $0.75$   |
+|   R2   |  2   |         $0.50$         |  $0.50$   |
+|   R3   |  3   |         $0.75$         |  $0.25$   |
 
 **Step 7 (augmented training set).** Each reject becomes two weighted rows; the combined set has 12 accepted rows (weight 1, real label) and $3 \times 2 = 6$ reject rows for a total of 18 rows that go into a `LogisticRegression(...).fit(X, y, sample_weight=w)` call.
 
-| row | $X$ | $Y$ | weight | source |
-|:-:|:-:|:-:|:-:|:-:|
-| ... | ... | ... | $1$ | accepteds 1 to 12 (real labels) |
-| 13 | $X_{R1}$ | $1$ | $0.25$ | R1 fuzzy bad |
-| 14 | $X_{R1}$ | $0$ | $0.75$ | R1 fuzzy good |
-| 15 | $X_{R2}$ | $1$ | $0.50$ | R2 fuzzy bad |
-| 16 | $X_{R2}$ | $0$ | $0.50$ | R2 fuzzy good |
-| 17 | $X_{R3}$ | $1$ | $0.75$ | R3 fuzzy bad |
-| 18 | $X_{R3}$ | $0$ | $0.25$ | R3 fuzzy good |
+| row |   $X$    | $Y$ | weight |             source              |
+|:---:|:--------:|:---:|:------:|:-------------------------------:|
+| ... |   ...    | ... |  $1$   | accepteds 1 to 12 (real labels) |
+| 13  | $X_{R1}$ | $1$ | $0.25$ |          R1 fuzzy bad           |
+| 14  | $X_{R1}$ | $0$ | $0.75$ |          R1 fuzzy good          |
+| 15  | $X_{R2}$ | $1$ | $0.50$ |          R2 fuzzy bad           |
+| 16  | $X_{R2}$ | $0$ | $0.50$ |          R2 fuzzy good          |
+| 17  | $X_{R3}$ | $1$ | $0.75$ |          R3 fuzzy bad           |
+| 18  | $X_{R3}$ | $0$ | $0.25$ |          R3 fuzzy good          |
 
-**Reading R1's contribution.** R1 contributes
-$$
+**Reading R1's contribution.** R1 contributes $$
 0.25 \log p(X_{R1}; \beta) + 0.75 \log\big(1 - p(X_{R1}; \beta)\big)
-$$
-to the augmented log-likelihood, where $p(\cdot; \beta)$ is the refit PD. Treated as a free probability, this expression is maximized at $p(X_{R1}; \beta) = 0.25$ (the cross-entropy minimum of a $\mathrm{Bernoulli}(0.25)$ target). The refit therefore pulls the fitted PD curve at $X_{R1} = -0.3$ toward $0.25$, the band-1 accepted bad rate, exactly as the prose intuition predicted.
+$$ to the augmented log-likelihood, where $p(\cdot; \beta)$ is the refit PD. Treated as a free probability, this expression is maximized at $p(X_{R1}; \beta) = 0.25$ (the cross-entropy minimum of a $\mathrm{Bernoulli}(0.25)$ target). The refit therefore pulls the fitted PD curve at $X_{R1} = -0.3$ toward $0.25$, the band-1 accepted bad rate, exactly as the prose intuition predicted.
 
-**Effect of $\tau > 1$.** Set $\tau = 2$. Then $w_{R1} = \min(1, 2 \cdot 0.25) = 0.50$, $w_{R2} = \min(1, 1.00) = 1.00$, $w_{R3} = \min(1, 1.50) = 1.00$. Rejects in bands 2 and 3 now contribute as known bads (the $Y=0$ row carries weight 0), and R1 contributes as a coin flip. The refit PD curve in the upper score region is dragged sharply upward because every reject above band 1 is treated as a guaranteed default. This is the level shift that $\tau$ produces, and it is also why $\tau > 1$ without a bureau anchor is the hand-tuned guess that the simulation in @sec-ch10-parceling-worked-example flags as an over-correction.
+**Effect of** $\tau > 1$. Set $\tau = 2$. Then $w_{R1} = \min(1, 2 \cdot 0.25) = 0.50$, $w_{R2} = \min(1, 1.00) = 1.00$, $w_{R3} = \min(1, 1.50) = 1.00$. Rejects in bands 2 and 3 now contribute as known bads (the $Y=0$ row carries weight 0), and R1 contributes as a coin flip. The refit PD curve in the upper score region is dragged sharply upward because every reject above band 1 is treated as a guaranteed default. This is the level shift that $\tau$ produces, and it is also why $\tau > 1$ without a bureau anchor is the hand-tuned guess that the simulation in @sec-ch10-parceling-worked-example flags as an over-correction.
 
 ### What parceling estimates
 
@@ -7961,15 +7962,15 @@ To make the regime concrete, the question to ask of any portfolio is: "if I exac
 
 In Vietnam, the regime split is unusually clean because the same lender often runs both kinds of book. Three families where the MAR-within-band assumption is approximately defensible:
 
-1. **Mass-market consumer finance.** The unsecured cash-loan and credit-card books at FE Credit, Home Credit Vietnam, MCredit, Mirae Asset Finance, and Shinhan Finance run on automated underwriting against a bureau pull from CIC plus a thin alternative-data layer (telco tenure, e-wallet history, GPS-stable address). Decisions take minutes, with a hard score cut and a small set of policy rules ("CIC nhóm $\geq 3$ in last 24 months $\to$ decline"). Loan officers see only a green/yellow/red flag. Reject inference here is a candidate for fuzzy augmentation with $\tau$ in the lower industry range, because the recorded features carry most of the decision and the residual $V$ is small.
-2. **POS and BNPL installment lending.** Home Credit point-of-sale loans at electronics retailers, FPT Shop and Pico co-branded credit, Shopee SPayLater, and the MoMo / ZaloPay BNPL stacks all run pure rule engines against a bureau-light feature vector (phone tenure, prior wallet balance, basic KYC). The merchant cashier sees an accept/decline only and cannot override. The acceptance rule is essentially a deterministic function of the observed inputs.
-3. **Auto and motorbike finance with hard LTV/DTI rules.** Toyota Financial Services Vietnam, Honda VietFinance, VPBank Auto, and Techcombank's vehicle loan book gate decisions on loan-to-value, debt-to-income, and bureau bands. Sales staff cannot relax these gates without escalation, and escalations are rare on the mass-affluent segment.
+1.  **Mass-market consumer finance.** The unsecured cash-loan and credit-card books at FE Credit, Home Credit Vietnam, MCredit, Mirae Asset Finance, and Shinhan Finance run on automated underwriting against a bureau pull from CIC plus a thin alternative-data layer (telco tenure, e-wallet history, GPS-stable address). Decisions take minutes, with a hard score cut and a small set of policy rules ("CIC nhóm $\geq 3$ in last 24 months $\to$ decline"). Loan officers see only a green/yellow/red flag. Reject inference here is a candidate for fuzzy augmentation with $\tau$ in the lower industry range, because the recorded features carry most of the decision and the residual $V$ is small.
+2.  **POS and BNPL installment lending.** Home Credit point-of-sale loans at electronics retailers, FPT Shop and Pico co-branded credit, Shopee SPayLater, and the MoMo / ZaloPay BNPL stacks all run pure rule engines against a bureau-light feature vector (phone tenure, prior wallet balance, basic KYC). The merchant cashier sees an accept/decline only and cannot override. The acceptance rule is essentially a deterministic function of the observed inputs.
+3.  **Auto and motorbike finance with hard LTV/DTI rules.** Toyota Financial Services Vietnam, Honda VietFinance, VPBank Auto, and Techcombank's vehicle loan book gate decisions on loan-to-value, debt-to-income, and bureau bands. Sales staff cannot relax these gates without escalation, and escalations are rare on the mass-affluent segment.
 
 Three families where the assumption breaks and parceling should not be the headline method:
 
-1. **SME and corporate lending at relationship banks.** Vietcombank, BIDV, Agribank, and VietinBank route SME files through a relationship manager who weighs unrecorded soft signals (factory walkthrough, supplier-letter quality, owner's family standing, Tet-season inventory turn). The recorded features capture a fraction of the decision and $\rho$ is large in absolute value.
-2. **Microfinance and group-lending books.** TYM and CEP underwrite via village-level group sponsorship and commune-officer references. The accept decision is almost entirely a function of unrecorded social-collateral variables. Fuzzy augmentation on this book would borrow accepted bad rates that reflect a heavily pre-screened sub-population and project them onto a rejected pool dominated by group-rejected applicants whose risk profile is structurally different.
-3. **Mortgage and high-ticket secured lending with manual valuation.** Property valuation, source-of-funds review, and committee approval at Techcombank, VPBank, and Sacombank introduce judgmental layers that the application-time feature vector does not encode. Even with a strong observable scorecard, the binding constraint at the margin is often the valuation negotiation, which is a rich source of unobservables.
+1.  **SME and corporate lending at relationship banks.** Vietcombank, BIDV, Agribank, and VietinBank route SME files through a relationship manager who weighs unrecorded soft signals (factory walkthrough, supplier-letter quality, owner's family standing, Tet-season inventory turn). The recorded features capture a fraction of the decision and $\rho$ is large in absolute value.
+2.  **Microfinance and group-lending books.** TYM and CEP underwrite via village-level group sponsorship and commune-officer references. The accept decision is almost entirely a function of unrecorded social-collateral variables. Fuzzy augmentation on this book would borrow accepted bad rates that reflect a heavily pre-screened sub-population and project them onto a rejected pool dominated by group-rejected applicants whose risk profile is structurally different.
+3.  **Mortgage and high-ticket secured lending with manual valuation.** Property valuation, source-of-funds review, and committee approval at Techcombank, VPBank, and Sacombank introduce judgmental layers that the application-time feature vector does not encode. Even with a strong observable scorecard, the binding constraint at the margin is often the valuation negotiation, which is a rich source of unobservables.
 
 Even within a single institution the regime can flip across products. A Techcombank cash card on Techcombank Mobile can be a clean rule-based decision while a Techcombank business overdraft to the same customer at the same branch is a relationship-manager call. The right operating discipline is to gate fuzzy augmentation per-product, not per-institution, and to record at decision time which path the file took (`auto`, `auto with override`, `manual review`, `committee`); the override and manual-review tags are then used as conditioning variables in a Heckman-style or copula-based extension when the product mix is mixed.
 
@@ -7981,11 +7982,11 @@ The data-generating process is logistic by construction so that the population c
 
 **Two reference rows: truth versus oracle.** Every comparison table in this chapter prints two reference rows alongside the candidate estimators. They are not the same object and the distinction matters.
 
-- **truth ($\beta^{\star}$).** The population DGP coefficient vector $(\beta_0, \beta_1) = (-0.6, 1.2)$. This is what the lender would recover with an infinite labeled sample drawn from the through-the-door distribution. It is a fixed parameter, not an estimator. No method in the chapter targets the truth directly; methods target the oracle, which targets the truth.
-- **oracle ($\hat\beta_{\text{full}}$).** The maximum-likelihood logistic fit on the full $n = 2{,}000$ through-the-door labels $(X, Y)$, observable only because this is a simulation. It is a finite-sample estimator that is consistent for $\beta^{\star}$ when the model class matches the DGP. Its gap from truth is finite-sample sampling noise plus sklearn's default L2 ridge ($C = 1.0$); on this seed the slope sits at about 1.28 versus a truth of 1.20.
+-   **truth (**$\beta^{\star}$). The population DGP coefficient vector $(\beta_0, \beta_1) = (-0.6, 1.2)$. This is what the lender would recover with an infinite labeled sample drawn from the through-the-door distribution. It is a fixed parameter, not an estimator. No method in the chapter targets the truth directly; methods target the oracle, which targets the truth.
+-   **oracle (**$\hat\beta_{\text{full}}$). The maximum-likelihood logistic fit on the full $n = 2{,}000$ through-the-door labels $(X, Y)$, observable only because this is a simulation. It is a finite-sample estimator that is consistent for $\beta^{\star}$ when the model class matches the DGP. Its gap from truth is finite-sample sampling noise plus sklearn's default L2 ridge ($C = 1.0$); on this seed the slope sits at about 1.28 versus a truth of 1.20.
 
-The reject-inference target is the oracle, not the truth. A method that lands on oracle has solved the selection problem; the residual oracle-versus-truth gap is the same Monte Carlo noise the oracle itself carries. When you read a row like `naive (acc only)` against the two reference rows, the comparison that scores the method is `naive` versus `oracle`. The `truth` row is there to confirm that the oracle is itself unbiased on this DGP.[^ch10-truth-oracle]
-[^ch10-truth-oracle]: An earlier draft of this chapter used a probit-style threshold DGP with a normal $u$, which is why a previous render showed the oracle row drifted from the truth row by the logit-versus-probit scale factor of $\pi/\sqrt 3 \approx 1.81$ (truth slope 1.2, oracle slope around 2.09). The bias story for naive, fuzzy, and bureau is identical under either link; only the numerical alignment of the oracle row against the truth row changes.
+The reject-inference target is the oracle, not the truth. A method that lands on oracle has solved the selection problem; the residual oracle-versus-truth gap is the same Monte Carlo noise the oracle itself carries. When you read a row like `naive (acc only)` against the two reference rows, the comparison that scores the method is `naive` versus `oracle`. The `truth` row is there to confirm that the oracle is itself unbiased on this DGP.[^10-reject-inference-1]
+[^10-reject-inference-1]: An earlier draft of this chapter used a probit-style threshold DGP with a normal $u$, which is why a previous render showed the oracle row drifted from the truth row by the logit-versus-probit scale factor of $\pi/\sqrt 3 \approx 1.81$ (truth slope 1.2, oracle slope around 2.09). The bias story for naive, fuzzy, and bureau is identical under either link; only the numerical alignment of the oracle row against the truth row changes.
 
 **Step 1: fit a PD model on accepteds only.**
 
@@ -8087,7 +8088,7 @@ Reading the table. All three schemes pull the slope close to the oracle ($\hat\b
 **The case-by-case fix table.** A model-risk team reading the per-source panel runs the following decision tree against each source. The fix is mechanical once the panel and the registry are in place.
 
 | Source | What the panel shows | Reading | Fix in next retrain |
-|--------|---------------------|---------|---------------------|
+|---------------|----------------------|---------------|----------------------|
 | `accepted` | tracks diagonal except a small upward gap at the top bin | residual MNAR signature at $\rho = 0.4$ | weight stays at 1.0; the residual is what Heckman / AIPW closes on the bureau-missing slice |
 | `pl` | tracks the accepted pattern within bin noise | same-product surrogate is faithful | weight stays at 0.70 |
 | `cc` | tracks the accepted pattern with wider bin-noise | product-distant on limit and term but rank-orders correctly | weight stays at 0.60; flag for product-mix audit if the bin-noise band widens past 10pp |
@@ -8154,35 +8155,35 @@ The notation in @eq-heckman-sigma fixes a convention worth stating explicitly: $
 
 There are three identification claims packed into $\Sigma$, and each deserves a separate unpacking because they together determine which parameters a Heckman estimator can read off the data and which are pure normalization.
 
-**Claim 1: the selection-equation variance is unidentified, so we set it to 1.** Suppose for the moment that we did not impose $\mathrm{Var}(V) = 1$ in @eq-heckman-sigma and instead let the selection shock have a free standard deviation $\sigma_V$ (so $\mathrm{Var}(V) = \sigma_V^2$). The selection probit then gives 
+**Claim 1: the selection-equation variance is unidentified, so we set it to 1.** Suppose for the moment that we did not impose $\mathrm{Var}(V) = 1$ in @eq-heckman-sigma and instead let the selection shock have a free standard deviation $\sigma_V$ (so $\mathrm{Var}(V) = \sigma_V^2$). The selection probit then gives
 
 $$
 P(S = 1 \mid X, Z) = P(V > -X^\top \gamma_X - Z^\top \gamma_Z) = \Phi\left( \frac{X^\top \gamma_X + Z^\top \gamma_Z}{\sigma_V} \right).
-$$ 
+$$
 
 The observed data on $S$ only ever pin down the *ratio* $(\gamma_X, \gamma_Z) / \sigma_V$, never the numerator and denominator separately. Doubling all of $(\gamma_X, \gamma_Z, \sigma_V)$ leaves every acceptance probability unchanged, so the likelihood is flat along that ray. The standard fix is to set $\sigma_V = 1$ and read $(\gamma_X, \gamma_Z)$ on that scale. Any other scale convention (the most common alternative is $\sigma_V = \pi / \sqrt 3$, which makes the probit coefficients comparable to a logit) gives the same coefficients up to a uniform rescaling. The off-diagonal $\rho \sigma$ in @eq-heckman-sigma is the covariance $\mathrm{Cov}(U, V)$, not the correlation: in general $\mathrm{Cov}(U, V) = \rho \cdot \sigma \cdot \sigma_V$, and the normalization $\sigma_V = 1$ collapses this to $\rho \sigma$ as written. So the matrix entry $\rho \sigma$ is the covariance under the normalization, and $\rho$ alone is the recoverable correlation parameter.
 
-**Claim 2: with a continuous outcome,** $\sigma$ is identified. When $Y$ is observed as a continuous quantity (a wage, a loss-given-default fraction, a residual income variable), the second-stage equation is OLS: 
+**Claim 2: with a continuous outcome,** $\sigma$ is identified. When $Y$ is observed as a continuous quantity (a wage, a loss-given-default fraction, a residual income variable), the second-stage equation is OLS:
 
 $$
 Y \mid X, Z, S = 1 = X^\top \beta + \rho \sigma  \lambda(a) + \epsilon,
-$$ 
+$$
 
-with $\epsilon$ having conditional mean zero and conditional variance 
+with $\epsilon$ having conditional mean zero and conditional variance
 
 $$
 \mathrm{Var}(\epsilon \mid X, Z, S = 1) = \sigma^2 \big(1 - \rho^2  \delta(a)\big), \qquad \delta(a) = \lambda(a)\big(\lambda(a) + a\big),
-$$ 
+$$
 
 where $\delta(a)$ is the truncated-normal variance correction (its expression follows from differentiating the IMR identity in @eq-imr). Two estimable quantities come out of stage 2: the regression coefficient on $\hat \lambda$, which estimates $\rho \sigma$, and the residual variance, which estimates $\sigma^2(1 - \rho^2  \overline{\delta(a)})$. Two equations in two unknowns ($\rho$, $\sigma$) yield both individually. This is the property that made Heckman's wage equation famous: the model returns not just a corrected $\beta$, but also a number $\sigma$ that has economic content as the standard deviation of the wage residual.
 
-**Claim 3: with a binary outcome and a probit second stage,** $\sigma$ is also unidentified, and only $\rho$ survives. The outcome equation collapses to a probit: 
+**Claim 3: with a binary outcome and a probit second stage,** $\sigma$ is also unidentified, and only $\rho$ survives. The outcome equation collapses to a probit:
 
 $$
 Y = \mathbf{1}\big\{X^\top \beta + U > 0\big\}, \qquad U \mid V \sim \mathcal{N}\big(\rho \sigma V,  \sigma^2 (1 - \rho^2)\big).
-$$ 
+$$
 
-The marginal acceptance probability $P(Y = 1 \mid X, S = 1)$ depends on $X$, $\beta$, $\rho$, and $\sigma$ only through ratios that scale uniformly when we multiply $(\beta, \sigma)$ by any positive constant. Concretely, the conditional probability after the Heckman correction is 
+The marginal acceptance probability $P(Y = 1 \mid X, S = 1)$ depends on $X$, $\beta$, $\rho$, and $\sigma$ only through ratios that scale uniformly when we multiply $(\beta, \sigma)$ by any positive constant. Concretely, the conditional probability after the Heckman correction is
 
 $$
 \begin{aligned}
@@ -8190,7 +8191,7 @@ P(Y = 1 \mid X, Z, S = 1)
 &= \Phi\left( \frac{X^\top \beta + \rho \sigma  \lambda(a)}{\sigma \sqrt{1 - \rho^2  \delta(a)}} \right) \\
 &= \Phi\left( \frac{X^\top \beta / \sigma + \rho  \lambda(a)}{\sqrt{1 - \rho^2  \delta(a)}} \right).
 \end{aligned}
-$$ 
+$$
 
 Only $\beta / \sigma$ and $\rho$ ever appear. The data cannot distinguish $(\beta, \sigma) = (1, 1)$ from $(\beta, \sigma) = (2, 2)$. The convention is to fix $\sigma = 1$ and report $\beta$ on that scale; the second-stage probit then returns $\hat \beta$ directly and the coefficient on $\hat \lambda$ returns $\hat \rho$ rather than $\hat \rho \hat \sigma$. The intuition is the same as the selection probit: a binary $Y$ tells us only the sign of $X^\top \beta + U$, not its magnitude, so any uniform rescaling of the latent equation is invisible to the observed data.
 
@@ -8299,7 +8300,7 @@ which equals @eq-lee-correction on accepts and the reject-side mirror term on re
 **Decision rule for production teams.**
 
 | Situation | Recommended estimator |
-|---|---|
+|------------------------------------|------------------------------------|
 | Stage-1 policy is logistic, near-cutoff overlap is healthy, no evidence of tail-asymmetric MNAR | Lee (1983) two-step on a logit stage 1, @eq-lee-genres for the second-stage augmentation |
 | Stage-1 policy is logistic, near-deterministic auto-decline overlays present | Lee on the policy-margin slice only; trim auto-decline applicants from the audit sample |
 | Joint-likelihood inference required (regulatory ask, FRB IRB qualification) | Bivariate probit MLE (@chiburis2012comparative); accept the latent-normal mismatch with the production logit |
@@ -8366,12 +8367,12 @@ The hierarchy from cleanest to most contested in production lending is roughly: 
 
 A careful reader will notice the canonical citations in the catalog above are mostly drawn from a 2002 to 2020 window, with @nelson2024gentrifying as the youngest. The pattern is not curatorial: top finance journals (the *Journal of Finance*, the *Journal of Financial Economics*, the *Review of Financial Studies*) have effectively stopped publishing reject-inference IV papers, and the recent reject-inference literature has migrated to the *International Journal of Forecasting*, the *European Journal of Operational Research*, *Expert Systems with Applications*, and *Computational Statistics*, where it is dominated by semi-supervised and generative machine-learning methods rather than econometric selection correction. Six structural forces explain the migration. Each one matters when a credit team is deciding whether to invest in a Heckman-IV pipeline at all.
 
-1. **Estimand mismatch.** Reject inference targets the conditional default distribution on the rejected pool: $P(Y = 1 \mid X, S = 0)$. The IV literature in consumer credit since @dobbie2015debt targets a different object, namely the local average treatment effect of credit *access* (or of debt relief) on a downstream outcome (delinquency, bankruptcy filing, employment, earnings). Same instrument (judge or examiner identity), different question. A judge-IV LATE on credit access does not, on its own, identify the rejected-pool default distribution that the scorecard needs. Top journals reward the access question because it speaks to welfare and discrimination; the calibration question that drives the scorecard is treated as plumbing.
-2. **Methodological pessimism on Heckman in credit specifically.** @crook2004does and @banasik2007reject test the Heckman correction on real lender data and report that augmentation, reweighting, and bivariate-probit Heckman deliver little or no ranking improvement on the accept-only baseline, with @banasik2003sample documenting the underlying sample-selection structure on simulated and lender data. The dissent in @bucker2013reject is loud (their nonignorable-missing-data correction shifts coefficient estimates statistically and economically and improves out-of-sample default forecasts), but the median read in the scorecard literature is the Crook-Banasik null. The scorecard literature treated the null as a verdict and stopped writing Heckman-IV papers; the next generation of academic effort moved to ML methods that did not require an excludable $Z$. Whether the verdict is correct is a question we revisit in @sec-ch10-modern, where varying-$\rho$ heterogeneity and vintage-cluster bootstrapping recover the cases where Heckman does win.
-3. **Regression discontinuity ate the lunch.** Modern lender data has bureau-score cutoffs, debt-to-income overlays, and product-eligibility thresholds everywhere. RDD identifies the local treatment effect at the cutoff under a strictly weaker assumption set than IV (continuity of potential outcomes at $\tau$, no manipulation), and its publication path in finance is well-paved (@agarwal2018consumer for credit-card credit-supply pass-through with regulatory thresholds, @argyle2020monthly for auto-loan maturity choice). Reject-inference Heckman-IV gets squeezed out: the marginal academic contribution of an IV-corrected scorecard above an RDD-identified marginal-applicant analysis is hard to defend at top journals.
-4. **Data-access asymmetry.** Each canonical IV paper rests on a unique administrative or lender dataset negotiated by the authors: @adams2009liquidity is one subprime-auto lender; @karlan2010expanding is one South African consumer lender's RCT; @iyer2016screening is one P2P platform; @dobbie2015debt is the US Chapter 13 bankruptcy court system through judge identity. Replications and extensions are rare because the data agreements rarely renew. New IV papers require new natural experiments, and the fixed cost of negotiating one is high enough that an econometrician faces better expected returns elsewhere.
-5. **Industry/academia split.** Banks resolve reject inference internally with parceling, augmentation, fuzzy-augmentation, and bureau-outcome calibration on defected applicants (@sec-ch10-bureau-extrapolation). The internal solutions work well enough for production and produce no publishable contribution. The IV-Heckman story would require a published natural experiment from a lender willing to disclose policy changes; few are. The strongest evidence on what works for a given lender therefore sits inside that lender, invisible to academic reviewers.
-6. **Estimand has moved to fairness and access, not calibration.** Recent papers that do sit in top journals reframe selection bias as a question about *who gets credit* rather than *what is the rejected pool's PD*. @dobbie2021measuring measure ethnic-group bias in a UK consumer-lender setting via a loan-officer instrument, @nelson2024gentrifying studies private information and price regulation in the US credit-card market, and @kozodoi2024fighting formalize sampling bias as a joint training-and-evaluation problem on the through-the-door distribution. The two questions overlap in the data they require and the instruments that identify them, but they ship different models.
+1.  **Estimand mismatch.** Reject inference targets the conditional default distribution on the rejected pool: $P(Y = 1 \mid X, S = 0)$. The IV literature in consumer credit since @dobbie2015debt targets a different object, namely the local average treatment effect of credit *access* (or of debt relief) on a downstream outcome (delinquency, bankruptcy filing, employment, earnings). Same instrument (judge or examiner identity), different question. A judge-IV LATE on credit access does not, on its own, identify the rejected-pool default distribution that the scorecard needs. Top journals reward the access question because it speaks to welfare and discrimination; the calibration question that drives the scorecard is treated as plumbing.
+2.  **Methodological pessimism on Heckman in credit specifically.** @crook2004does and @banasik2007reject test the Heckman correction on real lender data and report that augmentation, reweighting, and bivariate-probit Heckman deliver little or no ranking improvement on the accept-only baseline, with @banasik2003sample documenting the underlying sample-selection structure on simulated and lender data. The dissent in @bucker2013reject is loud (their nonignorable-missing-data correction shifts coefficient estimates statistically and economically and improves out-of-sample default forecasts), but the median read in the scorecard literature is the Crook-Banasik null. The scorecard literature treated the null as a verdict and stopped writing Heckman-IV papers; the next generation of academic effort moved to ML methods that did not require an excludable $Z$. Whether the verdict is correct is a question we revisit in @sec-ch10-modern, where varying-$\rho$ heterogeneity and vintage-cluster bootstrapping recover the cases where Heckman does win.
+3.  **Regression discontinuity ate the lunch.** Modern lender data has bureau-score cutoffs, debt-to-income overlays, and product-eligibility thresholds everywhere. RDD identifies the local treatment effect at the cutoff under a strictly weaker assumption set than IV (continuity of potential outcomes at $\tau$, no manipulation), and its publication path in finance is well-paved (@agarwal2018consumer for credit-card credit-supply pass-through with regulatory thresholds, @argyle2020monthly for auto-loan maturity choice). Reject-inference Heckman-IV gets squeezed out: the marginal academic contribution of an IV-corrected scorecard above an RDD-identified marginal-applicant analysis is hard to defend at top journals.
+4.  **Data-access asymmetry.** Each canonical IV paper rests on a unique administrative or lender dataset negotiated by the authors: @adams2009liquidity is one subprime-auto lender; @karlan2010expanding is one South African consumer lender's RCT; @iyer2016screening is one P2P platform; @dobbie2015debt is the US Chapter 13 bankruptcy court system through judge identity. Replications and extensions are rare because the data agreements rarely renew. New IV papers require new natural experiments, and the fixed cost of negotiating one is high enough that an econometrician faces better expected returns elsewhere.
+5.  **Industry/academia split.** Banks resolve reject inference internally with parceling, augmentation, fuzzy-augmentation, and bureau-outcome calibration on defected applicants (@sec-ch10-bureau-extrapolation). The internal solutions work well enough for production and produce no publishable contribution. The IV-Heckman story would require a published natural experiment from a lender willing to disclose policy changes; few are. The strongest evidence on what works for a given lender therefore sits inside that lender, invisible to academic reviewers.
+6.  **Estimand has moved to fairness and access, not calibration.** Recent papers that do sit in top journals reframe selection bias as a question about *who gets credit* rather than *what is the rejected pool's PD*. @dobbie2021measuring measure ethnic-group bias in a UK consumer-lender setting via a loan-officer instrument, @nelson2024gentrifying studies private information and price regulation in the US credit-card market, and @kozodoi2024fighting formalize sampling bias as a joint training-and-evaluation problem on the through-the-door distribution. The two questions overlap in the data they require and the instruments that identify them, but they ship different models.
 
 The recent reject-inference literature outside finance journals tells the rest of the story. @calabrese2024sample fit a copula selection model on non-traditional lending data with imbalanced outcomes in *Socio-Economic Planning Sciences*; @chen2025semi propose a hierarchical heterogeneous-network semi-supervised reject-inference framework in the *International Journal of Forecasting*; @li2024aicreditscoring use a one-million-applicant AI-enabled credit-scoring deployment to study financial inclusion in *MIS Quarterly*. None of these uses an IV in the Heckman sense. The methodological energy has rotated to copula-based MNAR (which inherits Heckman's identification logic without the bivariate-normal functional form) and to semi-supervised learning (which sidesteps identification and prices the residual uncertainty empirically). Both are covered in @sec-ch10-modern.
 
@@ -8383,34 +8384,36 @@ When selection is MAR, meaning $\rho = 0$, the coefficient on $\hat \lambda$ is 
 
 #### Inverse probability weighting and the Horvitz-Thompson identity
 
-The starting point is the Horvitz-Thompson identity. For any functional $h$ of the through-the-door applicant, 
+The starting point is the Horvitz-Thompson identity. For any functional $h$ of the through-the-door applicant,
 
 $$
 \mathbb{E}\left[ \frac{S \cdot h(Y, X)}{\pi(X, Z)} \right] = \mathbb{E}[h(Y, X)],
 \qquad \pi(x, z) = P(S = 1 \mid X = x, Z = z),
-$$  
+$$ 
 
 provided $\pi(x, z) > 0$ on the support of $(X, Z)$ and selection satisfies $S \perp\perp Y \mid (X, Z)$. The conditional independence is the formal statement of MAR. Under MAR, weighting each accepted observation by $1 / \pi$ recovers the through-the-door expectation of $h$ exactly. Specializing $h$ recovers familiar estimators: $h(Y, X) = \mathbf{1}\{Y = 1, X \in A\}$ gives the through-the-door PD on any region $A$; $h(Y, X) = -\log p(Y \mid X; \beta)$ gives the IPW M-estimator that recovers the through-the-door scorecard coefficients by maximum likelihood on the weighted accepted sample.
+
+The role of $h$ deserves a moment of unpacking, because the rest of this subsection treats it as a slot to be filled rather than a fixed object. A *functional* in this context is any map from a random variable to a number: pick a function of $(Y, X)$, take its expectation under the through-the-door distribution, and you have an estimand. The same Horvitz-Thompson identity covers all of them simultaneously, which is why the chapter states it for an arbitrary $h$ rather than separately for PD, log-likelihood, and dollar loss. Beyond the two specializations just listed, three further choices show up in production. First, through-the-door expected loss, $h(Y, X) = Y \cdot \text{EAD}(X) \cdot \text{LGD}(X)$, gives the dollar loss per applicant on the full pool rather than on the funded slice. Second, the calibration moment in score bin $b$, $h(Y, X) = (Y - \hat p(X)) \mathbf{1}\{\hat p(X) \in b\}$, tests whether the score is calibrated against the through-the-door default rate; the unweighted accept-only analog calibrates trivially because the policy itself selects on score, so calibration on accepts is a property of the policy rather than the score. Third, the feature mean $h(Y, X) = X_j$ does not involve $Y$ and can be computed directly on the full applicant pool without weighting, which turns it into a free diagnostic on $\hat\pi$: a weighted accepted mean that fails to match the directly-computed pool mean indicates a miscalibrated propensity. The same generality propagates to AIPW (next subsection). Replace $Y$ with $h(Y, X)$ and the outcome regression $g(X) = \mathbb{E}[Y \mid X, S = 1]$ with $g_h(X) = \mathbb{E}[h(Y, X) \mid X, S = 1]$, and the doubly-robust score, the Neyman-orthogonality argument, and the cross-fitting recipe carry over verbatim. The two-axis taxonomy in the table below is therefore a statement about each estimator's identification properties, not about which target $h$ it can address.
 
 Two consequences. First, IPW does not assume normality, parametric outcomes, or a specific score family: any base learner whose loss is a sum of per-observation contributions can be fit on the weighted accepted sample. Second, when $\pi$ is unknown it must be estimated, and the first-stage estimation propagates into the scorecard. The naive plug-in is consistent under MAR but inefficient.
 
 #### Hájek normalization and weight instability in credit
 
-The raw Horvitz-Thompson estimator has unbounded variance whenever $\pi$ is small in part of feature space. In credit, the policy declines a substantial share of through-the-door volume and the rejected mass concentrates at low $\pi$. A handful of accepted observations with $\hat \pi_i \approx 0.02$ then dominate the weighted sum, and the estimator is volatile. The Hájek normalization divides through by the empirical sum of weights: 
+The raw Horvitz-Thompson estimator has unbounded variance whenever $\pi$ is small in part of feature space. In credit, the policy declines a substantial share of through-the-door volume and the rejected mass concentrates at low $\pi$. A handful of accepted observations with $\hat \pi_i \approx 0.02$ then dominate the weighted sum, and the estimator is volatile. The Hájek normalization divides through by the empirical sum of weights:
 
 $$
 \hat \mu_{\text{Hájek}} = \frac{\sum_i (S_i / \hat \pi_i) h(Y_i, X_i)}{\sum_i S_i / \hat \pi_i}.
-$$  
+$$ 
 
 Hájek has the same asymptotic mean as Horvitz-Thompson but a smaller finite-sample variance whenever the propensity has heavy tails. In production we further clip $\hat \pi_i$ at a floor, typically 1 to 5 percent, and report the clipped share alongside the estimate. A clipped share above 5 percent is a hard overlap diagnostic: it means the policy is near-deterministic on the trimmed slice, the D1 (policy overlap) dimension from @tbl-ch10-bias-dimensions bites, and the IPW estimator is extrapolating along the parametric form of the propensity model rather than from data.
 
 #### AIPW as the efficient influence function
 
-The augmented IPW estimator of @robins1994estimation achieves the semiparametric efficiency bound under MAR and corrects a key inefficiency of raw IPW. Define the outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ and the AIPW pseudo-outcome 
+The augmented IPW estimator of @robins1994estimation achieves the semiparametric efficiency bound under MAR and corrects a key inefficiency of raw IPW. Define the outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ and the AIPW pseudo-outcome
 
 $$
 \tilde Y = g(X) + \frac{S}{\pi(X, Z)} \big( Y - g(X) \big).
-$$  
+$$ 
 
 Two algebraic facts make this score special, and both are direct calculations.
 
@@ -8422,7 +8425,7 @@ This is double robustness: two independent specifications, only one of which nee
 
 #### Cross-fitting and Neyman orthogonality
 
-Plug-in nuisance estimators have a first-stage bias that, naively combined with a second-stage M-estimator, breaks the $\sqrt{n}$ inferential rate. @chernozhukov2018double's contribution is to show that the AIPW score is Neyman-orthogonal to both nuisances, meaning its Gateaux derivative with respect to small perturbations of $g$ or $\pi$ is zero at the truth. The practical implication is that nuisance estimation errors enter the second-stage estimator only through their product: 
+Plug-in nuisance estimators have a first-stage bias that, naively combined with a second-stage M-estimator, breaks the $\sqrt{n}$ inferential rate. @chernozhukov2018double's contribution is to show that the AIPW score is Neyman-orthogonal to both nuisances, meaning its Gateaux derivative with respect to small perturbations of $g$ or $\pi$ is zero at the truth. The practical implication is that nuisance estimation errors enter the second-stage estimator only through their product:
 
 $$
 \big| \hat \beta - \beta_0 \big| = O_P\big( \| \hat g - g_0 \|_2 \cdot \| \hat \pi - \pi_0 \|_2 \big) + O_P(n^{-1/2}).
@@ -8434,11 +8437,11 @@ The operational upshot is concrete. A bank can fit $\hat \pi$ with gradient-boos
 
 #### Where MNAR breaks the doubly robust score
 
-The MAR ceiling is not an aesthetic constraint of these methods but a hard identification limit, and the easiest way to see it is to track where MNAR breaks @eq-aipw-score. Under MNAR, $\mathbb{E}[Y \mid X, S = 1] \neq \mathbb{E}[Y \mid X]$ even after conditioning on every observable in $(X, Z)$, because selection covaries with the outcome residual through the unobserved $(U, V)$. The conditional residual $Y - \mathbb{E}[Y \mid X, S = 1]$ is mean-zero on the accepted slice by construction but mean-shifted on the through-the-door population. Reading @eq-aipw-score under MNAR: 
+The MAR ceiling is not an aesthetic constraint of these methods but a hard identification limit, and the easiest way to see it is to track where MNAR breaks @eq-aipw-score. Under MNAR, $\mathbb{E}[Y \mid X, S = 1] \neq \mathbb{E}[Y \mid X]$ even after conditioning on every observable in $(X, Z)$, because selection covaries with the outcome residual through the unobserved $(U, V)$. The conditional residual $Y - \mathbb{E}[Y \mid X, S = 1]$ is mean-zero on the accepted slice by construction but mean-shifted on the through-the-door population. Reading @eq-aipw-score under MNAR:
 
 $$
 \mathbb{E}[\tilde Y \mid X] = g(X) + \mathbb{E}\left[ \frac{S}{\pi(X, Z)} \big(Y - g(X)\big) \Big| X \right].
-$$ 
+$$
 
 The first term equals the accept-conditional regression $\mathbb{E}[Y \mid X, S = 1]$ rather than the through-the-door $\mathbb{E}[Y \mid X]$. The second term, under MNAR, no longer corrects the gap: the residual $Y - g(X)$ has nonzero conditional mean given $S = 1$ and $Z$ because $\mathbb{E}[Y \mid X, Z, S = 1]$ depends on the unobserved selection error. Doubly robust cancellation requires at least one nuisance to be correct, but the relevant correctness is for the through-the-door distribution, and neither $g$ nor $\pi$ estimated from $(X, Z)$ alone is correct in that sense. The cancellation that defines AIPW fails.
 
@@ -8474,7 +8477,7 @@ Two concrete cases make the non-nesting tangible and answer the natural follow-u
 The two cases cannot be ranked without knowing which side of the assumption frontier the lender is on, and the production check is empirical: the audit asks whether the feature store reproduces the underwriter's decision out-of-sample (a high reproduction $R^2$ is evidence for Case A, a low one for Case B), and the answer dictates which axis to move along. @tbl-ch10-dml-heckman-cases summarizes both cases plus three intermediate scenarios.
 
 | Scenario | $\rho$ | Outcome surface | DML bias | Heckman bias | Dominant choice |
-|---|---|---|---|---|---|
+|------------|------------|------------|------------|------------|------------|
 | Rich features, nonlinear $g$ (Case A) | $\approx 0$ | interactions, ratios, segment slopes | low | moderate (link misspecification) | DML |
 | Rich features, linear-in-index $g$ | $\approx 0$ | linear in index | low | low | tie; pick DML for SR 11-7 documentation |
 | Thin features, Gaussian joint (Case B) | $> 0.3$ | linear or mild nonlinearity | high (MAR ceiling) | low | Heckman |
@@ -8499,17 +8502,17 @@ The full AIPW and DML implementations on the chapter's synthetic MNAR lender, wi
 
 ### Variance of the two-step estimator 
 
-The standard errors that any statistical package returns from a vanilla stage-2 fit are wrong on two counts. First, the residual variance in stage 2 is heteroscedastic, 
+The standard errors that any statistical package returns from a vanilla stage-2 fit are wrong on two counts. First, the residual variance in stage 2 is heteroscedastic,
 
 $$
 \mathrm{Var}(\epsilon_i \mid X_i, Z_i, S_i = 1) = \sigma^2 (1 - \rho^2 \delta_i),
 \qquad \delta_i = \lambda_i \big( \lambda_i + W_i^{(s)\top} \gamma \big),
 \qquad W_i^{(s)} = (X_i, Z_i),
-$$  
+$$ 
 
 because conditioning on $S = 1$ truncates $V$ from below. Second, $\hat\lambda$ is itself estimated from stage 1, so stage 2 inherits sampling noise from $\hat\gamma$. Treating $\hat\lambda$ as fixed gives a downward-biased standard error on the IMR coefficient, the very piece on which the case for reject inference rests.
 
-The closed-form correction in @heckman1979sample writes the asymptotic variance of the stage-2 parameter $\hat\theta = (\hat\beta^\top, \hat{\rho\sigma})^\top$ as a sandwich: 
+The closed-form correction in @heckman1979sample writes the asymptotic variance of the stage-2 parameter $\hat\theta = (\hat\beta^\top, \hat{\rho\sigma})^\top$ as a sandwich:
 
 $$
 V(\hat\theta) = \hat\sigma^2_\epsilon (W_*^\top W_*)^{-1}
@@ -8518,7 +8521,7 @@ W_*^\top (I - \hat\rho^2 \hat\Delta) W_*
 + \hat\rho^2 (W_*^\top \hat\Delta W^{(s)}) V(\hat\gamma) (W^{(s)\top} \hat\Delta W_*)
 \Big]
 (W_*^\top W_*)^{-1},
-$$  
+$$ 
 
 where $W_* = (X, \hat\lambda)$ is the stage-2 design matrix on the accepted sample, $\hat\Delta = \mathrm{diag}(\hat\delta_i)$, and $V(\hat\gamma)$ is the stage-1 probit information-inverse. The first bracketed term corrects heteroscedasticity in the stage-2 residual; the second is the Murphy-Topel correction (@murphy1985estimation, @greene2003econometric ch. 18) for the generated regressor.
 
@@ -8660,11 +8663,11 @@ The code below generates a synthetic through-the-door population with a known se
 
 The simulation follows @eq-latent-default and @eq-latent-selection. We draw $n = 20,000$ applicants with three covariates. Two of them ($X_1$, $X_2$) enter both the default and selection equations; the third ($Z$) enters selection only and plays the role of the exclusion restriction. The joint error is bivariate normal with correlation $\rho = 0.6$. We set the coefficients so that the accept rate is near 55 percent and the through-the-door default rate is near 30 percent. Those numbers mimic a mid-risk unsecured product.
 
-The *marginal* accepted default rate is substantially below the *marginal* through-the-door rate because the selection rule down-weights high-$X$ applicants and those applicants also default more often. That marginal gap is what the lender sees on a dashboard and is closed by simple reweighting on $X$ alone. The gap that reject inference exists to close is the *within-$X$* conditional gap, which under $\rho > 0$ runs in the opposite direction: at every fixed $X$, the accepted applicants default *more* than the through-the-door applicants because $\rho > 0$ shifts their $U$-distribution upward inside the bin.
+The *marginal* accepted default rate is substantially below the *marginal* through-the-door rate because the selection rule down-weights high-$X$ applicants and those applicants also default more often. That marginal gap is what the lender sees on a dashboard and is closed by simple reweighting on $X$ alone. The gap that reject inference exists to close is the *within-*$X$ conditional gap, which under $\rho > 0$ runs in the opposite direction: at every fixed $X$, the accepted applicants default *more* than the through-the-door applicants because $\rho > 0$ shifts their $U$-distribution upward inside the bin.
 
 ### The naive MLE and the oracle
 
-We fit a probit on the accepted sample and compare to the oracle fit that uses the full through-the-door labels (available only because this is a simulation). The convention from @sec-ch10-parceling-worked-example carries over: **truth ($\beta^{\star}$)** is the population DGP coefficient vector; **oracle ($\hat\beta_{\text{full}}$)** is the probit MLE on the full $n$ through-the-door labels. The reject-inference target is the oracle row; the truth row only confirms the oracle is itself unbiased on this DGP. The gap between naive and oracle is the bias a reject inference method must close.
+We fit a probit on the accepted sample and compare to the oracle fit that uses the full through-the-door labels (available only because this is a simulation). The convention from @sec-ch10-parceling-worked-example carries over: **truth (**$\beta^{\star}$) is the population DGP coefficient vector; **oracle (**$\hat\beta_{\text{full}}$) is the probit MLE on the full $n$ through-the-door labels. The reject-inference target is the oracle row; the truth row only confirms the oracle is itself unbiased on this DGP. The gap between naive and oracle is the bias a reject inference method must close.
 
 The naive estimator overestimates the intercept (around $-0.51$ versus a truth of $-0.80$, shifting the fitted PD curve *up* at every $X$) and inflates both slopes. Both directions follow @eq-naive-target and @eq-heckman-outcome: conditioning on $S = 1$ adds the positive term $\rho \sigma \hat\lambda(a)$ to $X^\top \beta$, which raises the within-$X$ default rate and steepens the apparent slope on every regressor that enters the selection equation with the opposite sign.
 
@@ -8693,7 +8696,7 @@ The same audit on a *bad* instrument flips all three signals: low first-stage $F
 A3 has the IV audit above. The four remaining assumptions in @sec-ch10-heckman-assumptions deserve the same treatment: one function, one structured object, one validator-rerunnable artefact. We package them together because they share the same fitted Heckman two-step as input. Each test, the assumption it probes, and the alternative when it fires:
 
 | Assumption | Diagnostic | Rejects when |
-|---|---|---|
+|------------------------|------------------------|------------------------|
 | A1 (joint normality of $(U, V)$) | Pagan-Vella score test on the stage-1 probit | $V$ shows non-normal skew or heavy tails |
 | A2 (correct selection link) | Pregibon link test plus Hosmer-Lemeshow on $\hat P(S=1)$ | probit link is wrong or $\hat P(S=1)$ is mis-calibrated |
 | A4 (overlap) | trimmed-share and tail-mass quantiles of $\hat P(S=1)$ | policy is near-deterministic over part of $(X, Z)$ |
@@ -8753,11 +8756,11 @@ The closing sentence of the previous block is the chapter's standing claim: a ha
 
 **Holdout overlay on the synthetic lender.** We approve a 3 percent random slice of all applicants regardless of the policy decision and observe $Y$ on every member. The deterministic policy `s` from the simulation in @sec-ch10-implementation-from-scratch is unchanged; the random override is a separate column.
 
-**Banded $\hat\tau(x)$ estimator.** The estimator bins applicants by the policy-accepted PD score $\hat p_A(x)$, computes the empirical default rate inside each band on the policy-only arm and on the holdout-reject arm, and reports their ratio. Bands are quintiles of $\hat p_A$ on the policy-only arm so they are stable across bootstrap resamples. Empirical-Bayes shrinkage stabilises bands with few holdout-reject observations by pulling the band-level $\hat\tau$ toward a global ratio with weight inversely proportional to the band's posterior variance.
+**Banded** $\hat\tau(x)$ estimator. The estimator bins applicants by the policy-accepted PD score $\hat p_A(x)$, computes the empirical default rate inside each band on the policy-only arm and on the holdout-reject arm, and reports their ratio. Bands are quintiles of $\hat p_A$ on the policy-only arm so they are stable across bootstrap resamples. Empirical-Bayes shrinkage stabilises bands with few holdout-reject observations by pulling the band-level $\hat\tau$ toward a global ratio with weight inversely proportional to the band's posterior variance.
 
 The point estimates and confidence intervals tell three things at once: which bands contain enough holdout-reject observations to pin $\hat\tau$ at all (the `n_R` column), how much the empirical-Bayes prior pulls thin bands toward the global ratio (compare `tau_raw` to `tau_shrunk`), and how wide the bootstrap interval is (`ci_hi - ci_lo`). At a 3 percent holdout share with $n = 20{,}000$, the deepest score band typically gets only a few dozen rejected observations, and the unshrunk $\hat\tau$ on that band is unstable; the shrunk estimate is the production-grade choice.
 
-**Refit with $\hat\tau(x)$ instead of a scalar.** The fuzzy augmentation procedure becomes data-driven once we feed it the banded $\hat\tau(x)$. The function below mirrors `fit_fuzzy_augmentation` from the previous subsection, but takes a per-band $\tau$ vector and applies it row-wise to each rejected applicant by their score band.
+**Refit with** $\hat\tau(x)$ instead of a scalar. The fuzzy augmentation procedure becomes data-driven once we feed it the banded $\hat\tau(x)$. The function below mirrors `fit_fuzzy_augmentation` from the previous subsection, but takes a per-band $\tau$ vector and applies it row-wise to each rejected applicant by their score band.
 
 The `fuzzy_tau_hat` column is the augmentation refit using $\hat\tau(x)$ from the holdout; the `fuzzy_tau2_hand` column is the same procedure with a scalar $\tau = 2$. On this DGP the holdout-driven coefficients land closest to the oracle on every parameter (intercept, X1 slope, X2 slope), where the hand-tuned $\tau = 2$ pushes all three further from the oracle than even the naive fit. The reason is direction. The DGP in @sec-ch10-implementation-from-scratch is parameterised so that within a band of the policy PD score, the rejected population is *less* risky than the accepted one (because rejection within band is driven mostly by the excluded score $Z$, which carries no default signal in this construction); the size-weighted holdout estimate $\hat\tau \approx 0.68$ catches this cleanly. Industry lore that says "rejects are 2x to 5x riskier than accepts" assumes a regime that this DGP does not satisfy, and the hand-tuned $\tau = 2$ pays for that mismatch with a worse fit. The lesson is not that $\tau < 1$ always; it is that the *sign* of $\tau - 1$ is itself an empirical question the policy-accepted sample cannot answer, and the holdout is the smallest external data source that can.
 
@@ -9282,15 +9285,15 @@ Read the panels as a single object. If the accept rate drifts outside the tolera
 
 The dashboard above signals when something is off; it does not retrain. Production deployment closes the loop with a periodic retrain that handles three regimes:
 
-1. *Inside the bank, observable engine.* The lender logs $\pi_i$ at decision time. Retrain reads $\pi$ from the feature store, refits the outcome stage with AIPW, and keeps Heckman as the SR 11-7 sensitivity anchor.
-2. *Inside the bank, unobservable engine.* No logged $\pi$. Retrain refits Heckman stage 1, re-runs the exclusion-restriction recheck (including the IMR control so a valid IV is not flagged spuriously), and stacks AIPW on the estimated propensity.
-3. *Alt-data provider.* The lender's policy is opaque. Per-lender stage 1 with shrinkage to a pooled coefficient vector, cold-start pseudo-prior for new lenders from lookalike peers, and a feedback-loop guard that detects when the provider's own score has entered the lender's policy.
+1.  *Inside the bank, observable engine.* The lender logs $\pi_i$ at decision time. Retrain reads $\pi$ from the feature store, refits the outcome stage with AIPW, and keeps Heckman as the SR 11-7 sensitivity anchor.
+2.  *Inside the bank, unobservable engine.* No logged $\pi$. Retrain refits Heckman stage 1, re-runs the exclusion-restriction recheck (including the IMR control so a valid IV is not flagged spuriously), and stacks AIPW on the estimated propensity.
+3.  *Alt-data provider.* The lender's policy is opaque. Per-lender stage 1 with shrinkage to a pooled coefficient vector, cold-start pseudo-prior for new lenders from lookalike peers, and a feedback-loop guard that detects when the provider's own score has entered the lender's policy.
 
 Each retrain produces a `RetrainArtifact`; promotion runs through `gated_promote()`, which applies the multi-metric gate (DeLong AUC, Brier, calibration slope, ECE, per-segment AUC, ECOA disparate impact), the Basel TTC multi-vintage gate, and emits the SR 11-7 model-change memo.
 
 The package lives at [book/code/reject_inference_pipeline/](../code/reject_inference_pipeline/) and ships a FastAPI wrapper at [book/deployment/reject_inference_app.py](../deployment/reject_inference_app.py). The remainder of this section drives the package end-to-end on a synthetic three-vintage cohort.
 
-The package is laid out as one module per concern: `schema.py` for the validated snapshots, `policy.py` for the immutable policy-version log, `propensity.py` and `outcome.py` for the two estimator stacks, `drift.py` for the three-kind drift classifier with hysteresis, `champion_challenger.py` for the gate, `governance.py` for the SR 11-7 memo and Basel TTC check, `alt_data.py` for the per-lender hierarchical workflow, `cfrm.py` for counterfactual risk minimisation, `pipeline.py` for the orchestrator, and `model_card.py` for the auto-generated card. The smoke test at [book/code/reject_inference_pipeline/_smoke.py](../code/reject_inference_pipeline/_smoke.py) walks every module on a tiny synthetic cohort.
+The package is laid out as one module per concern: `schema.py` for the validated snapshots, `policy.py` for the immutable policy-version log, `propensity.py` and `outcome.py` for the two estimator stacks, `drift.py` for the three-kind drift classifier with hysteresis, `champion_challenger.py` for the gate, `governance.py` for the SR 11-7 memo and Basel TTC check, `alt_data.py` for the per-lender hierarchical workflow, `cfrm.py` for counterfactual risk minimisation, `pipeline.py` for the orchestrator, and `model_card.py` for the auto-generated card. The smoke test at [book/code/reject_inference_pipeline/\_smoke.py](../code/reject_inference_pipeline/_smoke.py) walks every module on a tiny synthetic cohort.
 
 The validated snapshot is the boundary contract: every estimator in the pipeline trusts the schema and never re-validates downstream. Point-in-time correctness is enforced by `join_snapshot_outcomes`: applicants whose `as_of` is later than `snapshot_date - performance_window_months` are held out as the censored tail and never feed the matured-label fit.
 
