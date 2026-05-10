@@ -69,7 +69,7 @@ The funnel is descriptive. The substantive damage is visible on a default-rate c
 
 ```{python}
 #| label: fig-ch10-conditional-shift
-#| fig-cap: "Two faces of the selection problem on a synthetic through-the-door population (n = 8,000) with bivariate-normal correlation $\\rho = 0.6$ between the latent default error and the latent acceptance error. (a) Covariate shift: the accepted-population density of the feature $X$ is pulled toward the safer (lower-$X$) side because the policy declines high-$X$ applicants. (b) Conditional shift: the empirical default rate plotted against $X$ is uniformly lower on the accepted slice than on the through-the-door population, even after conditioning on $X$. The shaded gap in (b) is the bias that reject inference must close; it cannot be removed by reweighting on $X$ alone because it comes from selection on the unobserved error, not from feature imbalance."
+#| fig-cap: "Two faces of the selection problem on a synthetic through-the-door population (n = 8,000) with bivariate-normal correlation $\\rho = 0.6$ between the latent default error and the latent acceptance error. (a) Covariate shift: the accepted-population density of the feature $X$ is pulled toward the safer (lower-$X$) side because the policy declines high-$X$ applicants. (b) Conditional shift: the empirical default rate plotted against $X$ is uniformly higher on the accepted slice than on the through-the-door population, even after conditioning on $X$, because the policy accepts on a latent signal positively correlated with the default error. The shaded gap in (b) is the bias that reject inference must close; it cannot be removed by reweighting on $X$ alone because it comes from selection on the unobserved error, not from feature imbalance."
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
@@ -135,7 +135,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-Panel (a) is what reweighting fixes: the feature distribution differs between funded and through-the-door, and inverse probability weights on $X$ recover $P(X)$ from $P(X \mid S=1)$. Panel (b) is what reweighting cannot fix: even at the same $X$, the accepted applicants default less, because the underwriter used signals that we never recorded and that also predict default. That is the part of the gap that motivates Heckman, the impossibility result, and everything that follows in this chapter.
+Panel (a) is what reweighting fixes: the feature distribution differs between funded and through-the-door, and inverse probability weights on $X$ recover $P(X)$ from $P(X \mid S=1)$. Panel (b) is what reweighting cannot fix: even at the same $X$, the accepted applicants default *more*, because the underwriter accepted on signals that we never recorded and that also predict default. (The opposite sign of the gap, accepted defaulting *less*, would arise if the underwriting signals were negatively correlated with the default error, i.e. effective screening on unobservables; we treat both regimes symmetrically when we discuss the sign of $\hat\rho$ in @sec-ch10-heckman-selection-correction.) That is the part of the gap that motivates Heckman, the impossibility result, and everything that follows in this chapter.
 
 Before tackling the methods in turn, it helps to map every stage where selection bias enters and every identification condition a corrective method might lean on. We use three views in turn. @fig-ch10-funnel-volumes plots the typical drop-off in counts at each gate, so the order-of-magnitude problem is visible at a glance. @fig-ch10-selection-roadmap is a stage-level DAG of the same pipeline, with the labelled exits where $Y$ is missing or imported from a bureau. @tbl-ch10-bias-dimensions then catalogues the seven *selection-bias dimensions* (D1 through D7) that any reject inference exercise has to take an explicit position on, the stage at which each one binds, and the section of the chapter that addresses it. A note on terminology. We call D1 through D7 *selection-bias dimensions* (or *identification checkpoints*) rather than *moderators*: in the standard statistical usage a moderator is a variable that interacts with $X$ to shift the $X \to Y$ relationship, whereas D1 through D7 are a mix of bias *sources* (D2, D3), positivity and identification *assumptions* (D1, D4), and external-validity *threats* (D5, D6, D7). Each subsequent section of the chapter targets one or more of these dimensions, and the impossibility result of @sec-ch10-impossibility says exactly which combinations the accepted-only sample can never settle on its own.
 
@@ -305,7 +305,7 @@ flowchart TB
     XA["X<br/>features"]:::obs
     UA(("U<br/>latent residual")):::lat
     WA(("W<br/>noise, indep of U")):::noise
-    SA{{"S<br/>accept if X+W &lt; 0"}}:::sel
+    SA{{"S<br/>accept if W &gt; X"}}:::sel
     YA["Y<br/>default"]:::out
     XA --> YA
     UA --> YA
@@ -327,7 +327,7 @@ flowchart TB
     XB["X<br/>features"]:::obs
     UB(("U<br/>latent residual")):::lat
     VB(("V<br/>Corr with U = 0.6")):::lat
-    SB{{"S<br/>accept if X+V &lt; 0"}}:::sel
+    SB{{"S<br/>accept if V &gt; X"}}:::sel
     YB["Y<br/>default"]:::out
     XB --> YB
     UB --> YB
@@ -337,11 +337,11 @@ flowchart TB
 ```
 :::
 
-Now drive the two graphs through a simulation. Both scenarios share the through-the-door feature $X$, the outcome residual $U$, and the outcome rule $Y = \mathbf{1}\{0.7\,X + U > 0.5\}$. Scenario A's accept rule depends on an independent noise $W$, so within any $X$-bin the accept slice is a uniform random subsample of the bin and inherits the bin's $U$ distribution. Scenario B's accept rule depends on $V$ with $\mathrm{Corr}(U, V) = 0.6$, so within any $X$-bin the accepted ones are exactly the applicants with the lowest $V$, which by correlation are the applicants with the lowest $U$, which by the outcome rule are the applicants least likely to default. The marginal accept rate and the marginal $P(X \mid S=1)$ are identical across the two scenarios by construction.
+Now drive the two graphs through a simulation. Both scenarios share the through-the-door feature $X$, the outcome residual $U$, and the outcome rule $Y = \mathbf{1}\{0.7X + U > 0.5\}$. Scenario A's accept rule depends on an independent noise $W$, so within any $X$-bin the accept slice is a uniform random subsample of the bin and inherits the bin's $U$ distribution. Scenario B's accept rule depends on $V$ with $\mathrm{Corr}(U, V) = 0.6$, so within any $X$-bin the accepted ones are exactly the applicants with the highest $V$, which by correlation are the applicants with the highest $U$, which by the outcome rule are the applicants most likely to default. The marginal accept rate and the marginal $P(X \mid S=1)$ are identical across the two scenarios by construction.
 
 ```{python}
 #| label: tbl-ch10-two-mechanisms
-#| tbl-cap: "Default rate within $X$-bins on a synthetic through-the-door population (n = 200,000). The full-population column is the truth a credit officer wants. Scenario A's accept-only column matches the truth bin-by-bin within Monte-Carlo noise: the accept rule is independent of the outcome residual, so covariate shift skews the support of $X$ but not the conditional. Scenario B's accept-only column is uniformly lower than the truth: even within a fixed $X$-bin, accepts are the applicants with the lowest $V$, and $V$ is correlated with $U$ which drives $Y$. The B-minus-truth column is the bias that reweighting on $X$ alone cannot close."
+#| tbl-cap: "Default rate within $X$-bins on a synthetic through-the-door population (n = 200,000). The full-population column is the truth a credit officer wants. Scenario A's accept-only column matches the truth bin-by-bin within Monte-Carlo noise: the accept rule is independent of the outcome residual, so covariate shift skews the support of $X$ but not the conditional. Scenario B's accept-only column is uniformly higher than the truth: even within a fixed $X$-bin, accepts are the applicants with the highest $V$, and $V$ is correlated with $U$ which drives $Y$. The B-minus-truth column is the bias that reweighting on $X$ alone cannot close."
 import numpy as np
 import pandas as pd
 
@@ -355,8 +355,8 @@ W = rng.standard_normal(n)
 X = rng.standard_normal(n)
 
 Y = ((0.7 * X + U) > 0.5).astype(int)
-S_A = ((X + W) < 0.0).astype(int)
-S_B = ((X + V) < 0.0).astype(int)
+S_A = ((W - X) > 0.0).astype(int)
+S_B = ((V - X) > 0.0).astype(int)
 
 bin_edges = np.array([-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0])
 rows = []
@@ -382,9 +382,9 @@ print(
 )
 ```
 
-Read the table column by column. The first numeric column is the truth: the bin-conditional default rate on the full applicant pool. The Scenario A column matches it bin-by-bin within Monte-Carlo noise, which is exactly the statement that covariate shift alone does not move the conditional. The Scenario B column is lower than the truth in every bin, and the gap is uniform in sign. That uniform downward shift is what "selection bias proper" looks like in numbers: the accepted slice is safer than the through-the-door population at every value of $X$, not because the lender accepted easier-$X$ applicants (the marginal $E[X \mid S=1]$ is identical across A and B by construction), but because within each $X$-bin the accepted ones have systematically lower $U$.
+Read the table column by column. The first numeric column is the truth: the bin-conditional default rate on the full applicant pool. The Scenario A column matches it bin-by-bin within Monte-Carlo noise, which is exactly the statement that covariate shift alone does not move the conditional. The Scenario B column is higher than the truth in every bin, and the gap is uniform in sign. That uniform upward shift is what "selection bias proper" looks like in numbers: the accepted slice is *riskier* than the through-the-door population at every value of $X$, not because the lender accepted harder-$X$ applicants (the marginal $E[X \mid S=1]$ is identical across A and B by construction), but because within each $X$-bin the accepted ones have systematically higher $U$.
 
-The geometric reading is that Scenario A's accept set is a uniform random sample of each $X$-slice of the through-the-door population, while Scenario B's accept set is the lower-$V$ tail of each $X$-slice, and the lower-$V$ tail is also the lower-$U$ tail because of the $\rho$ arrow. An importance-weighting estimator that targets $P(X)$ from $P(X \mid S=1)$ corrects both scenarios' marginal shift identically; the Scenario B residual gap survives the reweighting because the bin-conditional $U$ distribution is no longer $N(0,1)$ inside $S=1$.
+The geometric reading is that Scenario A's accept set is a uniform random sample of each $X$-slice of the through-the-door population, while Scenario B's accept set is the upper-$V$ tail of each $X$-slice, and the upper-$V$ tail is also the upper-$U$ tail because of the $\rho$ arrow. An importance-weighting estimator that targets $P(X)$ from $P(X \mid S=1)$ corrects both scenarios' marginal shift identically; the Scenario B residual gap survives the reweighting because the bin-conditional $U$ distribution is no longer $N(0,1)$ inside $S=1$.
 
 The Scenario B residual conditional gap $P(Y \mid X, S=1) - P(Y \mid X)$, which survives reweighting on $X$, is what @sec-ch10-heckman-selection-correction writes as $\rho \sigma \lambda(\cdot)$ and adds as an extra regressor, what @sec-ch10-modern attacks with AIPW, copulas, and importance weighting, and what @sec-ch10-bureau-extrapolation sidesteps by importing $Y_B$ for the rejects directly. Each method takes a different position on what structure or what data is available to identify $\rho$ (or its non-Gaussian generalization), but every method in this chapter exists because of @fig-ch10-two-mechanisms-b, not @fig-ch10-two-mechanisms-a.
 
@@ -1275,7 +1275,7 @@ plt.show()
 **Production workflow.** Three artefacts make this loop reproducible and validator-friendly.
 
 1.  *Vintage tag in the feature store.* Every booked or declined application carries a `vintage_id` (e.g. quarterly cohort) and a `macro_state` flag (downturn / benign / normal) computed from a published macro index such as the unemployment rate, the GDP gap, or the bank's internal economic-capital macro factor. The tag must be available at scoring time as well as at training time, because the deployment-time macro state determines which level estimate to apply when the bank routes new applicants through the model.
-2.  *Stratified PD with a documented mix.* The model registry holds three (or more) vintage-specific intercept estimates plus either a shared slope or vintage-specific slopes if the data permits. The expected mix dictionary is a model artefact, signed off by ALCO, with a documented refresh cadence (typically quarterly). Any change to the mix is treated as a model change and re-validated. The aggregation rule, $\widehat{PD}_{\text{long-run}}(x) = \sum_v w_v \, \widehat{PD}_v(x)$ with $w_v$ from the mix dictionary, is itself a piece of model code with a unit test that verifies it sums to one and reproduces the mix-weighted output to within a numerical tolerance.
+2.  *Stratified PD with a documented mix.* The model registry holds three (or more) vintage-specific intercept estimates plus either a shared slope or vintage-specific slopes if the data permits. The expected mix dictionary is a model artefact, signed off by ALCO, with a documented refresh cadence (typically quarterly). Any change to the mix is treated as a model change and re-validated. The aggregation rule, $\widehat{PD}_{\text{long-run}}(x) = \sum_v w_v  \widehat{PD}_v(x)$ with $w_v$ from the mix dictionary, is itself a piece of model code with a unit test that verifies it sums to one and reproduces the mix-weighted output to within a numerical tolerance.
 3.  *Sensitivity table.* The model development document reports the through-the-cycle PD under at least two extreme mix scenarios: 100 percent downturn and 100 percent benign. The spread between those bounds is the macro uncertainty band. SR 11-7 validators read this band as a load-bearing artefact: a model whose PD doubles under a plausible mix shift is not a calibrated PD. It is a point estimate with a wide and largely undisclosed prior on the macro path.
 
 The combination is what banks actually deploy. Stratified estimates carry the right shape per vintage. The scalar uplift is reserved for vintages where the per-stratum sample is too thin for an independent slope fit, and it is documented as such with an explicit caveat in the model document. Validators will accept a scalar adjustment if and only if the per-vintage data limitation is shown numerically (per-vintage ESS, coefficient standard error) and the spread between the scalar-only and stratified-only PDs is within the model uncertainty band reported under @sec-ch10-impossibility.
@@ -1410,31 +1410,258 @@ $$
 \Sigma = \begin{pmatrix} \sigma^2 & \rho \sigma \\ \rho \sigma & 1 \end{pmatrix}.
 $$ {#eq-heckman-sigma}
 
+The notation in @eq-heckman-sigma fixes a convention worth stating explicitly: $\sigma \equiv \mathrm{SD}(U)$ is the standard deviation of the *outcome*-equation shock $U$ in @eq-latent-default; the bottom-right entry equals $1$ because we have already imposed $\mathrm{Var}(V) = 1$ on the *selection*-equation shock $V$ in @eq-latent-selection; and $\rho \equiv \mathrm{Corr}(U, V)$ is the cross-equation correlation, so the off-diagonal $\mathrm{Cov}(U, V) = \rho \cdot \sigma \cdot 1 = \rho \sigma$. The reader will encounter a third symbol, $\sigma_V$, in Claim 1 below: that is the standard deviation of $V$ in a hypothetical un-normalized version of the model, and the whole point of Claim 1 is that the data force us to fix $\sigma_V = 1$ rather than estimate it. After Claim 1 the symbol $\sigma_V$ disappears from the chapter; only $\sigma$ (the outcome SD) and $\rho$ (the cross-correlation) remain.
+
 There are three identification claims packed into $\Sigma$, and each deserves a separate unpacking because they together determine which parameters a Heckman estimator can read off the data and which are pure normalization.
 
-**Claim 1: the selection-equation variance is unidentified, so we set it to 1.** Suppose the latent selection equation were written with a free variance $\sigma_V^2$ rather than the normalization in @eq-heckman-sigma. The selection probit gives $$
-P(S = 1 \mid X, Z) = P(V > -X^\top \gamma_X - Z^\top \gamma_Z) = \Phi\!\left( \frac{X^\top \gamma_X + Z^\top \gamma_Z}{\sigma_V} \right).
-$$ The observed data on $S$ only ever pin down the *ratio* $(\gamma_X, \gamma_Z) / \sigma_V$, never the numerator and denominator separately. Doubling all of $(\gamma_X, \gamma_Z, \sigma_V)$ leaves every acceptance probability unchanged, so the likelihood is flat along that ray. The standard fix is to set $\sigma_V = 1$ and read $(\gamma_X, \gamma_Z)$ on that scale. Any other scale convention (the most common alternative is $\sigma_V = \pi / \sqrt 3$, which makes the probit coefficients comparable to a logit) gives the same coefficients up to a uniform rescaling. The off-diagonal $\rho \sigma$ in @eq-heckman-sigma is the covariance, not the correlation, but with $\sigma_V = 1$ the covariance equals the correlation times $\sigma$, so the matrix entry is $\rho \sigma$ as written and $\rho$ is the recoverable correlation parameter.
+**Claim 1: the selection-equation variance is unidentified, so we set it to 1.** Suppose for the moment that we did not impose $\mathrm{Var}(V) = 1$ in @eq-heckman-sigma and instead let the selection shock have a free standard deviation $\sigma_V$ (so $\mathrm{Var}(V) = \sigma_V^2$). The selection probit then gives 
 
-**Claim 2: with a continuous outcome,** $\sigma$ is identified. When $Y$ is observed as a continuous quantity (a wage, a loss-given-default fraction, a residual income variable), the second-stage equation is OLS: $$
-Y \mid X, Z, S = 1 = X^\top \beta + \rho \sigma \, \lambda(a) + \epsilon,
-$$ with $\epsilon$ having conditional mean zero and conditional variance $$
-\mathrm{Var}(\epsilon \mid X, Z, S = 1) = \sigma^2 \big(1 - \rho^2 \, \delta(a)\big), \qquad \delta(a) = \lambda(a)\big(\lambda(a) + a\big),
-$$ where $\delta(a)$ is the truncated-normal variance correction (its expression follows from differentiating the IMR identity in @eq-imr). Two estimable quantities come out of stage 2: the regression coefficient on $\hat \lambda$, which estimates $\rho \sigma$, and the residual variance, which estimates $\sigma^2(1 - \rho^2 \, \overline{\delta(a)})$. Two equations in two unknowns ($\rho$, $\sigma$) yield both individually. This is the property that made Heckman's wage equation famous: the model returns not just a corrected $\beta$ but also a number $\sigma$ that has economic content as the standard deviation of the wage residual.
+$$
+P(S = 1 \mid X, Z) = P(V > -X^\top \gamma_X - Z^\top \gamma_Z) = \Phi\left( \frac{X^\top \gamma_X + Z^\top \gamma_Z}{\sigma_V} \right).
+$$ 
 
-**Claim 3: with a binary outcome and a probit second stage,** $\sigma$ is also unidentified, and only $\rho$ survives. The outcome equation collapses to a probit: $$
-Y = \mathbf{1}\big\{X^\top \beta + U > 0\big\}, \qquad U \mid V \sim \mathcal{N}\big(\rho \sigma V, \, \sigma^2 (1 - \rho^2)\big).
-$$ The marginal acceptance probability $P(Y = 1 \mid X, S = 1)$ depends on $X$, $\beta$, $\rho$, and $\sigma$ only through ratios that scale uniformly when we multiply $(\beta, \sigma)$ by any positive constant. Concretely, the conditional probability after the Heckman correction is $$
+The observed data on $S$ only ever pin down the *ratio* $(\gamma_X, \gamma_Z) / \sigma_V$, never the numerator and denominator separately. Doubling all of $(\gamma_X, \gamma_Z, \sigma_V)$ leaves every acceptance probability unchanged, so the likelihood is flat along that ray. The standard fix is to set $\sigma_V = 1$ and read $(\gamma_X, \gamma_Z)$ on that scale. Any other scale convention (the most common alternative is $\sigma_V = \pi / \sqrt 3$, which makes the probit coefficients comparable to a logit) gives the same coefficients up to a uniform rescaling. The off-diagonal $\rho \sigma$ in @eq-heckman-sigma is the covariance $\mathrm{Cov}(U, V)$, not the correlation: in general $\mathrm{Cov}(U, V) = \rho \cdot \sigma \cdot \sigma_V$, and the normalization $\sigma_V = 1$ collapses this to $\rho \sigma$ as written. So the matrix entry $\rho \sigma$ is the covariance under the normalization, and $\rho$ alone is the recoverable correlation parameter.
+
+**Claim 2: with a continuous outcome,** $\sigma$ is identified. When $Y$ is observed as a continuous quantity (a wage, a loss-given-default fraction, a residual income variable), the second-stage equation is OLS: 
+
+$$
+Y \mid X, Z, S = 1 = X^\top \beta + \rho \sigma  \lambda(a) + \epsilon,
+$$ 
+
+with $\epsilon$ having conditional mean zero and conditional variance 
+
+$$
+\mathrm{Var}(\epsilon \mid X, Z, S = 1) = \sigma^2 \big(1 - \rho^2  \delta(a)\big), \qquad \delta(a) = \lambda(a)\big(\lambda(a) + a\big),
+$$ 
+
+where $\delta(a)$ is the truncated-normal variance correction (its expression follows from differentiating the IMR identity in @eq-imr). Two estimable quantities come out of stage 2: the regression coefficient on $\hat \lambda$, which estimates $\rho \sigma$, and the residual variance, which estimates $\sigma^2(1 - \rho^2  \overline{\delta(a)})$. Two equations in two unknowns ($\rho$, $\sigma$) yield both individually. This is the property that made Heckman's wage equation famous: the model returns not just a corrected $\beta$, but also a number $\sigma$ that has economic content as the standard deviation of the wage residual.
+
+**Claim 3: with a binary outcome and a probit second stage,** $\sigma$ is also unidentified, and only $\rho$ survives. The outcome equation collapses to a probit: 
+
+$$
+Y = \mathbf{1}\big\{X^\top \beta + U > 0\big\}, \qquad U \mid V \sim \mathcal{N}\big(\rho \sigma V,  \sigma^2 (1 - \rho^2)\big).
+$$ 
+
+The marginal acceptance probability $P(Y = 1 \mid X, S = 1)$ depends on $X$, $\beta$, $\rho$, and $\sigma$ only through ratios that scale uniformly when we multiply $(\beta, \sigma)$ by any positive constant. Concretely, the conditional probability after the Heckman correction is 
+
+$$
 \begin{aligned}
 P(Y = 1 \mid X, Z, S = 1)
-&= \Phi\!\left( \frac{X^\top \beta + \rho \sigma \, \lambda(a)}{\sigma \sqrt{1 - \rho^2 \, \delta(a)}} \right) \\
-&= \Phi\!\left( \frac{X^\top \beta / \sigma + \rho \, \lambda(a)}{\sqrt{1 - \rho^2 \, \delta(a)}} \right).
+&= \Phi\left( \frac{X^\top \beta + \rho \sigma  \lambda(a)}{\sigma \sqrt{1 - \rho^2  \delta(a)}} \right) \\
+&= \Phi\left( \frac{X^\top \beta / \sigma + \rho  \lambda(a)}{\sqrt{1 - \rho^2  \delta(a)}} \right).
 \end{aligned}
-$$ Only $\beta / \sigma$ and $\rho$ ever appear. The data cannot distinguish $(\beta, \sigma) = (1, 1)$ from $(\beta, \sigma) = (2, 2)$. The convention is to fix $\sigma = 1$ and report $\beta$ on that scale; the second-stage probit then returns $\hat \beta$ directly and the coefficient on $\hat \lambda$ returns $\hat \rho$ rather than $\hat \rho \hat \sigma$. The intuition is the same as the selection probit: a binary $Y$ tells us only the sign of $X^\top \beta + U$, not its magnitude, so any uniform rescaling of the latent equation is invisible to the observed data.
+$$ 
 
-**Why this matters in credit.** In credit modeling the outcome is almost always binary (default within 12 or 24 months), so the probit Heckman delivers $\hat \beta$ on a normalized scale and $\hat \rho$ as a free parameter. A positive $\hat \rho$ means the latent shock that drives default and the latent shock that drives acceptance are positively correlated: high-default-prone applicants are also more likely to be accepted (perhaps because the unobservable that excites default also excites a feature the underwriter favors), in which case the accepted-only PD curve is biased *downward* relative to the through-the-door curve. A negative $\hat \rho$ flips that conclusion: the underwriting policy is screening out the latent risk effectively, and the accepted-only curve overstates through-the-door PD. The magnitude of $\hat \rho$ is the strength of selection on unobservables, but it must be interpreted alongside $\hat \lambda(a)$ to get the size of the bias correction at any specific $X$. A large $\hat \rho$ at an applicant whose $\hat \lambda$ is small (i.e. very likely to be accepted on observables) produces only a small correction; the same $\hat \rho$ at an applicant near the cutoff drives a large correction.
+Only $\beta / \sigma$ and $\rho$ ever appear. The data cannot distinguish $(\beta, \sigma) = (1, 1)$ from $(\beta, \sigma) = (2, 2)$. The convention is to fix $\sigma = 1$ and report $\beta$ on that scale; the second-stage probit then returns $\hat \beta$ directly and the coefficient on $\hat \lambda$ returns $\hat \rho$ rather than $\hat \rho \hat \sigma$. The intuition is the same as the selection probit: a binary $Y$ tells us only the sign of $X^\top \beta + U$, not its magnitude, so any uniform rescaling of the latent equation is invisible to the observed data.
 
-**Numerical fingerprint.** The identification claim is testable on a single simulation. Vary $\sigma$ in the data-generating process and re-fit the probit Heckman: the second-stage coefficient on $\hat \lambda$ should be invariant to $\sigma$ because it estimates $\rho$ alone. In the linear case the same coefficient varies linearly with $\sigma$ because it estimates $\rho \sigma$. We exploit this difference in @sec-ch10-implementation-from-scratch when we fit the two-step estimator on the synthetic lender and compare the recovered $\hat \rho$ to the data-generating $\rho$.
+**Why this matters in credit.** In credit modeling, the outcome is almost always binary (default within 12 or 24 months), so the probit Heckman delivers $\hat \beta$ on a normalized scale and $\hat \rho$ as a free parameter. A positive $\hat \rho$ means the latent shock that drives default and the latent shock that drives acceptance are positively correlated: high-default-prone applicants are also more likely to be accepted (perhaps because the unobservable that excites default also excites a feature the underwriter favors), in which case the accepted-only PD curve is biased *upward* relative to the through-the-door curve. A negative $\hat \rho$ flips that conclusion: the underwriting policy is screening out the latent risk effectively, and the accepted-only curve *understates* through-the-door PD. The magnitude of $\hat \rho$ is the strength of selection on unobservables, but it must be interpreted alongside $\hat \lambda(a)$ to get the size of the bias correction at any specific $X$. A large $\hat \rho$ at an applicant whose $\hat \lambda$ is small (i.e. very likely to be accepted on observables) produces only a small correction; the same $\hat \rho$ at an applicant near the cutoff drives a large correction.
+
+@fig-ch10-rho-positive and @fig-ch10-rho-negative make the mechanism concrete by listing example unobservables that would generate each sign of $\hat\rho$ in a Vietnamese consumer-finance setting. The dashed circles are the latent shocks $U$ (default) and $V$ (acceptance) of @eq-latent-default and @eq-latent-selection; the curved double arrow is the cross-equation correlation. Each bullet is a single latent trait whose joint footprint on $V$ and $U$ explains why $\hat\rho$ takes the sign claimed.
+
+```{python}
+#| label: fig-ch10-rho-positive
+#| fig-cap: "Positive $\\hat\\rho$: the underwriter accepts on a latent trait that *also* drives default. Each example unobservable raises $V$ (the underwriter's acceptance shock) and $U$ (the borrower's default shock) at the same time, so the latent traits feed both circles in the same direction. With $\\rho \\sigma > 0$ in @eq-heckman-outcome, the conditional mean correction $\\rho \\sigma \\hat\\lambda(a)$ is added on top of $X^\\top \\beta$ on the accepted slice, so the accepted-only PD curve sits above the through-the-door curve unless the Heckman correction is applied."
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch
+
+fig, ax = plt.subplots(figsize=(11, 5.6))
+ax.set_xlim(0, 10); ax.set_ylim(0, 6); ax.axis("off")
+
+ax.text(5.0, 5.65,
+        r"Positive $\rho$: underwriter accepts on a trait that $\it{also}$ drives default",
+        ha="center", va="center", fontsize=12.5, fontweight="bold", color="#111")
+
+u_center = (1.7, 4.2); v_center = (8.3, 4.2); r = 0.7
+ax.add_patch(Circle(u_center, r, facecolor="#ffebee",
+                    edgecolor="#c62828", linewidth=2.0, linestyle="--"))
+ax.add_patch(Circle(v_center, r, facecolor="#e3f2fd",
+                    edgecolor="#1565c0", linewidth=2.0, linestyle="--"))
+ax.text(u_center[0], u_center[1] + 0.12, "$U$",
+        ha="center", va="center", fontsize=20, color="#c62828", fontweight="bold")
+ax.text(u_center[0], u_center[1] - 0.42, "latent\ndefault shock",
+        ha="center", va="center", fontsize=8, color="#c62828")
+ax.text(v_center[0], v_center[1] + 0.12, "$V$",
+        ha="center", va="center", fontsize=20, color="#1565c0", fontweight="bold")
+ax.text(v_center[0], v_center[1] - 0.42, "latent\nacceptance shock",
+        ha="center", va="center", fontsize=8, color="#1565c0")
+
+ax.add_patch(FancyArrowPatch(
+    (u_center[0] + 0.55, u_center[1] + 0.4),
+    (v_center[0] - 0.55, v_center[1] + 0.4),
+    connectionstyle="arc3,rad=-0.35",
+    arrowstyle="-|>", mutation_scale=20, lw=2.2, color="#2e7d32"))
+ax.add_patch(FancyArrowPatch(
+    (v_center[0] - 0.55, v_center[1] - 0.4),
+    (u_center[0] + 0.55, u_center[1] - 0.4),
+    connectionstyle="arc3,rad=-0.35",
+    arrowstyle="-|>", mutation_scale=20, lw=2.2, color="#2e7d32"))
+ax.text(5.0, 5.05, r"$\rho > 0$",
+        ha="center", va="center", fontsize=20, color="#1b5e20", fontweight="bold")
+ax.text(5.0, 3.4, r"$\mathrm{Corr}(U, V) > 0$",
+        ha="center", va="center", fontsize=10.5, color="#1b5e20")
+
+ax.text(5.0, 2.95,
+        "example unobservables: each raises $V$ (accept) and $U$ (default) together",
+        ha="center", va="center", fontsize=10, fontstyle="italic", color="#37474f")
+
+examples_pos = [
+    ("Persuasive narrative & charisma",
+     r"officer trusts the story $\Rightarrow V\uparrow$;  same overconfidence drives leverage demand $\Rightarrow U\uparrow$"),
+    ("Headline informal-cash income",
+     r"officer rewards the big stated number $\Rightarrow V\uparrow$;  cash-flow volatility drives delinquency $\Rightarrow U\uparrow$"),
+    ("Branch-officer relationship / soft signal",
+     r"relationship lender accepts $\Rightarrow V\uparrow$;  social-network pressure masks family-debt overhang $\Rightarrow U\uparrow$"),
+]
+for i, (trait, why) in enumerate(examples_pos):
+    y = 2.4 - 0.5 * i
+    ax.text(0.45, y, f"• {trait}",
+            ha="left", va="center", fontsize=9.5, fontweight="bold", color="#37474f")
+    ax.text(4.3, y, why, ha="left", va="center", fontsize=8.5, color="#546e7a")
+
+ax.add_patch(FancyBboxPatch((0.4, 0.05), 9.2, 0.6,
+                            boxstyle="round,pad=0.05,rounding_size=0.1",
+                            facecolor="#fff3e0", edgecolor="#e65100", linewidth=1.3))
+ax.text(5.0, 0.35,
+        r"Bias on accepted-only $\hat P(Y\mid X)$: $X^\top\beta + \rho\sigma\hat\lambda(a)$ with $\rho\sigma > 0$, so accepted curve $\it{over}$states through-the-door PD",
+        ha="center", va="center", fontsize=9.5, color="#bf360c", fontweight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-ch10-rho-negative
+#| fig-cap: "Negative $\\hat\\rho$: the underwriter screens out latent risk effectively. Each example unobservable moves $V$ and $U$ in *opposite* directions, so the latent traits that the underwriter rewards (raising $V$) are the same traits that lower default risk (lowering $U$), and conversely the latent traits the underwriter penalises (lowering $V$) are the same traits that raise default risk. With $\\rho \\sigma < 0$ in @eq-heckman-outcome, the conditional mean correction $\\rho \\sigma \\hat\\lambda(a)$ is subtracted from $X^\\top \\beta$ on the accepted slice, so the accepted-only PD curve sits below the through-the-door curve unless the Heckman correction is applied."
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch
+
+fig, ax = plt.subplots(figsize=(11, 5.6))
+ax.set_xlim(0, 10); ax.set_ylim(0, 6); ax.axis("off")
+
+ax.text(5.0, 5.65,
+        r"Negative $\rho$: underwriting policy screens out the latent risk",
+        ha="center", va="center", fontsize=12.5, fontweight="bold", color="#111")
+
+u_center = (1.7, 4.2); v_center = (8.3, 4.2); r = 0.7
+ax.add_patch(Circle(u_center, r, facecolor="#ffebee",
+                    edgecolor="#c62828", linewidth=2.0, linestyle="--"))
+ax.add_patch(Circle(v_center, r, facecolor="#e3f2fd",
+                    edgecolor="#1565c0", linewidth=2.0, linestyle="--"))
+ax.text(u_center[0], u_center[1] + 0.12, "$U$",
+        ha="center", va="center", fontsize=20, color="#c62828", fontweight="bold")
+ax.text(u_center[0], u_center[1] - 0.42, "latent\ndefault shock",
+        ha="center", va="center", fontsize=8, color="#c62828")
+ax.text(v_center[0], v_center[1] + 0.12, "$V$",
+        ha="center", va="center", fontsize=20, color="#1565c0", fontweight="bold")
+ax.text(v_center[0], v_center[1] - 0.42, "latent\nacceptance shock",
+        ha="center", va="center", fontsize=8, color="#1565c0")
+
+ax.add_patch(FancyArrowPatch(
+    (u_center[0] + 0.55, u_center[1] + 0.4),
+    (v_center[0] - 0.55, v_center[1] + 0.4),
+    connectionstyle="arc3,rad=-0.35",
+    arrowstyle="-|>", mutation_scale=20, lw=2.2, color="#ad1457"))
+ax.add_patch(FancyArrowPatch(
+    (v_center[0] - 0.55, v_center[1] - 0.4),
+    (u_center[0] + 0.55, u_center[1] - 0.4),
+    connectionstyle="arc3,rad=-0.35",
+    arrowstyle="-|>", mutation_scale=20, lw=2.2, color="#ad1457"))
+ax.text(5.0, 5.05, r"$\rho < 0$",
+        ha="center", va="center", fontsize=20, color="#880e4f", fontweight="bold")
+ax.text(5.0, 3.4, r"$\mathrm{Corr}(U, V) < 0$",
+        ha="center", va="center", fontsize=10.5, color="#880e4f")
+
+ax.text(5.0, 2.95,
+        "example unobservables: $V$ and $U$ move in opposite directions",
+        ha="center", va="center", fontsize=10, fontstyle="italic", color="#37474f")
+
+examples_neg = [
+    ("Documentation completeness",
+     r"officer rewards a clean file $\Rightarrow V\uparrow$;  same conscientiousness lowers delinquency $\Rightarrow U\downarrow$"),
+    ("Verifiable formal-employer letter",
+     r"officer trusts payroll proof $\Rightarrow V\uparrow$;  job stability lowers default $\Rightarrow U\downarrow$"),
+    ("Underwriter notes flag a fraud signal",
+     r"officer rejects on the red flag $\Rightarrow V\downarrow$;  same red flag predicts default if funded $\Rightarrow U\uparrow$"),
+]
+for i, (trait, why) in enumerate(examples_neg):
+    y = 2.4 - 0.5 * i
+    ax.text(0.45, y, f"• {trait}",
+            ha="left", va="center", fontsize=9.5, fontweight="bold", color="#37474f")
+    ax.text(4.3, y, why, ha="left", va="center", fontsize=8.5, color="#546e7a")
+
+ax.add_patch(FancyBboxPatch((0.4, 0.05), 9.2, 0.6,
+                            boxstyle="round,pad=0.05,rounding_size=0.1",
+                            facecolor="#e1f5fe", edgecolor="#0277bd", linewidth=1.3))
+ax.text(5.0, 0.35,
+        r"Bias on accepted-only $\hat P(Y\mid X)$: $X^\top\beta + \rho\sigma\hat\lambda(a)$ with $\rho\sigma < 0$, so accepted curve $\it{under}$states through-the-door PD",
+        ha="center", va="center", fontsize=9.5, color="#01579b", fontweight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+**Numerical fingerprint.** The identification claim is testable on a single simulation. Vary $\sigma$ in the data-generating process and re-fit the probit Heckman: the second-stage coefficient on $\hat \lambda$ should be invariant to $\sigma$ because it estimates $\rho$ alone. In the linear case, the same coefficient varies linearly with $\sigma$ because it estimates $\rho \sigma$. The block below makes that difference visible. We hold $\rho = 0.5$ fixed, sweep $\sigma$ over four values, and refit the same two-step estimator on a continuous outcome (linear stage 2) and a thresholded binary outcome (probit stage 2) drawn from the *same* latent process. The probit column hovers around $\rho$ within Monte Carlo noise; the linear column scales linearly in $\sigma$.
+
+```{python}
+#| label: tbl-ch10-heckman-fingerprint
+import numpy as np
+import pandas as pd
+from scipy import stats
+import statsmodels.api as sm
+
+rng_fp = np.random.default_rng(20260509)
+
+n_fp     = 50_000
+beta_fp  = np.array([-0.4, 0.8])         # outcome eq on (1, X)
+gamma_fp = np.array([0.2, -0.6, 1.0])    # selection eq on (1, X, Z)
+rho_fp   = 0.5                           # data-generating selection-on-unobservables
+
+X_fp   = rng_fp.normal(size=n_fp)
+Z_fp   = rng_fp.normal(size=n_fp)        # exclusion restriction
+V_fp   = rng_fp.normal(size=n_fp)        # selection error, sd 1
+eta_fp = rng_fp.normal(size=n_fp)        # independent component of U / sigma
+
+records = []
+for sigma in [0.5, 1.0, 2.0, 4.0]:
+    # U has sd sigma and corr rho with V
+    U_fp = sigma * (rho_fp * V_fp + np.sqrt(1 - rho_fp**2) * eta_fp)
+
+    a_fp = gamma_fp[0] + gamma_fp[1] * X_fp + gamma_fp[2] * Z_fp
+    S_fp = (a_fp + V_fp > 0).astype(int)
+
+    latent_Y = beta_fp[0] + beta_fp[1] * X_fp + U_fp
+    Y_lin    = latent_Y                  # continuous outcome, OLS stage 2
+    Y_bin    = (latent_Y > 0).astype(int) # binary outcome, probit stage 2
+
+    # stage 1: probit of S on (X, Z), full applicant pool
+    XZ      = sm.add_constant(np.column_stack([X_fp, Z_fp]))
+    probit1 = sm.Probit(S_fp, XZ).fit(disp=False)
+    a_hat   = probit1.fittedvalues
+    lam     = stats.norm.pdf(a_hat) / stats.norm.cdf(a_hat)
+
+    acc  = S_fp == 1
+    Wacc = sm.add_constant(np.column_stack([X_fp[acc], lam[acc]]))
+
+    # stage 2 (linear-Y): OLS coef on lambda is consistent for rho * sigma
+    coef_lin = sm.OLS(Y_lin[acc], Wacc).fit().params[-1]
+
+    # stage 2 (probit-Y): probit coef on lambda is consistent for rho alone
+    coef_pro = sm.Probit(Y_bin[acc], Wacc).fit(disp=False).params[-1]
+
+    records.append({
+        "sigma":         sigma,
+        "linear_lam":    round(coef_lin, 3),
+        "linear_target": round(rho_fp * sigma, 3),
+        "probit_lam":    round(coef_pro, 3),
+        "probit_target": round(rho_fp, 3),
+    })
+
+print(pd.DataFrame(records).to_string(index=False))
+```
+
+Read the table column by column. The `linear_lam` estimate doubles when $\sigma$ doubles and tracks `linear_target` $= \rho \sigma$ to within Monte Carlo noise; the linear two-step is identifying the *product* $\rho \sigma$ and cannot tell apart "moderate selection on unobservables, high outcome noise" from "strong selection on unobservables, low outcome noise". The `probit_lam` estimate sits in a tight band around `probit_target` $= \rho = 0.5$ across the same sweep (small drift at the extremes is finite-sample noise from the shifting accept rate), because the binary outcome equation absorbs $\sigma$ into the latent-scale normalization and what survives is $\rho$ alone. The whole table is generated from one set of $(V, \eta, X, Z)$ draws; only $\sigma$ is rescaled between rows, so the contrast is not a sampling artifact. The same fingerprint is what tells a model risk team that a probit-stage-2 Heckman fit on a real PD problem is reporting the underlying selection correlation, not a quantity confounded with the unidentified outcome variance.
+
+We exploit this difference again in @sec-ch10-implementation-from-scratch, where the two-step estimator is fit on the full synthetic lender and the recovered $\hat \rho$ is compared head-to-head with the data-generating $\rho$.
 
 ### Conditional expectation of the outcome error
 
@@ -1482,9 +1709,17 @@ where $\epsilon$ has conditional mean zero by construction. The two-step procedu
 
 1.  Fit a probit of $S$ on $(X, Z)$ using the full applicant sample. Obtain $\hat \gamma_X$, $\hat \gamma_Z$. Compute $\hat \lambda_i = \lambda(X_i^\top \hat \gamma_X + Z_i^\top \hat \gamma_Z)$ for every $i$ with $S_i = 1$.
 
-2.  On the accepted sample, regress $Y$ on $X$ and $\hat \lambda$. In the linear-outcome case this is OLS, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho \sigma$. In the probit-outcome case it is a probit, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho$ (with $\sigma = 1$).
+2.  On the accepted sample, regress $Y$ on $X$ and $\hat \lambda$. In the linear-outcome case, this is OLS, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho \sigma$. In the probit-outcome case, it is a probit, and the coefficient on $\hat \lambda$ is a consistent estimator of $\rho$ (with $\sigma = 1$).
 
 What the lender gets out of this for a credit scorecard: the slopes $\hat\beta$ are now interpretable as through-the-door PD partials rather than accept-conditional partials, the intercept shifts to a population-level base rate, and a nonzero $\hat\rho$ is a quantitative statement that the legacy underwriter's residual judgment correlates with default risk. Practitioners read $\hat\rho$ as a test for "did the historical policy pick on something we never recorded"; when $\hat\rho$ is statistically indistinguishable from zero, the naive accepted-only fit is defensible and the business case for reject inference weakens.
+
+#### Why probit, not logit, in the selection stage {#sec-ch10-why-probit}
+
+The two-step procedure above is written with a probit selection model for a reason that is purely technical, not philosophical. The closed-form inverse Mills ratio $\lambda(a) = \phi(a) / \Phi(a)$ in @eq-imr-final is the conditional expectation $\mathbb{E}[V \mid V > -a]$ of a *standard normal* shock above a threshold, and it inherits the $\phi/\Phi$ ratio because the moment-generating algebra in @eq-cond-u-step1 through @eq-imr-final relies on the normal density's self-similarity under conditioning. If the selection shock $V$ is logistic instead, with CDF $F(v) = 1 / (1 + e^{-v})$, the conditional expectation $\mathbb{E}[V \mid V > -a]$ has no closed form in elementary functions, the clean second-stage augmentation by a single regressor $\hat\lambda$ disappears, and the bivariate-normal joint of $(U, V)$ that justified Claim 1 of @sec-ch10-heckman-selection-correction also disappears, because there is no canonical bivariate distribution whose marginals are one normal and one logistic and whose conditional structure gives a tractable selection correction.
+
+Three practical consequences follow. First, the @lee1983generalized generalized-residual approach is the textbook substitute when the analyst insists on a logit selection model: use the logit-implied generalized residual $\hat e_i = S_i [1 - \hat F(\hat a_i)] - (1 - S_i) \hat F(\hat a_i)$ in place of $\hat\lambda_i$ in stage 2, then estimate $\rho$ from the second-stage coefficient on $\hat e$. Lee's substitute is consistent under joint normality of the *latent* indices once they are transformed to a normal scale, which is a strong assumption that the bivariate-normal joint is a good approximation after the marginals are remapped, and @puhani2000heckman surveys when this approximation is and is not defensible. Second, an entire applied literature reports "Heckman corrections" with a logistic stage 2 (logit outcome) and an inverse Mills ratio plugged in as a regressor: the practice is widespread but inherits no formal justification because $\lambda$ was derived for a normal-error stage-2 equation. The estimator is biased in general, and the bias size depends on how badly the logistic and normal CDFs disagree in the tails of $a$ where selection probabilities are near 0 or 1, which in credit is exactly the policy-margin region where reject inference is supposed to help. Third, when the outcome is binary and the analyst wants a model in the logit family for downstream interpretability (WoE coefficients, points-and-PDO scaling, regulatory-standard log-odds reporting), the cleanest move is to fit Heckman with a probit stage 2, recover $\hat\beta_{\text{probit}}$ on the latent scale, and then refit a separate logit on the IPW- or AIPW-corrected pseudo-sample (@sec-ch10-modern) for the production scorecard. The probit fit is the identification object; the logit fit is the deployment object. Mixing the two in a single estimator is what loses the joint-normal justification.
+
+The same reasoning explains why the credit literature is dominated by logit deployment but probit identification: validators want point estimates that map to log-odds for scaling and a likelihood that conditionalizes cleanly on observables, while academic econometrics wants the joint-normal closed form. The two needs are reconciled by separating estimation (probit Heckman) from scoring (logit calibration), not by trying to force a "logit Heckman" through a non-tractable conditional expectation. Readers who want the full historical and computational background should consult @lee1983generalized for the generalized-residual derivation, @puhani2000heckman for a critique of the two-step relative to a joint-MLE Heckman, @chiburis2012comparative for finite-sample comparisons of probit-Heckman, bivariate-probit, and matching estimators, and @prieger2003flexible for a flexible bivariate-non-normal extension that keeps a closed-form correction.
 
 #### Identifying assumptions, and how to defend each one in production {#sec-ch10-heckman-assumptions}
 
@@ -1492,7 +1727,7 @@ The estimator is consistent under five assumptions. Each one is testable on prod
 
 A1. **Bivariate normality of** $(U, V)$. The joint error is $\mathcal{N}(0, \Sigma)$ with $\Sigma_{12} = \rho$. *Diagnostic:* QQ-plot of standardized stage-2 residuals on the accepted sample, plus Shapiro-Wilk or Jarque-Bera on the residual tails. Heavy tails or skew motivate a Student-$t$ joint or a copula generalization (@sec-ch10-modern). In credit, gross income and bureau utilization are right-skewed; a log or Yeo-Johnson transform of the inputs usually closes most of the non-normality before the joint assumption is challenged.
 
-A2. **Correct selection link.** $S_i = \mathbf{1}\{X_i^\top \gamma_X + Z_i^\top \gamma_Z + V_i > 0\}$ with $V_i$ standard normal. *Diagnostic:* the Pregibon (1980) link test on the stage-1 probit and a Hosmer-Lemeshow calibration test on $\hat P(S = 1)$. A misspecified link gives a wrong $\hat \lambda$ and biases stage 2 even when A1 holds. Banks whose policy is a logistic scorecard, not a normal-latent rule, should swap probit for the logit selection model with the @lee1983generalized substitute for $\lambda$.
+A2. **Correct selection link.** $S_i = \mathbf{1}\{X_i^\top \gamma_X + Z_i^\top \gamma_Z + V_i > 0\}$ with $V_i$ standard normal. *Diagnostic:* the @pregibon1980goodness link test on the stage-1 probit and a Hosmer-Lemeshow calibration test on $\hat P(S = 1)$. A misspecified link gives a wrong $\hat \lambda$ and biases stage 2 even when A1 holds. Banks whose policy is a logistic scorecard, not a normal-latent rule, should swap probit for the logit selection model with the @lee1983generalized substitute for $\lambda$.
 
 A3. **Exclusion restriction:** $Z$ enters selection but not the outcome residual. *Diagnostic in two parts.* First, the strength check: F-statistic of $Z$ in the stage-1 probit, looking for $F > 10$ on the joint test, the same rule of thumb as for instrumental variables (@stock2002survey). Second, the exogeneity check: on a labelled subset of the rejected pool (typically bureau-labelled, see @sec-ch10-bureau-extrapolation), include $Z$ in the outcome equation directly and test that its coefficient is indistinguishable from zero. A nonzero coefficient kills the exclusion. Document the candidate $Z$ before fitting; ex-post search for a $Z$ that "works" is a known model-risk red flag.
 
@@ -1506,7 +1741,7 @@ If A1-A5 are tenable, $\hat\beta_{\text{Heck}}$ is consistent for the through-th
 
 Suppose $Z$ is empty. Then the probit in step 1 runs $S$ on $X$ alone, and $\hat \lambda$ is a deterministic function of $X^\top \hat \gamma_X$. In the second stage, we regress $Y$ on $X$ and a nonlinear function of $X$. The coefficient on $\hat \lambda$ is only identified from the curvature of $\lambda$ relative to linear combinations of $X$. This is a weak source of identification. If $X$ is nearly normal and $X^\top \gamma_X$ has moderate range, $\lambda$ is nearly affine on that range, and the coefficient on $\hat \lambda$ is collinear with the $X$ vector. The estimator explodes.
 
-The exclusion restriction gives $\lambda$ genuine variation orthogonal to $X$. Concretely, $Z$ must satisfy two conditions: **relevance** ($\partial P(S=1 \mid X, Z) / \partial Z \ne 0$, with first-stage @stock2005testing $F$ above 10 or its @olea2013robust effective-$F$ analogue under heteroskedasticity) and **excludability** ($Z \perp\!\!\!\perp U \mid X$: no separate causal pathway from $Z$ to default beyond what $X$ already captures). The first is testable; the second is partially testable on the accepted sample by regressing $Y$ on $X$, the IMR, and $Z$ (the coefficient on $Z$ should be statistically zero) and otherwise relies on a prespecified economic story. Hand-picking $Z$ after the data are in invites the validator to assume the worst.
+The exclusion restriction gives $\lambda$ genuine variation orthogonal to $X$. Concretely, $Z$ must satisfy two conditions: **relevance** ($\partial P(S=1 \mid X, Z) / \partial Z \ne 0$, with first-stage @stock2005testing $F$ above 10 or its @olea2013robust effective-$F$ analogue under heteroskedasticity) and **excludability** ($Z \perp\perp U \mid X$: no separate causal pathway from $Z$ to default beyond what $X$ already captures). The first is testable; the second is partially testable on the accepted sample by regressing $Y$ on $X$, the IMR, and $Z$ (the coefficient on $Z$ should be statistically zero) and otherwise relies on a prespecified economic story. Hand-picking $Z$ after the data are in invites the validator to assume the worst.
 
 When validators are uncertain about excludability, the right sensitivity analysis is the @conley2012plausibly plausibly-exogenous bound: parameterize a hypothesized direct effect $\delta \in [-\bar\delta, \bar\delta]$ of $Z$ on the outcome residual and report the union of Heckman second-stage confidence intervals as $\delta$ varies. The width of the union prices the residual identification risk; a small $\bar\delta$ that already widens the interval beyond decision-grade is evidence the instrument is too fragile for production. We implement the bound, the first-stage strength check, and the falsification regression in @sec-ch10-iv-diagnostics-code.
 
@@ -1544,24 +1779,36 @@ When selection is MAR, meaning $\rho = 0$, the coefficient on $\hat \lambda$ is 
 
 #### Inverse probability weighting and the Horvitz-Thompson identity
 
-The starting point is the Horvitz-Thompson identity. For any functional $h$ of the through-the-door applicant, $$
-\mathbb{E}\!\left[ \frac{S \cdot h(Y, X)}{\pi(X, Z)} \right] = \mathbb{E}[h(Y, X)],
+The starting point is the Horvitz-Thompson identity. For any functional $h$ of the through-the-door applicant, 
+
+$$
+\mathbb{E}\left[ \frac{S \cdot h(Y, X)}{\pi(X, Z)} \right] = \mathbb{E}[h(Y, X)],
 \qquad \pi(x, z) = P(S = 1 \mid X = x, Z = z),
-$$ {#eq-ht} provided $\pi(x, z) > 0$ on the support of $(X, Z)$ and selection satisfies $S \perp\!\!\!\perp Y \mid (X, Z)$. The conditional independence is the formal statement of MAR. Under MAR, weighting each accepted observation by $1 / \pi$ recovers the through-the-door expectation of $h$ exactly. Specializing $h$ recovers familiar estimators: $h(Y, X) = \mathbf{1}\{Y = 1, X \in A\}$ gives the through-the-door PD on any region $A$; $h(Y, X) = -\log p(Y \mid X; \beta)$ gives the IPW M-estimator that recovers the through-the-door scorecard coefficients by maximum likelihood on the weighted accepted sample.
+$$ {#eq-ht} 
+
+provided $\pi(x, z) > 0$ on the support of $(X, Z)$ and selection satisfies $S \perp\perp Y \mid (X, Z)$. The conditional independence is the formal statement of MAR. Under MAR, weighting each accepted observation by $1 / \pi$ recovers the through-the-door expectation of $h$ exactly. Specializing $h$ recovers familiar estimators: $h(Y, X) = \mathbf{1}\{Y = 1, X \in A\}$ gives the through-the-door PD on any region $A$; $h(Y, X) = -\log p(Y \mid X; \beta)$ gives the IPW M-estimator that recovers the through-the-door scorecard coefficients by maximum likelihood on the weighted accepted sample.
 
 Two consequences. First, IPW does not assume normality, parametric outcomes, or a specific score family: any base learner whose loss is a sum of per-observation contributions can be fit on the weighted accepted sample. Second, when $\pi$ is unknown it must be estimated, and the first-stage estimation propagates into the scorecard. The naive plug-in is consistent under MAR but inefficient.
 
 #### Hájek normalization and weight instability in credit
 
-The raw Horvitz-Thompson estimator has unbounded variance whenever $\pi$ is small in part of feature space. In credit, the policy declines a substantial share of through-the-door volume and the rejected mass concentrates at low $\pi$. A handful of accepted observations with $\hat \pi_i \approx 0.02$ then dominate the weighted sum, and the estimator is volatile. The Hájek normalization divides through by the empirical sum of weights: $$
+The raw Horvitz-Thompson estimator has unbounded variance whenever $\pi$ is small in part of feature space. In credit, the policy declines a substantial share of through-the-door volume and the rejected mass concentrates at low $\pi$. A handful of accepted observations with $\hat \pi_i \approx 0.02$ then dominate the weighted sum, and the estimator is volatile. The Hájek normalization divides through by the empirical sum of weights: 
+
+$$
 \hat \mu_{\text{Hájek}} = \frac{\sum_i (S_i / \hat \pi_i) h(Y_i, X_i)}{\sum_i S_i / \hat \pi_i}.
-$$ {#eq-hajek} Hájek has the same asymptotic mean as Horvitz-Thompson but a smaller finite-sample variance whenever the propensity has heavy tails. In production we further clip $\hat \pi_i$ at a floor, typically 1 to 5 percent, and report the clipped share alongside the estimate. A clipped share above 5 percent is a hard overlap diagnostic: it means the policy is near-deterministic on the trimmed slice, the D1 (policy overlap) dimension from @tbl-ch10-bias-dimensions bites, and the IPW estimator is extrapolating along the parametric form of the propensity model rather than from data.
+$$ {#eq-hajek} 
+
+Hájek has the same asymptotic mean as Horvitz-Thompson but a smaller finite-sample variance whenever the propensity has heavy tails. In production we further clip $\hat \pi_i$ at a floor, typically 1 to 5 percent, and report the clipped share alongside the estimate. A clipped share above 5 percent is a hard overlap diagnostic: it means the policy is near-deterministic on the trimmed slice, the D1 (policy overlap) dimension from @tbl-ch10-bias-dimensions bites, and the IPW estimator is extrapolating along the parametric form of the propensity model rather than from data.
 
 #### AIPW as the efficient influence function
 
-The augmented IPW estimator of @robins1994estimation achieves the semiparametric efficiency bound under MAR and corrects a key inefficiency of raw IPW. Define the outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ and the AIPW pseudo-outcome $$
+The augmented IPW estimator of @robins1994estimation achieves the semiparametric efficiency bound under MAR and corrects a key inefficiency of raw IPW. Define the outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ and the AIPW pseudo-outcome 
+
+$$
 \tilde Y = g(X) + \frac{S}{\pi(X, Z)} \big( Y - g(X) \big).
-$$ {#eq-aipw-score} Two algebraic facts make this score special, and both are direct calculations.
+$$ {#eq-aipw-score} 
+
+Two algebraic facts make this score special, and both are direct calculations.
 
 (1) If $\pi$ is correct (matches the true selection probability), then $\tilde Y$ is conditionally unbiased for $\mathbb{E}[Y \mid X]$ regardless of how $g$ is estimated. The augmentation cancels in expectation: $\mathbb{E}[\tilde Y \mid X] = g(X) + \mathbb{E}[(S / \pi)(Y - g(X)) \mid X] = g(X) + \mathbb{E}[Y \mid X] - g(X) = \mathbb{E}[Y \mid X]$ using the Horvitz-Thompson identity on the residual.
 
@@ -1571,17 +1818,25 @@ This is double robustness: two independent specifications, only one of which nee
 
 #### Cross-fitting and Neyman orthogonality
 
-Plug-in nuisance estimators have a first-stage bias that, naively combined with a second-stage M-estimator, breaks the $\sqrt{n}$ inferential rate. @chernozhukov2018double's contribution is to show that the AIPW score is Neyman-orthogonal to both nuisances, meaning its Gateaux derivative with respect to small perturbations of $g$ or $\pi$ is zero at the truth. The practical implication is that nuisance estimation errors enter the second-stage estimator only through their product: $$
-\big| \hat \beta - \beta_0 \big| = O_P\!\big( \| \hat g - g_0 \|_2 \cdot \| \hat \pi - \pi_0 \|_2 \big) + O_P(n^{-1/2}).
-$$ {#eq-dml-rate} If both nuisances converge at $o(n^{-1/4})$ in $L_2$ (achievable for gradient boosting, random forests, and sparse linear models in moderate dimensions under standard regularity conditions), the product is $o(n^{-1/2})$ and the second-stage M-estimator is $\sqrt{n}$-consistent and asymptotically normal. Cross-fitting (sample splitting into $K$ folds, fitting nuisances on $K-1$ folds and the score on the remaining fold, rotating through, then averaging) eliminates the residual own-sample bias from the same data being used twice. For credit scorecards we use a GroupKFold on the application-id key with the accept indicator stratified within folds, so each fold contains both accepted and rejected applicants in proportion and no applicant appears in both the nuisance fit and the score fold.
+Plug-in nuisance estimators have a first-stage bias that, naively combined with a second-stage M-estimator, breaks the $\sqrt{n}$ inferential rate. @chernozhukov2018double's contribution is to show that the AIPW score is Neyman-orthogonal to both nuisances, meaning its Gateaux derivative with respect to small perturbations of $g$ or $\pi$ is zero at the truth. The practical implication is that nuisance estimation errors enter the second-stage estimator only through their product: 
+
+$$
+\big| \hat \beta - \beta_0 \big| = O_P\big( \| \hat g - g_0 \|_2 \cdot \| \hat \pi - \pi_0 \|_2 \big) + O_P(n^{-1/2}).
+$$ {#eq-dml-rate}
+
+If both nuisances converge at $o(n^{-1/4})$ in $L_2$ (achievable for gradient boosting, random forests, and sparse linear models in moderate dimensions under standard regularity conditions), the product is $o(n^{-1/2})$ and the second-stage M-estimator is $\sqrt{n}$-consistent and asymptotically normal. Cross-fitting (sample splitting into $K$ folds, fitting nuisances on $K-1$ folds and the score on the remaining fold, rotating through, then averaging) eliminates the residual own-sample bias from the same data being used twice. For credit scorecards we use a GroupKFold on the application-id key with the accept indicator stratified within folds, so each fold contains both accepted and rejected applicants in proportion and no applicant appears in both the nuisance fit and the score fold.
 
 The operational upshot is concrete. A bank can fit $\hat \pi$ with gradient-boosted trees on a wide feature store, fit $\hat g$ with a separately tuned ML model on the accepted slice, plug both into the AIPW pseudo-outcome from @eq-aipw-score, and run inference on the resulting reject-inferred scorecard with no parametric assumption on the propensity or the outcome model. Standard errors come from the second-stage influence function under the cross-fitting design and are robust to the specific nuisance learners chosen. The full code is at @sec-ch10-modern.
 
 #### Where MNAR breaks the doubly robust score
 
-The MAR ceiling is not an aesthetic constraint of these methods but a hard identification limit, and the easiest way to see it is to track where MNAR breaks @eq-aipw-score. Under MNAR, $\mathbb{E}[Y \mid X, S = 1] \neq \mathbb{E}[Y \mid X]$ even after conditioning on every observable in $(X, Z)$, because selection covaries with the outcome residual through the unobserved $(U, V)$. The conditional residual $Y - \mathbb{E}[Y \mid X, S = 1]$ is mean-zero on the accepted slice by construction but mean-shifted on the through-the-door population. Reading @eq-aipw-score under MNAR: $$
-\mathbb{E}[\tilde Y \mid X] = g(X) + \mathbb{E}\!\left[ \frac{S}{\pi(X, Z)} \big(Y - g(X)\big) \,\Big|\, X \right].
-$$ The first term equals the accept-conditional regression $\mathbb{E}[Y \mid X, S = 1]$ rather than the through-the-door $\mathbb{E}[Y \mid X]$. The second term, under MNAR, no longer corrects the gap: the residual $Y - g(X)$ has nonzero conditional mean given $S = 1$ and $Z$ because $\mathbb{E}[Y \mid X, Z, S = 1]$ depends on the unobserved selection error. Doubly robust cancellation requires at least one nuisance to be correct, but the relevant correctness is for the through-the-door distribution, and neither $g$ nor $\pi$ estimated from $(X, Z)$ alone is correct in that sense. The cancellation that defines AIPW fails.
+The MAR ceiling is not an aesthetic constraint of these methods but a hard identification limit, and the easiest way to see it is to track where MNAR breaks @eq-aipw-score. Under MNAR, $\mathbb{E}[Y \mid X, S = 1] \neq \mathbb{E}[Y \mid X]$ even after conditioning on every observable in $(X, Z)$, because selection covaries with the outcome residual through the unobserved $(U, V)$. The conditional residual $Y - \mathbb{E}[Y \mid X, S = 1]$ is mean-zero on the accepted slice by construction but mean-shifted on the through-the-door population. Reading @eq-aipw-score under MNAR: 
+
+$$
+\mathbb{E}[\tilde Y \mid X] = g(X) + \mathbb{E}\left[ \frac{S}{\pi(X, Z)} \big(Y - g(X)\big) \Big| X \right].
+$$ 
+
+The first term equals the accept-conditional regression $\mathbb{E}[Y \mid X, S = 1]$ rather than the through-the-door $\mathbb{E}[Y \mid X]$. The second term, under MNAR, no longer corrects the gap: the residual $Y - g(X)$ has nonzero conditional mean given $S = 1$ and $Z$ because $\mathbb{E}[Y \mid X, Z, S = 1]$ depends on the unobserved selection error. Doubly robust cancellation requires at least one nuisance to be correct, but the relevant correctness is for the through-the-door distribution, and neither $g$ nor $\pi$ estimated from $(X, Z)$ alone is correct in that sense. The cancellation that defines AIPW fails.
 
 This is exactly the Hand and Henley impossibility (@sec-ch10-impossibility) restated in the language of influence functions. AIPW and DML close the covariate-shift gap (panel (a) of @fig-ch10-conditional-shift) but they cannot close the conditional shift (panel (b)). Heckman closes both, at the cost of bivariate normality and an exclusion restriction. The bias-comparison plot in @fig-ch10-method-bias visualizes the consequence: AIPW, generative imputation, and covariate-shift IW form an intermediate cluster that improves on naive but stops short of Heckman and the Frank copula on a synthetic MNAR lender.
 
@@ -1616,20 +1871,28 @@ The full AIPW and DML implementations on the chapter's synthetic MNAR lender, wi
 
 ### Variance of the two-step estimator {#sec-ch10-heckman-variance}
 
-The standard errors that any statistical package returns from a vanilla stage-2 fit are wrong on two counts. First, the residual variance in stage 2 is heteroscedastic, $$
+The standard errors that any statistical package returns from a vanilla stage-2 fit are wrong on two counts. First, the residual variance in stage 2 is heteroscedastic, 
+
+$$
 \mathrm{Var}(\epsilon_i \mid X_i, Z_i, S_i = 1) = \sigma^2 (1 - \rho^2 \delta_i),
 \qquad \delta_i = \lambda_i \big( \lambda_i + W_i^{(s)\top} \gamma \big),
 \qquad W_i^{(s)} = (X_i, Z_i),
-$$ {#eq-heckman-heterosked} because conditioning on $S = 1$ truncates $V$ from below. Second, $\hat\lambda$ is itself estimated from stage 1, so stage 2 inherits sampling noise from $\hat\gamma$. Treating $\hat\lambda$ as fixed gives a downward-biased standard error on the IMR coefficient, the very piece on which the case for reject inference rests.
+$$ {#eq-heckman-heterosked} 
 
-The closed-form correction in @heckman1979sample writes the asymptotic variance of the stage-2 parameter $\hat\theta = (\hat\beta^\top, \hat{\rho\sigma})^\top$ as a sandwich: $$
+because conditioning on $S = 1$ truncates $V$ from below. Second, $\hat\lambda$ is itself estimated from stage 1, so stage 2 inherits sampling noise from $\hat\gamma$. Treating $\hat\lambda$ as fixed gives a downward-biased standard error on the IMR coefficient, the very piece on which the case for reject inference rests.
+
+The closed-form correction in @heckman1979sample writes the asymptotic variance of the stage-2 parameter $\hat\theta = (\hat\beta^\top, \hat{\rho\sigma})^\top$ as a sandwich: 
+
+$$
 V(\hat\theta) = \hat\sigma^2_\epsilon (W_*^\top W_*)^{-1}
 \Big[
 W_*^\top (I - \hat\rho^2 \hat\Delta) W_*
 + \hat\rho^2 (W_*^\top \hat\Delta W^{(s)}) V(\hat\gamma) (W^{(s)\top} \hat\Delta W_*)
 \Big]
 (W_*^\top W_*)^{-1},
-$$ {#eq-heckman-sandwich} where $W_* = (X, \hat\lambda)$ is the stage-2 design matrix on the accepted sample, $\hat\Delta = \mathrm{diag}(\hat\delta_i)$, and $V(\hat\gamma)$ is the stage-1 probit information-inverse. The first bracketed term corrects heteroscedasticity in the stage-2 residual; the second is the Murphy-Topel correction (@murphy1985estimation, @greene2003econometric ch. 18) for the generated regressor.
+$$ {#eq-heckman-sandwich} 
+
+where $W_* = (X, \hat\lambda)$ is the stage-2 design matrix on the accepted sample, $\hat\Delta = \mathrm{diag}(\hat\delta_i)$, and $V(\hat\gamma)$ is the stage-1 probit information-inverse. The first bracketed term corrects heteroscedasticity in the stage-2 residual; the second is the Murphy-Topel correction (@murphy1985estimation, @greene2003econometric ch. 18) for the generated regressor.
 
 In practice, banks rely on the cluster bootstrap. It is easier to audit, gives correct cluster-robust intervals (cluster on application ID for repeat applicants, on origination month for vintage-correlated risk), composes with non-Gaussian outcome stages (logit, GBM-based PD), and parallelizes trivially. The recipe is: resample whole clusters with replacement; refit stage 1 and stage 2 on the resample; collect $\hat\theta^{(b)}$ for $b = 1, \dots, B$; report percentile or BCa intervals. @efron1994introduction is the classical reference. @cameron2008bootstrap establish that the cluster bootstrap is consistent for the cluster-robust variance in two-step estimators with a generated regressor under standard regularity. We implement both estimators on the synthetic lender in @sec-ch10-implementation-from-scratch: the closed-form sandwich for the OLS-Heckman case (where it is available in closed form) and the cluster bootstrap for the probit-probit case (where stage-2 maximum likelihood does not admit the same algebra).
 
@@ -1811,7 +2074,7 @@ print(f"Default rate among accepted: {y[s==1].mean():.3f}")
 print(f"Default rate among rejected (oracle): {y[s==0].mean():.3f}")
 ```
 
-The accepted-only default rate is substantially below the through-the-door rate because the selection rule screened out risky applicants. The gap is the target of reject inference.
+The *marginal* accepted default rate is substantially below the *marginal* through-the-door rate because the selection rule down-weights high-$X$ applicants and those applicants also default more often. That marginal gap is what the lender sees on a dashboard and is closed by simple reweighting on $X$ alone. The gap that reject inference exists to close is the *within-$X$* conditional gap, which under $\rho > 0$ runs in the opposite direction: at every fixed $X$, the accepted applicants default *more* than the through-the-door applicants because $\rho > 0$ shifts their $U$-distribution upward inside the bin.
 
 ### The naive MLE and the oracle
 
@@ -1832,7 +2095,7 @@ compare = pd.DataFrame({
 print(compare.round(3))
 ```
 
-The naive estimator underestimates the intercept (shifting the PD curve down, because the accepted sample has lower default rates) and inflates both slopes. The direction follows @eq-naive-target: conditioning on $S=1$ shifts the conditional distribution of $Y \mid X$ through the correlation $\rho$.
+The naive estimator overestimates the intercept (around $-0.51$ versus a truth of $-0.80$, shifting the fitted PD curve *up* at every $X$) and inflates both slopes. Both directions follow @eq-naive-target and @eq-heckman-outcome: conditioning on $S = 1$ adds the positive term $\rho \sigma \hat\lambda(a)$ to $X^\top \beta$, which raises the within-$X$ default rate and steepens the apparent slope on every regressor that enters the selection equation with the opposite sign.
 
 ### Heckman two-step
 
@@ -2552,12 +2815,30 @@ Left of the accept cutoff, the black line is the unique PD curve the observed da
 
 The Heckman two-step is the workhorse for parametric MNAR correction, but its assumptions are restrictive: bivariate normality, scalar correlation, a clean exclusion restriction, and a probit selection rule. Three decades of follow-up work generalize each restriction. The list below is selective: we pick the methods that are widely cited, that have a Python implementation a bank can audit, and that pair naturally with the rest of the credit risk stack covered in this book. Each subsection includes a derivation, runnable code on the synthetic lender from @sec-ch10-implementation-from-scratch, and an interpretation that names the assumption the method buys and the assumption it does not.
 
+### The modern reject-inference toolkit at a glance {#sec-ch10-toolkit-glance}
+
+Heckman is the parametric-MNAR anchor of the chapter, but it is one tool among five families a modern credit-risk team should keep in mind. Outside the small-parametric world (linear or probit outcome, joint-normal errors, scalar exclusion), the standard estimators are nonparametric or semiparametric, do not require a normal joint, and pair with arbitrary base learners (gradient-boosted trees, random forests, neural nets). The cost is that all five MAR-family methods share the same identification ceiling: they are consistent only under selection-on-observables. Heckman's MNAR identification is genuinely different, and the only modern generalization that preserves it is the copula-selection family discussed later in this section.
+
+The five families, with the sections of this chapter where each is derived and implemented, are:
+
+1.  **Inverse probability weighting and propensity reweighting.** Reweight the accepted sample by the inverse probability of selection $\pi(X, Z) = P(S=1 \mid X, Z)$, with Hájek normalization and clipping at a lower-bound floor for stability. The Horvitz-Thompson identity recovers the through-the-door distribution under MAR. Derivation in @sec-ch10-heckman-vs-dml; production code in @sec-ch10-observable. Canonical references: @horvitz1952generalization, @rosenbaum1983central, @robins1994estimation. This is the single most common modern reject-inference recipe in fintech.
+
+2.  **Control function with a flexible first stage.** Replace the parametric IMR by a generalized residual (the @lee1983generalized substitute, or its nonparametric extension via cross-fitted residuals) and include it as a feature in the outcome equation. The first stage can be a logit, a gradient-boosted classifier, or a neural propensity model, and the second-stage outcome can be any base learner. Identification still requires bivariate normality of the latent indices when reduced to scalar form, so the generalization is on the functional-form axis only. @vella1998estimating gives the modern survey; @blundell2003endogeneity extends the framework to nonparametric outcome regressions.
+
+3.  **Doubly robust estimation: AIPW and double machine learning.** Combine an outcome regression $g(x)$ and a propensity $\pi(x, z)$ in the AIPW score $\tilde Y = g(X) + (S/\pi)(Y - g(X))$. The estimator is consistent if either nuisance is correctly specified, and cross-fitting (@chernozhukov2018double) lets both nuisances be machine-learned without compromising the $\sqrt n$ rate of the second-stage estimator. Derivation, implementation, and synthetic-lender benchmark in the doubly-robust subsection that follows this list. Reference list: @robins1994estimation for AIPW, @chernozhukov2018double for DML, @kennedy2024semiparametric for a recent textbook treatment.
+
+4.  **Semi-supervised approaches: self-training, parcelling, and fuzzy augmentation.** Use the accepted-sample model to pseudo-label the rejected pool, then refit on the augmented sample. Hsia parcelling (@sec-ch10-augmentation-hsias-parceling-and-its-fuz) is the credit-industry workhorse, fuzzy augmentation is its probabilistic refinement, and self-training under an EM objective (@sec-ch10-em) is the formal pseudo-label estimator that justifies both. Identification rests on the strong assumption that the accept-only model generalizes to the rejected pool, an assumption the Hand-Henley impossibility (@sec-ch10-impossibility) tells us is testable only with a labelled rejected subset. References: @hsia1978credit, @lee2013pseudo, @chapelle2006semi, @zhu2009introduction.
+
+5.  **Heckman-DML hybrids and orthogonal scores.** Combine the parametric MNAR identification of Heckman with the nonparametric flexibility of DML by writing the Heckman moment condition as a Neyman-orthogonal score and cross-fitting the nuisance components ($\pi$, $g$, the IMR weight). The result is a Heckman-style estimator that is consistent and asymptotically normal under arbitrary first-stage learners, while preserving the bivariate-normal MNAR identification that distinguishes Heckman from MAR-only methods. References: @chernozhukov2018double for the orthogonal-score machinery, @chetverikov2017cross for locally robust semiparametric estimation, and @bia2024double for a recent application to selection models. This is the most mathematically advanced of the five families and the one we expect to grow fastest in the academic credit-risk literature over the next decade; production deployment is rare today.
+
+A reader who needs a single takeaway should keep the two-axis taxonomy from @sec-ch10-heckman-vs-dml in mind: the *functional-form* axis (parametric vs nonparametric nuisances) and the *selection* axis (MAR vs MNAR). Families 1 and 3 sit on the MAR ceiling; family 2 also sits on the MAR ceiling unless paired with a joint-normality argument that promotes it to MNAR; family 5 and the copula-selection methods below break through to MNAR; family 4 is consistent only under the strong all-rejects-extrapolate assumption that is not really a position on either axis. Heckman's two-step itself is the parametric corner of the MNAR axis and is the cheapest way to test for selection on unobservables when the bivariate-normal joint is even approximately defensible.
+
 ### Doubly robust estimation: AIPW and double machine learning
 
 Under MAR, the through-the-door PD is identified by inverse-probability weighting:
 
 $$
-P(Y=1 \mid X=x) = \mathbb{E}\!\left[ \frac{S \cdot \mathbf{1}\{Y=1\}}{\pi(X, Z)} \,\bigg|\, X=x \right],
+P(Y=1 \mid X=x) = \mathbb{E}\left[ \frac{S \cdot \mathbf{1}\{Y=1\}}{\pi(X, Z)} \bigg| X=x \right],
 $$ {#eq-ipw-pd}
 
 where $\pi(x, z) = P(S=1 \mid X=x, Z=z)$ is the propensity. The augmented IPW estimator of @robins1994estimation, refined for high-dimensional nuisance estimators by @chernozhukov2018double, is
@@ -2622,7 +2903,7 @@ The double-machine-learning variant of @chernozhukov2018double swaps both nuisan
 
 $$
 \begin{aligned}
-P(S=1, Y=1 \mid X, Z) &= C_\theta\!\big(\Phi(X^\top \beta),\, \Phi(X^\top \gamma_X + Z^\top \gamma_Z)\big), \\
+P(S=1, Y=1 \mid X, Z) &= C_\theta\big(\Phi(X^\top \beta), \Phi(X^\top \gamma_X + Z^\top \gamma_Z)\big), \\
 P(S=1, Y=0 \mid X, Z) &= \Phi(X^\top \gamma_X + Z^\top \gamma_Z) - C_\theta(\cdot), \\
 P(S=0 \mid X, Z) &= 1 - \Phi(X^\top \gamma_X + Z^\top \gamma_Z).
 \end{aligned}
