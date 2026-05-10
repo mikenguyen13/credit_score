@@ -1402,6 +1402,10 @@ A note on what this section does *not* implement. The `macro_state` flag (downtu
 
 ## Heckman selection correction {#sec-ch10-heckman-selection-correction}
 
+::: {.callout-important appearance="simple" icon="false"}
+**Why a prediction-first lender still needs identification.** A credit team whose mandate is "predict $P(Y=1 \mid X)$ accurately" can reasonably ask why the next twenty pages discuss instruments, exclusion restrictions, and bivariate-normal joint errors at all. The answer is in three parts. (1) *PD calibration is a population claim.* The lender scores applicants drawn from the through-the-door distribution $P(X)$, not from the accepted distribution $P(X \mid S = 1)$. The conditional shift in @fig-ch10-conditional-shift is the gap between those two PDs, and closing it is what every reject-inference estimator in this chapter does. Heckman, IPW, AIPW, and copula selection differ only in which conditional independence they invoke to identify the through-the-door PD; the question is not whether to correct, it is which correction is identified on the data the lender actually has. (2) *The correction is only as good as its identifying assumption.* A misidentified Heckman injects spurious curvature into the score and biases PD in a direction the lender cannot detect without the strength, falsification, and Conley-bound checks in @sec-ch10-iv-diagnostics-code. The same logic applies to a misspecified $\pi$ in IPW (@sec-ch10-heckman-vs-dml), the wrong copula family in @sec-ch10-modern, or an unweighted ERM under covariate shift. Wrong correction is worse than no correction, because the lender deploys a biased PD under the appearance of having addressed selection. (3) *Validators ask.* SR 11-7 conceptual-soundness review, ECOA fair-lending audit, and Basel IRB through-the-cycle calibration each require defensible behavior on the rejected pool, not in-sample AUC on the accepted slice. The reject region is also where price-for-risk and policy decisions live, so the validator's question and the credit officer's question coincide. The rest of this section therefore treats identification as a calibration tool, not as econometric ornament.
+:::
+
 ### The two-equation model
 
 @heckman1974shadow and @heckman1976common developed the framework; @heckman1979sample is the canonical reference. The model is @eq-latent-default and @eq-latent-selection with $(U, V) \sim \mathcal{N}(0, \Sigma)$ where
@@ -1719,25 +1723,73 @@ The two-step procedure above is written with a probit selection model for a reas
 
 Three practical consequences follow. First, the @lee1983generalized generalized-residual approach is the textbook substitute when the analyst insists on a logit selection model: use the logit-implied generalized residual $\hat e_i = S_i [1 - \hat F(\hat a_i)] - (1 - S_i) \hat F(\hat a_i)$ in place of $\hat\lambda_i$ in stage 2, then estimate $\rho$ from the second-stage coefficient on $\hat e$. Lee's substitute is consistent under joint normality of the *latent* indices once they are transformed to a normal scale, which is a strong assumption that the bivariate-normal joint is a good approximation after the marginals are remapped, and @puhani2000heckman surveys when this approximation is and is not defensible. Second, an entire applied literature reports "Heckman corrections" with a logistic stage 2 (logit outcome) and an inverse Mills ratio plugged in as a regressor: the practice is widespread but inherits no formal justification because $\lambda$ was derived for a normal-error stage-2 equation. The estimator is biased in general, and the bias size depends on how badly the logistic and normal CDFs disagree in the tails of $a$ where selection probabilities are near 0 or 1, which in credit is exactly the policy-margin region where reject inference is supposed to help. Third, when the outcome is binary and the analyst wants a model in the logit family for downstream interpretability (WoE coefficients, points-and-PDO scaling, regulatory-standard log-odds reporting), the cleanest move is to fit Heckman with a probit stage 2, recover $\hat\beta_{\text{probit}}$ on the latent scale, and then refit a separate logit on the IPW- or AIPW-corrected pseudo-sample (@sec-ch10-modern) for the production scorecard. The probit fit is the identification object; the logit fit is the deployment object. Mixing the two in a single estimator is what loses the joint-normal justification.
 
-The same reasoning explains why the credit literature is dominated by logit deployment but probit identification: validators want point estimates that map to log-odds for scaling and a likelihood that conditionalizes cleanly on observables, while academic econometrics wants the joint-normal closed form. The two needs are reconciled by separating estimation (probit Heckman) from scoring (logit calibration), not by trying to force a "logit Heckman" through a non-tractable conditional expectation. Readers who want the full historical and computational background should consult @lee1983generalized for the generalized-residual derivation, @puhani2000heckman for a critique of the two-step relative to a joint-MLE Heckman, @chiburis2012comparative for finite-sample comparisons of probit-Heckman, bivariate-probit, and matching estimators, and @prieger2003flexible for a flexible bivariate-non-normal extension that keeps a closed-form correction.
+The same reasoning explains why the credit literature is dominated by logit deployment but probit identification: validators want point estimates that map to log-odds for scaling and a likelihood that conditionalizes cleanly on observables, while academic econometrics wants the joint-normal closed form. The two needs are reconciled by separating estimation (probit Heckman) from scoring (logit calibration), not by trying to force a "logit Heckman" through a non-tractable conditional expectation. Readers who want the full historical and computational background should consult @lee1983generalized for the generalized-residual derivation, @puhani2000heckman for a critique of the two-step relative to a joint-MLE Heckman, @chiburis2012comparative for finite-sample comparisons of probit-Heckman, bivariate-probit, and matching estimators, and @prieger2003flexible for a flexible bivariate-non-normal extension that keeps a closed-form correction. The next section, @sec-ch10-lee-logit-selection, makes the logit-selection workflow concrete with a step-by-step procedure and a worked example, because in production credit the underwriting policy is overwhelmingly a logistic scorecard rather than a probit, and the cleanest treatment is to acknowledge that fact and run a Lee-style correction with eyes open about its parametric cost.
+
+#### The logit-selection Heckman: Lee's generalized residual {#sec-ch10-lee-logit-selection}
+
+The previous section explains *why* the canonical Heckman two-step uses a probit selection equation: bivariate normality of $(U, V)$ produces the closed-form $\lambda = \phi / \Phi$ correction, and no equally clean correction exists when $V$ is logistic. In practice, however, the underwriting model whose acceptance decisions generate the selection variable $S$ is almost always a logistic scorecard: card-style points-and-PDO models, regulatory log-odds reporting, and weight-of-evidence binning all assume a logit link. Forcing a probit at stage 1 just to recover the Heckman closed form is awkward operationally because the bank cannot point to a probit in production whose coefficients $\hat\gamma$ correspond to the policy. The reconciliation, due to @lee1983generalized, keeps the logit at stage 1 and absorbs the marginal mismatch into a transformed correction term. This subsection states the procedure, derives the substitute correction, lists the strong assumption that buys identification, and tabulates when the approximation is and is not defensible in a credit shop.
+
+**The probability-integral-transform trick.** Let $V$ be the latent selection shock with continuous CDF $F$ (logistic in production) and let $U$ be the latent default shock with marginal CDF $G$. Define the transformed shocks $V^{*} = \Phi^{-1}(F(V))$ and $U^{*} = \Phi^{-1}(G(U))$. By construction each transformed shock is marginally standard normal: the probability integral transform sends any continuous random variable to a uniform via its own CDF, and $\Phi^{-1}$ then sends the uniform to a standard normal. The *strong* assumption Lee adds on top of this marginal remap is that the *joint* distribution of $(U^{*}, V^{*})$ is bivariate normal with correlation $\rho^{*}$. Under that assumption, the same algebra that produced @eq-imr-final on the probit side now applies to the transformed pair $(U^{*}, V^{*})$, and the conditional-mean correction is
+
+$$
+\mathbb{E}[U^{*} \mid S = 1, X, Z] = \rho^{*} \frac{\phi(a^{*})}{F(a)}, \qquad a^{*} = \Phi^{-1}(F(a)), \quad a = X^\top \gamma_X + Z^\top \gamma_Z,
+$$ {#eq-lee-correction}
+
+with the rejected-side analogue $-\rho^{*} \phi(a^{*}) / (1 - F(a))$. The two pieces collapse to a single per-applicant *generalized residual*
+
+$$
+\hat r_i = S_i \frac{\phi(\hat a^{*}_i)}{F(\hat a_i)} - (1 - S_i) \frac{\phi(\hat a^{*}_i)}{1 - F(\hat a_i)},
+$$ {#eq-lee-genres}
+
+which equals @eq-lee-correction on accepts and the reject-side mirror term on rejects. On the accepted slice $\hat r_i$ is what enters the second-stage outcome regression as the analogue of the inverse Mills ratio. Note that this is *not* the same object as the score-based generalized residual $S_i [1 - F(\hat a_i)] - (1 - S_i) F(\hat a_i)$ that some applied papers also call a "Lee correction": that expression is the @gourieroux1987generalised conditional mean of the *logit* score residual, useful for specification testing but biased as a Heckman second-stage augmentation because it does not encode the bivariate-normal joint that Claim 1 of @sec-ch10-heckman-selection-correction requires. We use @eq-lee-genres throughout this book and recommend banks do the same.
+
+**The estimator, step by step.**
+
+1.  Fit a logistic regression of $S$ on $(X, Z)$ over the full applicant sample. This is the bank's existing scorecard or its retrained equivalent; no probit refit is required. Recover $\hat\gamma$ and the linear index $\hat a_i = X_i^\top \hat\gamma_X + Z_i^\top \hat\gamma_Z$ for every applicant.
+
+2.  Compute $\hat a^{*}_i = \Phi^{-1}(F(\hat a_i))$ for every $i$. This is the marginal-to-normal remap. In code, $F$ is the logistic CDF $\sigma(\hat a) = 1 / (1 + e^{-\hat a})$, and $\Phi^{-1}$ is `scipy.stats.norm.ppf`. Clip $F(\hat a)$ away from 0 and 1 to avoid $\pm\infty$ in the inverse-normal at near-deterministic accepts and rejects.
+
+3.  Compute the generalized residual $\hat r_i$ from @eq-lee-genres for every applicant. On the accepted slice this reduces to $\phi(\hat a^{*}_i) / F(\hat a_i)$.
+
+4.  Fit the outcome regression of $Y$ on $(X, \hat r)$ on the accepted sample only. The link can be probit, logit, or linear depending on the deployment target. The coefficient on $\hat r$ is an estimate of $\rho^{*} \sigma$ (or $\rho^{*}$ in the probit-outcome case with $\sigma = 1$); it is not directly $\rho$ on the original $(U, V)$ scale because the marginals were remapped.
+
+5.  Standard errors require either a sandwich correction that propagates the stage-1 logit uncertainty into the stage-2 coefficients, or a cluster bootstrap that resamples applicants (or applicant-vintage clusters in production). The sandwich derivation is mechanically the same as in @sec-ch10-heckman-variance, with the logistic score and information replacing the probit ones; we implement both in @sec-ch10-heckman-se-impl.
+
+**What the strong assumption costs.** Bivariate normality of the transformed pair $(U^{*}, V^{*})$ is *not* the same as bivariate normality of $(U, V)$, and it is *not* implied by marginal normality alone. Sklar's theorem decomposes any continuous joint into marginals and a copula; Lee's assumption is that the copula linking $U$ and $V$ is the Gaussian copula. Empirical evidence on the credit-acceptance copula is thin because $U$ is unobserved on rejects, so the assumption has to be defended on plausibility grounds rather than direct testing. In practice it is least defensible exactly where reject inference matters most: in the policy-margin region where applicants near the cutoff have $F(a) \approx 0.5$, both tails of the joint distribution drive the correction, and the Gaussian copula has no tail dependence by construction. If the true copula has positive upper-tail dependence (the underwriter's worst rejects and the lender's worst defaulters share latent traits with non-Gaussian comovement), the Lee correction undercorrects in the bad tail. The remedies are (a) bivariate probit joint MLE under the same Gaussian-copula assumption but with a more principled likelihood (@sec-ch10-modern), (b) explicit copula selection with a Frank, Clayton, or Gumbel copula fit by IPW-weighted likelihood (@sec-ch10-modern), or (c) accepting the assumption and pricing the residual uncertainty via a sensitivity analysis on the second-stage IMR coefficient.
+
+**Why this matters in Vietnamese consumer finance.** Three structural features of the production environment make logit selection the operationally honest setup. First, every major Vietnamese consumer-finance lender we have audited, including the larger fintechs and the bank-owned finance subsidiaries, deploys a logistic scorecard at the underwriting layer because regulators and validators are trained on log-odds reporting and points-to-double-the-odds (PDO) scaling, and bivariate-probit identification arguments do not survive contact with a bank's Model Risk Management committee that has never approved a probit in production. Second, near-deterministic decisions are common: hard-decline rules at bureau-score cutoffs and overlay-driven auto-rejects pin $F(\hat a)$ to 0 or 1 for sizable subpopulations, which is precisely the region where Lee's tail-divergence cost is largest. Third, the policy-margin slice (the only slice where reject inference can identify anything; see the impossibility result in @sec-ch10-impossibility) has $F(\hat a)$ in the 0.2 to 0.8 band where the logistic and normal CDFs are visually indistinguishable on the linear-index scale, so the marginal mismatch has a small empirical footprint on the correction even though the parametric assumption does heavy work in principle. The combined message is: run a logit at stage 1 to match production, use @eq-lee-genres rather than the inverse Mills ratio, and document the Gaussian-copula assumption as a residual model risk. The worked example in @sec-ch10-lee-logit-impl reproduces this on the same synthetic lender and shows that the Lee estimates track the probit-Heckman estimates closely once the strong assumption is granted, so the question for a bank is not "logit or probit" but "Gaussian copula or something heavier-tailed."
+
+**Decision rule for production teams.**
+
+| Situation | Recommended estimator |
+|---|---|
+| Stage-1 policy is logistic, near-cutoff overlap is healthy, no evidence of tail-asymmetric MNAR | Lee (1983) two-step on a logit stage 1, @eq-lee-genres for the second-stage augmentation |
+| Stage-1 policy is logistic, near-deterministic auto-decline overlays present | Lee on the policy-margin slice only; trim auto-decline applicants from the audit sample |
+| Joint-likelihood inference required (regulatory ask, FRB IRB qualification) | Bivariate probit MLE (@chiburis2012comparative); accept the latent-normal mismatch with the production logit |
+| Tail-asymmetric MNAR suspected (large rejects, downturn vintage) | Copula selection with a Clayton or Gumbel copula fit by IPW-weighted likelihood (@prieger2003flexible, @sec-ch10-modern) |
+| Selection is itself nonparametric (gradient boosted, neural underwriter) | Cross-fitted control function with a flexible first-stage residual (@vella1998estimating, @blundell2003endogeneity); see @sec-ch10-modern |
 
 #### Identifying assumptions, and how to defend each one in production {#sec-ch10-heckman-assumptions}
 
 The estimator is consistent under five assumptions. Each one is testable on production data, and SR 11-7 validators will ask for the test. We list the assumption, the diagnostic, and the credit-scoring nuance.
 
-A1. **Bivariate normality of** $(U, V)$. The joint error is $\mathcal{N}(0, \Sigma)$ with $\Sigma_{12} = \rho$. *Diagnostic:* QQ-plot of standardized stage-2 residuals on the accepted sample, plus Shapiro-Wilk or Jarque-Bera on the residual tails. Heavy tails or skew motivate a Student-$t$ joint or a copula generalization (@sec-ch10-modern). In credit, gross income and bureau utilization are right-skewed; a log or Yeo-Johnson transform of the inputs usually closes most of the non-normality before the joint assumption is challenged.
+A1. **Bivariate normality of** $(U, V)$. The joint error is $\mathcal{N}(0, \Sigma)$ with $\Sigma_{12} = \rho$. *Diagnostic:* the @paganvella1989 score test on the stage-1 probit (likelihood ratio against an augmented probit with `lin^2` and `lin^3`), plus a QQ-plot of the stage-1 generalized residual; the bivariate analog for $U$ is the @smith1989normalitytestbivariate score test on a joint bivariate-probit MLE. Heavy tails or skew motivate a Student-$t$ joint or a copula generalization (@sec-ch10-modern). In credit, gross income and bureau utilization are right-skewed; a log or Yeo-Johnson transform of the inputs usually closes most of the non-normality before the joint assumption is challenged. The full audit is in @sec-ch10-other-assumption-diagnostics.
 
-A2. **Correct selection link.** $S_i = \mathbf{1}\{X_i^\top \gamma_X + Z_i^\top \gamma_Z + V_i > 0\}$ with $V_i$ standard normal. *Diagnostic:* the @pregibon1980goodness link test on the stage-1 probit and a Hosmer-Lemeshow calibration test on $\hat P(S = 1)$. A misspecified link gives a wrong $\hat \lambda$ and biases stage 2 even when A1 holds. Banks whose policy is a logistic scorecard, not a normal-latent rule, should swap probit for the logit selection model with the @lee1983generalized substitute for $\lambda$.
+A2. **Correct selection link.** $S_i = \mathbf{1}\{X_i^\top \gamma_X + Z_i^\top \gamma_Z + V_i > 0\}$ with $V_i$ standard normal. *Diagnostic:* the @pregibon1980goodness link test on the stage-1 probit and a Hosmer-Lemeshow calibration test [@hosmer1980goodness] on $\hat P(S = 1)$, both packaged in the audit at @sec-ch10-other-assumption-diagnostics. A misspecified link gives a wrong $\hat \lambda$ and biases stage 2 even when A1 holds. Banks whose policy is a logistic scorecard rather than a normal-latent rule should swap probit for the logit selection model and use Lee's generalized residual in place of the inverse Mills ratio; the full procedure, identification cost, and worked example are in @sec-ch10-lee-logit-selection and the code in @sec-ch10-lee-logit-impl.
 
-A3. **Exclusion restriction:** $Z$ enters selection but not the outcome residual. *Diagnostic in two parts.* First, the strength check: F-statistic of $Z$ in the stage-1 probit, looking for $F > 10$ on the joint test, the same rule of thumb as for instrumental variables (@stock2002survey). Second, the exogeneity check: on a labelled subset of the rejected pool (typically bureau-labelled, see @sec-ch10-bureau-extrapolation), include $Z$ in the outcome equation directly and test that its coefficient is indistinguishable from zero. A nonzero coefficient kills the exclusion. Document the candidate $Z$ before fitting; ex-post search for a $Z$ that "works" is a known model-risk red flag.
+A3. **Exclusion restriction:** $Z$ enters selection, but not the outcome residual. *Diagnostic in two parts.* First, the strength check: F-statistic of $Z$ in the stage-1 probit. The legacy @staiger1997instrumental and @stock2002survey rule of $F > 10$ controls *bias* of the IV estimator at roughly ten percent of OLS; it does *not* control the *size* of the nominal-five-percent t-test. @lee2022valid show that for the standard t-ratio to deliver true five-percent size with a single instrument, the first-stage F must exceed approximately $104.7$ (their $tF$ critical value), and they tabulate adjusted critical values for $10 \le F < 104.7$. The intermediate review in @andrews2019weak documents the gap, and the heteroscedastic/clustered-robust effective F of @olea2013robust replaces the homoskedastic Wald when the selection probit's score is not iid. *In credit, this matters.* Banks who pick $Z$ to clear $F = 12$ get a Heckman second-stage standard error that is mechanically too tight, and a $\hat\rho$ confidence interval that the regulator can break by re-running with the LMMP-adjusted critical value. Document both the conventional $F$ and the $tF$-adjusted critical value, and where the two disagree, defer to $tF$. The dissent in @keane2024practical is that conditional inference (Anderson-Rubin, conditional likelihood ratio) is preferable to a single F threshold; either route is acceptable to validators, the unconditional $F > 10$ on its own is not. Second, the exogeneity check: on a labelled subset of the rejected pool (typically bureau-labelled, see @sec-ch10-bureau-extrapolation), include $Z$ in the outcome equation directly and test that its coefficient is indistinguishable from zero. A nonzero coefficient kills the exclusion. Document the candidate $Z$ before fitting; ex-post search for a $Z$ that "works" is a known model-risk red flag.
 
-A4. **Overlap:** $0 < P(S = 1 \mid X = x, Z = z) < 1$ for every $(x, z)$ of interest. *Diagnostic:* histogram of $\hat P(S = 1)$ stratified by $S$. If the rejected mass piles up below 1 percent or the accepted mass piles up above 99 percent, the policy is near-deterministic in part of feature space. The Hand-Henley impossibility (@sec-ch10-impossibility) bites in that region regardless of A1-A3, and $\hat\beta$ there is extrapolation under the parametric assumption. Trim or restrict inference to the overlap region; report the trimmed share in the model document.
+A4. **Overlap:** $0 < P(S = 1 \mid X = x, Z = z) < 1$ for every $(x, z)$ of interest. *Diagnostic:* the trimmed-share and tail-mass quantiles of $\hat P(S = 1)$ together with the stratified histogram in @sec-ch10-other-assumption-diagnostics. If the rejected mass piles up below 1 percent or the accepted mass piles up above 99 percent, the policy is near-deterministic in part of feature space. The Hand-Henley impossibility (@sec-ch10-impossibility) bites in that region regardless of A1-A3, and $\hat\beta$ there is extrapolation under the parametric assumption. Trim or restrict inference to the overlap region; report the trimmed share in the model document.
 
-A5. **Constant correlation** $\rho$ across $(X, Z)$. The sandwich in @eq-heckman-sandwich assumes a scalar $\rho$. In practice $\rho$ can differ between thin-file and thick-file applicants, or between branch and digital channels. *Diagnostic:* refit on disjoint subsamples (by channel, vintage, file thickness) and test equality of the IMR coefficient. Pooled $\hat\rho$ that masks heterogeneity hides the fact that one segment is MNAR while another is MAR, with direct consequences for the per-segment PD curve.
+A5. **Constant correlation** $\rho$ across $(X, Z)$. The sandwich in @eq-heckman-sandwich assumes a scalar $\rho$. In practice, $\rho$ can differ between thin-file and thick-file applicants, or between branch and digital channels. *Diagnostic:* refit on disjoint subsamples (by channel, vintage, file thickness) and run the meta-analysis Wald test of equality on the IMR coefficient (@sec-ch10-other-assumption-diagnostics). Pooled $\hat\rho$ that masks heterogeneity hides the fact that one segment is MNAR while another is MAR, with direct consequences for the per-segment PD curve.
 
-If A1-A5 are tenable, $\hat\beta_{\text{Heck}}$ is consistent for the through-the-door $\beta$. If any one fails, the bias is specific but generally not zero. The next two subsections cover how to *price* the residual uncertainty (variance) and how to *avoid* the assumptions altogether by changing the data-generating process (design-based estimation).
+A common false fix when A5 is rejected is to keep the pooled point estimate and swap the closed-form sandwich for a heteroskedasticity-robust (White, HC0/HC1/HC3) or cluster-robust sandwich, on the grounds that "robust SEs handle heterogeneity." They do not handle *this* heterogeneity. The HC and cluster-robust families estimate $\text{Var}(\hat\beta)$ under the assumption that the conditional mean is correctly specified; varying $\rho_g$ across segments makes the IMR term $\rho \hat\lambda_i$ the wrong mean function on every segment whose true correlation differs from the pooled $\hat\rho$, so $\hat\beta_{\text{Heck}}$ is biased *before* any sandwich is computed. HC-robust standard errors around a biased point estimate are confidently wrong, not honest, and a regulator who reruns the per-segment refit will reject the model. The two consistent remedies change the mean specification, not the variance estimator: (a) interact $\hat\lambda$ with segment indicators in stage 2, recovering a per-segment $\hat\rho_g$ inside a single fit; or (b) refit Heckman per segment and meta-analyse with inverse-variance weights. HC and cluster-robust sandwiches *are* the right tool for the residual misspecification that survives once the mean is correctly segmented (vintage shocks, application-ID dependence), and they compose naturally with either remedy. Implementation, including a varying-$\rho$ DGP that exhibits the bias and a vintage-cluster bootstrap on the interacted model, is in @sec-ch10-heckman-segment-interaction.
+
+If A1-A5 are tenable, $\hat\beta_{\text{Heck}}$ is consistent for the through-the-door $\beta$. If any one fails, the bias is specific, but generally not zero. The next two subsections cover how to *price* the residual uncertainty (variance) and how to *avoid* the assumptions altogether by changing the data-generating process (design-based estimation).
 
 ### Why the exclusion restriction matters
+
+A lender whose only goal is calibrated PD on the through-the-door pool should care most about A3, the exclusion restriction, of the five assumptions in @sec-ch10-heckman-assumptions. The reason is operational: when $Z$ is absent or weak, the Heckman fit is statistically indistinguishable from the naive accepted-only fit, so the lender ships a miscalibrated PD under the appearance of having corrected it. The argument follows.
 
 Suppose $Z$ is empty. Then the probit in step 1 runs $S$ on $X$ alone, and $\hat \lambda$ is a deterministic function of $X^\top \hat \gamma_X$. In the second stage, we regress $Y$ on $X$ and a nonlinear function of $X$. The coefficient on $\hat \lambda$ is only identified from the curvature of $\lambda$ relative to linear combinations of $X$. This is a weak source of identification. If $X$ is nearly normal and $X^\top \gamma_X$ has moderate range, $\lambda$ is nearly affine on that range, and the coefficient on $\hat \lambda$ is collinear with the $X$ vector. The estimator explodes.
 
@@ -1753,7 +1805,7 @@ The credit literature reuses a recurring set of instruments. We organize them by
 
 **(B) Cost-of-credit and pricing shifters.** Promotional APR offered to a randomly selected subset, fee waivers tied to a campaign, teaser-rate eligibility windows. These shift accept probability without (one hopes) shifting default propensity at the offered rate. @karlan2010expanding randomized credit-price offers in a South African consumer-lender experiment; @gross2002liquidity exploit credit-line increases on US credit cards. *Fragility:* if a lower rate attracts a riskier borrower pool, $Z$ moves both selection and default through the borrower-mix channel; excludability breaks.
 
-**(C) Operational and capacity instruments.** Underwriter identity, branch-level staffing shocks, system-downtime windows, queue position, weekend/holiday processing dummies. @dobbie2018consumer use bankruptcy-judge identity for Chapter 13 dismissal; @dobbie2017consumer extend the design to consumer credit outcomes. @stein2002information argues loan-officer hierarchy choices generate quasi-random variation in soft-information lending. Vietnam-specific candidate: Tet-period staffing reductions that compress decisioning capacity for a known applicant cohort. *Fragility:* if officer assignment correlates with borrower segment (specialist officers see specific products), excludability fails.
+**(C) Operational and capacity instruments.** Underwriter identity, branch-level staffing shocks, system-downtime windows, queue position, weekend/holiday processing dummies. @dobbie2015debt use bankruptcy-judge identity for Chapter 13 dismissal as an IV for debt relief; @dobbie2021measuring extend examiner-style identification to consumer-credit underwriting through loan-officer identity at a UK lender. @stein2002information argues loan-officer hierarchy choices generate quasi-random variation in soft-information lending. Vietnam-specific candidate: Tet-period staffing reductions that compress decisioning capacity for a known applicant cohort. *Fragility:* if officer assignment correlates with borrower segment (specialist officers see specific products), excludability fails.
 
 **(D) Channel and expansion instruments.** Newly opened branches, digital-channel rollouts, geographic expansion to new postcodes, partnership-channel go-live dates. @argyle2020monthly use auto-loan dealer-by-dealer variation in monthly-payment targeting. *Fragility:* rollout is rarely random; new branches open in growth corridors that also predict default through local labor markets.
 
@@ -1761,7 +1813,7 @@ The credit literature reuses a recurring set of instruments. We organize them by
 
 **(F) Random-trial and champion-challenger overlays.** When the lender deliberately assigns a fraction of marginal-zone applicants to a challenger policy (random approve, random decline, random rate), the assignment indicator is a textbook instrument: experimental design guarantees both relevance and excludability by construction. This is the ideal $Z$ and the only one that survives validator scrutiny without an economic story. @karlan2010expanding is canonical. *Fragility:* champion-challenger trials are rare in production credit, ethically constrained, and usually too small to power the Heckman second stage. When available, they are the right answer; when unavailable, the next-best is to look for natural experiments in past policy changes.
 
-**(G) Time-varying and vintage-cohort instruments.** Vintage-month dummies, season-of-application indicators, policy-effective-date dummies. @cellini2010value's dynamic regression-discontinuity framework combines a sequence of past policy changes into a multi-instrument design. *Fragility:* vintage effects are entangled with macro conditions and applicant-pool drift; without a strong cohort risk control, time-based instruments fail excludability.
+**(G) Time-varying and vintage-cohort instruments.** Vintage-month dummies, season-of-application indicators, policy-effective-date dummies. @cellini2010value's dynamic regression-discontinuity framework combines a sequence of past policy changes into a multi-instrument design; @hausman2018rddtime catalogue the fragilities specific to running-variable-as-time RDDs (macro confounding, anticipation, mean reversion). The modern staggered-adoption toolkit is the right way to pool sequential vintage shocks: @callaway2021difference and @sunabraham2021estimating give heterogeneity-robust event-study estimators, @borusyak2024revisiting give an efficient imputation variant, @goodmanbacon2021difference and @dechaisemartin2020two diagnose the negative-weight problem in two-way fixed-effect regressions, and @arkhangelsky2021synthetic combine cohort-weighting with synthetic-control balancing for vintage panels. @grembi2016diffinrdd's difference-in-discontinuities pairs an effective-date threshold with cross-vintage differencing. @keys2010did is the canonical credit-side application: a securitization-vintage cutoff at FICO 620 generates a discontinuity that identifies the screening-effort response. @rambachan2023parallel gives the sensitivity bound on the parallel-trends assumption that vintage designs lean on, and @turjeman2024databreach's *temporal causal forests* for cohort-matched event studies (a data-breach setting on a matchmaking platform) is the marketing-science cousin worth porting to reject inference: signup-vintage matching plus heterogeneous causal effects across applicant cohorts. *Fragility:* vintage effects are entangled with macro conditions and applicant-pool drift; without a strong cohort risk control, time-based instruments fail excludability.
 
 **(H) Bureau-coverage and external-data instruments.** Bureau-coverage rollout (a bureau goes live in a region or product segment), bureau-score model-version upgrades, alternative-data partner go-live dates (a telco-data API becomes available). @iyer2016screening use staggered availability of soft-information channels on a P2P platform. *Fragility:* improved screening also improves default prediction directly, so the instrument is excludable only if the model used during the screening period did not depend on the new data source.
 
@@ -1769,13 +1821,28 @@ The credit literature reuses a recurring set of instruments. We organize them by
 
 **(J) Information-disclosure and behavioral instruments.** Mandatory disclosure changes such as the @bertrand2011information randomized envelope-design experiment for payday loans, regulatory cap rollouts (@nelson2024gentrifying for credit cards). *Fragility:* behavioral channels can move both application and repayment effort.
 
-**(K) Geographic and identity-driven instruments (use with caution).** Geographic variation in branch presence, examiner identity in mortgage origination (@munnell1996mortgage). These have a long history in the discrimination-testing literature. For reject inference they raise a specific ECOA concern: an examiner-style instrument correlated with a protected attribute makes the IMR a proxy for that attribute, contaminating the corrected scorecard with a feature the model is legally barred from using. We discuss the trap in @sec-ch10-scalability; in short, identity instruments require a fairness audit even when the underlying lender-policy logic is sound.
+**(K) Geographic and identity-driven instruments (use with caution).** Geographic variation in branch presence, examiner identity in mortgage origination (@munnell1996mortgage). These have a long history in the discrimination-testing literature. For reject inference, they raise a specific ECOA concern: an examiner-style instrument correlated with a protected attribute makes the IMR a proxy for that attribute, contaminating the corrected scorecard with a feature the model is legally barred from using. We discuss the trap in @sec-ch10-scalability. In short, identity instruments require a fairness audit even when the underlying lender-policy logic is sound.
 
 The hierarchy from cleanest to most contested in production lending is roughly: (F) experimental overlays, then (A) hard policy-overlay changes with a documented effective date, then (C) capacity shocks with a verifiable assignment rule, then (D) channel/expansion rollouts, then (G) and (H) time-and-data shocks, then (B) and (I) pricing/feature shifters, then (J) and (K) behavioral and identity instruments. Validators in our experience accept (A), (C), and (F) without much friction, challenge (B), (D), (G) heavily, and route (J) and (K) through legal review.
 
+#### Why the IV menu reads canonical-but-old {#sec-ch10-iv-literature-gap}
+
+A careful reader will notice the canonical citations in the catalog above are mostly drawn from a 2002 to 2020 window, with @nelson2024gentrifying as the youngest. The pattern is not curatorial: top finance journals (the *Journal of Finance*, the *Journal of Financial Economics*, the *Review of Financial Studies*) have effectively stopped publishing reject-inference IV papers, and the recent reject-inference literature has migrated to the *International Journal of Forecasting*, the *European Journal of Operational Research*, *Expert Systems with Applications*, and *Computational Statistics*, where it is dominated by semi-supervised and generative machine-learning methods rather than econometric selection correction. Six structural forces explain the migration. Each one matters when a credit team is deciding whether to invest in a Heckman-IV pipeline at all.
+
+1. **Estimand mismatch.** Reject inference targets the conditional default distribution on the rejected pool: $P(Y = 1 \mid X, S = 0)$. The IV literature in consumer credit since @dobbie2015debt targets a different object, namely the local average treatment effect of credit *access* (or of debt relief) on a downstream outcome (delinquency, bankruptcy filing, employment, earnings). Same instrument (judge or examiner identity), different question. A judge-IV LATE on credit access does not, on its own, identify the rejected-pool default distribution that the scorecard needs. Top journals reward the access question because it speaks to welfare and discrimination; the calibration question that drives the scorecard is treated as plumbing.
+2. **Methodological pessimism on Heckman in credit specifically.** @crook2004does and @banasik2007reject test the Heckman correction on real lender data and report that augmentation, reweighting, and bivariate-probit Heckman deliver little or no ranking improvement on the accept-only baseline, with @banasik2003sample documenting the underlying sample-selection structure on simulated and lender data. The dissent in @bucker2013reject is loud (their nonignorable-missing-data correction shifts coefficient estimates statistically and economically and improves out-of-sample default forecasts), but the median read in the scorecard literature is the Crook-Banasik null. The scorecard literature treated the null as a verdict and stopped writing Heckman-IV papers; the next generation of academic effort moved to ML methods that did not require an excludable $Z$. Whether the verdict is correct is a question we revisit in @sec-ch10-modern, where varying-$\rho$ heterogeneity and vintage-cluster bootstrapping recover the cases where Heckman does win.
+3. **Regression discontinuity ate the lunch.** Modern lender data has bureau-score cutoffs, debt-to-income overlays, and product-eligibility thresholds everywhere. RDD identifies the local treatment effect at the cutoff under a strictly weaker assumption set than IV (continuity of potential outcomes at $\tau$, no manipulation), and its publication path in finance is well-paved (@agarwal2018consumer for credit-card credit-supply pass-through with regulatory thresholds, @argyle2020monthly for auto-loan maturity choice). Reject-inference Heckman-IV gets squeezed out: the marginal academic contribution of an IV-corrected scorecard above an RDD-identified marginal-applicant analysis is hard to defend at top journals.
+4. **Data-access asymmetry.** Each canonical IV paper rests on a unique administrative or lender dataset negotiated by the authors: @adams2009liquidity is one subprime-auto lender; @karlan2010expanding is one South African consumer lender's RCT; @iyer2016screening is one P2P platform; @dobbie2015debt is the US Chapter 13 bankruptcy court system through judge identity. Replications and extensions are rare because the data agreements rarely renew. New IV papers require new natural experiments, and the fixed cost of negotiating one is high enough that an econometrician faces better expected returns elsewhere.
+5. **Industry/academia split.** Banks resolve reject inference internally with parceling, augmentation, fuzzy-augmentation, and bureau-outcome calibration on defected applicants (@sec-ch10-bureau-extrapolation). The internal solutions work well enough for production and produce no publishable contribution. The IV-Heckman story would require a published natural experiment from a lender willing to disclose policy changes; few are. The strongest evidence on what works for a given lender therefore sits inside that lender, invisible to academic reviewers.
+6. **Estimand has moved to fairness and access, not calibration.** Recent papers that do sit in top journals reframe selection bias as a question about *who gets credit* rather than *what is the rejected pool's PD*. @dobbie2021measuring measure ethnic-group bias in a UK consumer-lender setting via a loan-officer instrument, @nelson2024gentrifying studies private information and price regulation in the US credit-card market, and @kozodoi2024fighting formalize sampling bias as a joint training-and-evaluation problem on the through-the-door distribution. The two questions overlap in the data they require and the instruments that identify them, but they ship different models.
+
+The recent reject-inference literature outside finance journals tells the rest of the story. @calabrese2024sample fit a copula selection model on non-traditional lending data with imbalanced outcomes in *Socio-Economic Planning Sciences*; @chen2025semi propose a hierarchical heterogeneous-network semi-supervised reject-inference framework in the *International Journal of Forecasting*; @li2024aicreditscoring use a one-million-applicant AI-enabled credit-scoring deployment to study financial inclusion in *MIS Quarterly*. None of these uses an IV in the Heckman sense. The methodological energy has rotated to copula-based MNAR (which inherits Heckman's identification logic without the bivariate-normal functional form) and to semi-supervised learning (which sidesteps identification and prices the residual uncertainty empirically). Both are covered in @sec-ch10-modern.
+
+Two practical implications for the production reader. First, the IV catalog above is a *menu of candidate identification stories*, not a literature review. When a lender has a usable $Z$ (most often a champion-challenger trial or a documented overlay change), Heckman-IV is the cleanest econometric route, and the catalog tells the team where to look. When no $Z$ is available, the answer is not to pick a weak IV; the answer is to fall back on copula selection with a sensitivity analysis on the dependence parameter (@sec-ch10-modern), which identifies the same MNAR object under a different functional form, or to commit to semi-supervised methods that target prediction rather than identification. Second, do not expect the validator to accept "we used Heckman because the literature does." The literature, in its current shape, mostly does not. The story has to be built per lender, on the specific $Z$ that is available in that lender's policy archive, and defended against the six forces above.
+
 ### Connection to inverse probability weighting and double machine learning {#sec-ch10-heckman-vs-dml}
 
-When selection is MAR, meaning $\rho = 0$, the coefficient on $\hat \lambda$ is zero and the Heckman estimator collapses to the naive fit. The natural alternative in that regime is inverse probability of selection weighting (IPW), and a thirty-year arc of refinements (Horvitz-Thompson normalization, augmented IPW with double robustness, double machine learning with cross-fitting) has produced increasingly flexible MAR estimators that the modern credit literature often treats as the state of the art. The relationship between this lineage and Heckman is the question of this subsection. The summary, derived below, is that DML and its relatives are strict upgrades of IPW on the functional-form axis but inherit the MAR ceiling on the selection axis, so they cannot replace Heckman when the underwriter selects on unobservables. Heckman trades a strong parametric joint assumption for genuine MNAR identification, and copula selection (@sec-ch10-modern) is the modern generalization on that second axis.
+When selection is MAR, meaning $\rho = 0$, the coefficient on $\hat \lambda$ is zero and the Heckman estimator collapses to the naive fit. The natural alternative in that regime is inverse probability of selection weighting (IPW), and a thirty-year arc of refinements (Horvitz-Thompson normalization, augmented IPW with double robustness, double machine learning with cross-fitting) has produced increasingly flexible MAR estimators that the modern credit literature often treats as the state of the art. The relationship between this lineage and Heckman is the question of this subsection. The summary, derived below, is that DML *generalizes* IPW (every DGP on which IPW is consistent is one on which DML is consistent, and DML reduces to IPW when the outcome regression is set to zero) but is *non-nested* with Heckman: DML weakens IPW's functional-form restrictions while staying MAR, whereas Heckman weakens the selection regime to MNAR while keeping a parametric form, and neither's assumption set is a subset of the other's. The two estimators therefore dominate on different slices of DGP space, and the practical question is which slice the lender is on. Copula selection (@sec-ch10-modern) is the modern generalization of Heckman on the selection axis, keeping the exclusion restriction and the MNAR identification but dropping bivariate normality.
 
 #### Inverse probability weighting and the Horvitz-Thompson identity
 
@@ -1787,6 +1854,8 @@ $$
 $$ {#eq-ht} 
 
 provided $\pi(x, z) > 0$ on the support of $(X, Z)$ and selection satisfies $S \perp\perp Y \mid (X, Z)$. The conditional independence is the formal statement of MAR. Under MAR, weighting each accepted observation by $1 / \pi$ recovers the through-the-door expectation of $h$ exactly. Specializing $h$ recovers familiar estimators: $h(Y, X) = \mathbf{1}\{Y = 1, X \in A\}$ gives the through-the-door PD on any region $A$; $h(Y, X) = -\log p(Y \mid X; \beta)$ gives the IPW M-estimator that recovers the through-the-door scorecard coefficients by maximum likelihood on the weighted accepted sample.
+
+The role of $h$ deserves a moment of unpacking, because the rest of this subsection treats it as a slot to be filled rather than a fixed object. A *functional* in this context is any map from a random variable to a number: pick a function of $(Y, X)$, take its expectation under the through-the-door distribution, and you have an estimand. The same Horvitz-Thompson identity covers all of them simultaneously, which is why the chapter states it for an arbitrary $h$ rather than separately for PD, log-likelihood, and dollar loss. Beyond the two specializations just listed, three further choices show up in production. First, through-the-door expected loss, $h(Y, X) = Y \cdot \text{EAD}(X) \cdot \text{LGD}(X)$, gives the dollar loss per applicant on the full pool rather than on the funded slice. Second, the calibration moment in score bin $b$, $h(Y, X) = (Y - \hat p(X)) \mathbf{1}\{\hat p(X) \in b\}$, tests whether the score is calibrated against the through-the-door default rate; the unweighted accept-only analog calibrates trivially because the policy itself selects on score, so calibration on accepts is a property of the policy rather than the score. Third, the feature mean $h(Y, X) = X_j$ does not involve $Y$ and can be computed directly on the full applicant pool without weighting, which turns it into a free diagnostic on $\hat\pi$: a weighted accepted mean that fails to match the directly-computed pool mean indicates a miscalibrated propensity. The same generality propagates to AIPW (next subsection). Replace $Y$ with $h(Y, X)$ and the outcome regression $g(X) = \mathbb{E}[Y \mid X, S = 1]$ with $g_h(X) = \mathbb{E}[h(Y, X) \mid X, S = 1]$, and the doubly-robust score, the Neyman-orthogonality argument, and the cross-fitting recipe carry over verbatim. The two-axis taxonomy in the table below is therefore a statement about each estimator's identification properties, not about which target $h$ it can address.
 
 Two consequences. First, IPW does not assume normality, parametric outcomes, or a specific score family: any base learner whose loss is a sum of per-observation contributions can be fit on the weighted accepted sample. Second, when $\pi$ is unknown it must be estimated, and the first-stage estimation propagates into the scorecard. The naive plug-in is consistent under MAR but inefficient.
 
@@ -1855,7 +1924,31 @@ A compact organizing picture separates the selection regime each estimator ident
 | Copula selection (Marra-Radice) | MNAR, general dependence | Probit margins, arbitrary copula family |
 | Joint frailty for survival | MNAR competing risks on time | Parametric or semiparametric frailty |
 
-DML is a strict upgrade over IPW on the functional-form axis: nuisance models can be nonparametric and inference is still $\sqrt{n}$-valid. It is not an upgrade on the selection axis. A lender whose underwriter conditions on signals never written to the feature store still needs the parametric joint of Heckman or an exclusion-based instrument to identify the through-the-door PD, and DML inherits the MAR ceiling regardless of how flexible the nuisance learners are. The genuine modern generalization of Heckman on the selection axis is copula selection (@marra2017bivariate, @sec-ch10-modern), which keeps the exclusion restriction but drops normality. Joint frailty (@sec-ch09) is the survival-time analog: censoring is selection on the time axis, IPCW is IPW on time, AIPCW is AIPW on time, and frailty plays the role of $\rho$ in the bivariate joint.
+The table separates two questions but does not by itself say which estimators *imply* which others. To make that precise, fix the meaning of *generalization*: estimator $A$ generalizes estimator $B$ when (i) every data-generating process on which $B$ is consistent is one on which $A$ is also consistent, and (ii) $A$ reduces to $B$ as a special case under the additional restriction that $B$ requires. Generalization is therefore a statement about *assumption sets*, not about how flexibly $A$ fits a single dataset. With that definition the two relationships in the table read as follows.
+
+*DML generalizes IPW.* Setting the outcome regression $g(X) \equiv 0$ in the AIPW score @eq-aipw-score collapses it to the Horvitz-Thompson IPW score $S Y / \pi(X, Z)$, so IPW is the $g \equiv 0$ corner of the AIPW family. Cross-fitting weakens the IPW requirement of "correctly parameterized $\pi$" to "$\pi$ consistent at $o(n^{-1/4})$ rate", and double robustness adds a second consistency channel through $g$. Every DGP on which IPW is consistent is one on which DML is consistent, and DML covers strictly more (parametrically misspecified $\pi$ paired with a nonparametric $\hat\pi$ that converges, or misspecified $\pi$ paired with correct $g$). DML sits on a strictly larger consistency region than IPW on the same MAR row.
+
+*DML and Heckman are non-nested.* Neither's assumption set contains the other's, and the explanation is the two-axis structure itself. DML weakens IPW's functional form on $(\pi, g)$ but stays MAR. Heckman keeps a parametric form on the indices but adds a structural assumption on the unobserved errors $(U, V)$ (bivariate normality plus a usable exclusion) that buys MNAR identification. The information Heckman exploits, the joint law of $(U, V)$, is not extractable from any nonparametric fit on $(X, Z, S, Y)$: it is a restriction on quantities the data never reveal. The information DML exploits, the nonparametric shape of $g$ and $\pi$ in $(X, Z)$, is not used by Heckman, which imposes a linear-in-index form on both. Each estimator is consistent on a slice of DGP space the other is not, and no estimator in the modern reject-inference toolbox is consistent on the union: MNAR identification has to be paid for in either parametric form or instrumental variation, and switching learners does not refund that price.
+
+Two concrete cases make the non-nesting tangible and answer the natural follow-up question, "is there a regime where DML is the most general thing on the menu?"
+
+*Case A: MAR with nonlinear nuisances.* The lender's feature store contains every signal the underwriter saw at decision time, so $\rho \approx 0$ in the latent-error parameterization and the MAR row of the table applies. The true through-the-door PD has interactions ($X_1 \cdot X_2$, ratios such as DTI), segment-specific slopes, and curvature that a linear-in-index probit cannot capture. Heckman fits a misspecified stage-2 outcome equation and a linear IMR coefficient; the resulting PD is biased on every slice where the true $g$ deviates from linearity, and the bias compounds in the policy-margin region where the IMR is steepest. DML with gradient-boosted trees on $g$ and $\pi$ is consistent. *DML wins.* This is the dominant regime in fintechs whose feature store is rich and whose underwriter is a logged automated rule, which describes most of the post-2018 consumer-finance industry.
+
+*Case B: thin feature store with a defensible joint.* The underwriter looks at applicants in person, judges character, and approves on a signal that never reaches the feature store. The bivariate-normal joint of $(U, V)$ is plausible after Yeo-Johnson transforms on income and bureau utilization, and a usable exclusion exists from the catalog at @sec-ch10-iv-catalog. DML, however flexible, has $\mathbb{E}[\tilde Y \mid X] \neq \mathbb{E}[Y \mid X]$ on every $X$ where residual MNAR bites. Heckman is consistent; copula selection is consistent under the weaker condition that the copula family is known up to a parameter. *Heckman wins.* This is the regime that drove the original @heckman1979sample applications in credit and that still dominates emerging-market consumer lending where judgmental overlays carry the residual underwriting signal.
+
+The two cases cannot be ranked without knowing which side of the assumption frontier the lender is on, and the production check is empirical: the audit asks whether the feature store reproduces the underwriter's decision out-of-sample (a high reproduction $R^2$ is evidence for Case A, a low one for Case B), and the answer dictates which axis to move along. @tbl-ch10-dml-heckman-cases summarizes both cases plus three intermediate scenarios.
+
+| Scenario | $\rho$ | Outcome surface | DML bias | Heckman bias | Dominant choice |
+|---|---|---|---|---|---|
+| Rich features, nonlinear $g$ (Case A) | $\approx 0$ | interactions, ratios, segment slopes | low | moderate (link misspecification) | DML |
+| Rich features, linear-in-index $g$ | $\approx 0$ | linear in index | low | low | tie; pick DML for SR 11-7 documentation |
+| Thin features, Gaussian joint (Case B) | $> 0.3$ | linear or mild nonlinearity | high (MAR ceiling) | low | Heckman |
+| Thin features, non-Gaussian copula tails | $> 0.3$ | heavy-tail joint | high (MAR ceiling) | moderate (joint misspecification) | Copula selection |
+| Thin features, no instrument, no defensible joint | unknown | unknown | high | high | sensitivity analysis, semi-supervised methods at @sec-ch10-em |
+
+: Where DML, Heckman, and copula selection each dominate. The first three rows are the production-relevant regimes for most lenders; the last two are residual cases where neither parametric MNAR nor MAR-flexible methods are obviously right and the lender falls back on sensitivity analysis or semi-supervised methods. {#tbl-ch10-dml-heckman-cases}
+
+The taxonomy at the start of this subsection is therefore a *partition* of DGP space, not a *ranking*. The lender's task is to identify which row of the partition the production data sits in (the rich-vs-thin feature-store question and the linear-vs-nonlinear $g$ question), then pick the estimator whose assumption set covers that row. DML is the most general estimator above the MAR/MNAR line; Heckman or copula selection is the most general below it; no single estimator dominates both rows. The genuine modern generalization of Heckman on the selection axis is copula selection (@marra2017bivariate, @sec-ch10-modern), which keeps the exclusion restriction but drops normality. Joint frailty (@sec-ch09) is the survival-time analog: censoring is selection on the time axis, IPCW is IPW on time, AIPCW is AIPW on time, and frailty plays the role of $\rho$ in the bivariate joint.
 
 #### Practical operational consequences for credit
 
@@ -2125,6 +2218,51 @@ print(pd.DataFrame({
 
 Stage 1 recovers $\gamma$ accurately. Stage 2 recovers $\beta$ and the IMR coefficient recovers $\rho$ (under the probit-probit normalization $\sigma = 1$). The Heckman estimates are close to the oracle, while the naive estimates are visibly biased. This is the mechanical gain from correctly modeling $\mathbb{E}[U \mid S=1]$.
 
+### Logit-selection Heckman via Lee's generalized residual {#sec-ch10-lee-logit-impl}
+
+The estimator described in @sec-ch10-lee-logit-selection runs a logistic stage 1 on the same synthetic lender, computes the marginal-to-normal remap $\hat a^{*}_i = \Phi^{-1}(F(\hat a_i))$, and uses the generalized residual $\hat r$ from @eq-lee-genres in place of the inverse Mills ratio. Because the data-generating process drew the selection shock from a standard normal, this experiment is *adversarial* to logit selection by construction: a probit at stage 1 is the right model and a logit is misspecified. The point of the comparison is to show that Lee's procedure nonetheless tracks probit-Heckman closely, which is the regime banks should expect in production where the logit is fit to a population whose true selection link is unknown but whose linear-index range sits in the 0.2 to 0.8 acceptance band.
+
+```{python}
+# Stage 1: logit on the same applicant sample.
+selection_logit = sm.Logit(s, W).fit(disp=False)
+gamma_hat_logit = selection_logit.params
+
+# Marginal-to-normal remap. Clip away from {0,1} to keep ppf finite at the
+# tails of near-deterministic decisions.
+linpred_logit = W @ gamma_hat_logit
+F_a = np.clip(stable_sigmoid(linpred_logit), 1e-6, 1 - 1e-6)
+a_star = stats.norm.ppf(F_a)
+
+# Generalized residual from eq-lee-genres. On accepts this is phi(a*)/F(a);
+# on rejects it is -phi(a*)/(1-F(a)). Stage 2 uses the accepted slice only.
+phi_star = stats.norm.pdf(a_star)
+r_hat = np.where(s == 1, phi_star / F_a, -phi_star / (1 - F_a))
+
+# Stage 2 outcome regression on accepts: probit of Y on (X1, X2, r_hat).
+X_lee = np.column_stack([X_out[acc], r_hat[acc]])
+lee = sm.Probit(y[acc], X_lee).fit(disp=False)
+
+# Side-by-side comparison of naive, oracle, probit-Heckman, and Lee.
+compare_lee = pd.DataFrame({
+    "truth (DGP beta*)":          np.concatenate([beta_true, [rho_true]]),
+    "oracle (full-label MLE)":    np.concatenate([oracle.params, [np.nan]]),
+    "naive (acc only)":           np.concatenate([naive.params, [np.nan]]),
+    "probit-Heckman":             np.asarray(heckman.params),
+    "lee logit-Heckman":          np.asarray(lee.params),
+}, index=["intercept", "X1", "X2", "selection_corr"])
+print(compare_lee.round(3))
+
+# Diagnostic: how far apart are F_a (logit accept prob) and Phi(a) under
+# the probit fit? This is the empirical footprint of marginal mismatch.
+linpred_probit = W @ gamma_hat
+F_logit = stable_sigmoid(linpred_logit)
+F_probit = stats.norm.cdf(linpred_probit)
+print(f"\nMax |F_logit - F_probit| over the sample: {np.abs(F_logit - F_probit).max():.4f}")
+print(f"Mean |F_logit - F_probit| over the sample: {np.abs(F_logit - F_probit).mean():.4f}")
+```
+
+The Lee column tracks the probit-Heckman column to within sampling noise on $\beta$ and recovers a `selection_corr` coefficient that is on a different scale than $\rho$ (it estimates $\rho^{*}$, the correlation of the *transformed* shocks, which under probit-DGP and a logit stage-1 fit drifts toward the true $\rho$ but is not identical). The `F_logit - F_probit` diagnostic confirms why: on the policy-margin slice the two CDFs agree to within a few percentage points, so the IMR computed from a probit and the generalized residual computed from a logit differ by a quantity that is largely absorbed into a rescaling of the second-stage coefficient. The lesson for production is the one anticipated in @sec-ch10-lee-logit-selection: when the bank's policy is logistic, the Lee correction is the link-consistent estimator, the probit-Heckman is a competitor that disagrees only at the tails, and the binding identification cost is the Gaussian-copula assumption (shared by both estimators) rather than the choice of marginal link.
+
 ### Production-grade exclusion-restriction diagnostics {#sec-ch10-iv-diagnostics-code}
 
 The catalog in @sec-ch10-iv-catalog only matters if every candidate $Z$ is run through the four tests laid out in @sec-ch10-heckman-assumptions A3 before it leaves the model design document. The function below packages the strength check, the falsification regression, and the @conley2012plausibly plausibly-exogenous bound into a single audit object that a validator can re-execute. The code uses the synthetic lender from @sec-ch10-implementation-from-scratch (where `Z` is the prespecified instrument) and prints the same diagnostics a model risk team would expect on real applications.
@@ -2145,8 +2283,10 @@ class IVAudit:
     Attributes
     ----------
     first_stage_F : float
-        Joint Wald F for the candidate instruments in the selection probit,
-        comparable to Stock and Yogo's rule of thumb of 10.
+        Joint Wald F for the candidate instruments in the selection probit.
+        The legacy Staiger-Stock (1997) cutoff of 10 controls bias only;
+        Lee, McCrary, Moreira, and Porter (2022) show that valid 5% t-test
+        size requires F >= 104.7 with one instrument. Report both.
     falsification_coef : pd.Series
         Coefficients on Z when Z is added to the second-stage outcome
         equation. Should be statistically zero under excludability.
@@ -2162,7 +2302,10 @@ class IVAudit:
     falsification_pvalue: pd.Series
     conley_grid: pd.DataFrame
 
-    def passes_strength(self, threshold: float = 10.0) -> bool:
+    def passes_strength(self, threshold: float = 104.7) -> bool:
+        # Default to the Lee-McCrary-Moreira-Porter (2022) tF critical value
+        # for valid 5% t-test size with one instrument. Pass threshold=10.0
+        # to recover the legacy Staiger-Stock bias-only check.
         return self.first_stage_F >= threshold
 
     def passes_falsification(self, alpha: float = 0.05) -> bool:
@@ -2254,8 +2397,11 @@ Z_audit = Z.reshape(-1, 1)
 
 audit = heckman_iv_audit(X_audit, Z_audit, s, y_full)
 
-print(f"First-stage F on Z (Stock-Yogo rule of thumb >= 10): {audit.first_stage_F:.2f}")
-print(f"Strength test: {'PASS' if audit.passes_strength() else 'FAIL'}")
+print(f"First-stage F on Z: {audit.first_stage_F:.2f}")
+print(f"  Staiger-Stock bias-only cutoff (F >= 10): "
+      f"{'PASS' if audit.passes_strength(10.0) else 'FAIL'}")
+print(f"  LMMP (2022) valid-t-ratio cutoff (F >= 104.7): "
+      f"{'PASS' if audit.passes_strength(104.7) else 'FAIL'}")
 print("")
 print("Falsification: Z in outcome equation (should be ~0 under excludability)")
 print(pd.concat({"coef": audit.falsification_coef,
@@ -2270,6 +2416,249 @@ print(audit.conley_grid.round(3))
 A clean instrument shows three things at once: (1) the first-stage $F$ comfortably exceeds 10 (in our synthetic lender, $\gamma_Z = 0.9$ moves selection enough to produce $F \gg 30$); (2) the falsification coefficient on $Z$ in the outcome equation is small and statistically zero (the synthetic DGP has $Z$ excluded by construction, so this passes); (3) the Conley grid shows $\beta_X$ moving little as $\delta$ varies over an economically reasonable range $[-0.2, 0.2]$, evidence that small violations of excludability would not change the policy decision implied by the corrected scorecard.
 
 The same audit on a *bad* instrument flips all three signals: low first-stage $F$ (relevance fails), a significantly nonzero falsification coefficient (excludability fails), and a Conley grid where $\beta_X$ swings sign across the delta range (the Heckman correction is doing identification work that the instrument cannot support). The audit object is the unit a validator should ask for whenever a Heckman correction enters a credit-decisioning model. We use the same `heckman_iv_audit` helper in the production walkthrough in @sec-ch10-benchmark-real-data.
+
+### Production-grade diagnostics for A1, A2, A4, A5 {#sec-ch10-other-assumption-diagnostics}
+
+A3 has the IV audit above. The four remaining assumptions in @sec-ch10-heckman-assumptions deserve the same treatment: one function, one structured object, one validator-rerunnable artefact. We package them together because they share the same fitted Heckman two-step as input. Each test, the assumption it probes, and the alternative when it fires:
+
+| Assumption | Diagnostic | Rejects when |
+|---|---|---|
+| A1 (joint normality of $(U, V)$) | Pagan-Vella score test on the stage-1 probit | $V$ shows non-normal skew or heavy tails |
+| A2 (correct selection link) | Pregibon link test plus Hosmer-Lemeshow on $\hat P(S=1)$ | probit link is wrong or $\hat P(S=1)$ is mis-calibrated |
+| A4 (overlap) | trimmed-share and tail-mass quantiles of $\hat P(S=1)$ | policy is near-deterministic over part of $(X, Z)$ |
+| A5 (constant $\rho$) | per-segment refit plus meta-analysis Wald test on the IMR coefficient | $\rho$ differs between channels, vintages, or file-thickness bands |
+
+The Pagan-Vella stage-1 test is the cleanest binary-outcome instrument for A1. The bivariate analog for $U$ is the @smith1989normalitytestbivariate score test on a joint bivariate-probit MLE; we leave that as a follow-on when the stage-1 result is borderline, because the joint MLE refit is two orders of magnitude more code than what fits in a chapter. Pregibon and Pagan-Vella reuse the same `lin^2` machinery against two distinct nulls: A2 reads the $t$ statistic on a single quadratic term as a link-function test (alternative: logit); A1 reads the joint $\chi^2(2)$ likelihood-ratio statistic on `lin^2` and `lin^3` as a normality test (alternative: heavy-tailed $V$). We report both because validators read them with different priors.
+
+```{python}
+from dataclasses import dataclass
+
+@dataclass
+class HeckmanAssumptionAudit:
+    """A1, A2, A4, A5 diagnostics for a fitted probit-probit Heckman.
+
+    Companion to IVAudit (A3) in @sec-ch10-iv-diagnostics-code.
+    """
+    a1: pd.DataFrame
+    a2: pd.DataFrame
+    a4: pd.DataFrame
+    a5: pd.DataFrame
+    a5_pooled_imr: float
+    a5_wald_chi2: float
+    a5_wald_p: float
+
+
+def heckman_assumption_audit(X, Z, S, Y, segment, n_hl_groups=10):
+    """Run A1/A2/A4/A5 diagnostics on a probit-probit Heckman setup.
+
+    Parameters
+    ----------
+    X : (n, k) covariates entering both equations.
+    Z : (n, q) instruments (selection only).
+    S : (n,) accept indicator.
+    Y : (n,) default indicator. NaN on rejects.
+    segment : (n,) categorical column for the A5 stability test
+              (channel, vintage, file thickness band, ...).
+    """
+    X = np.atleast_2d(X)
+    Z = np.atleast_2d(Z)
+    if X.shape[0] != Z.shape[0]:
+        X, Z = X.T, Z.T
+    n_, k = X.shape
+    a = S == 1
+
+    W1 = np.column_stack([np.ones(n_), X, Z])
+    sel = sm.Probit(S, W1).fit(disp=False)
+    lin_sel = W1 @ sel.params
+    phi_full = stats.norm.pdf(lin_sel)
+    Phi_full = stats.norm.cdf(lin_sel)
+    p_hat = Phi_full
+    imr_full = phi_full / np.clip(Phi_full, 1e-12, 1.0)
+
+    W2 = np.column_stack([np.ones(a.sum()), X[a], imr_full[a]])
+    out = sm.Probit(Y[a].astype(float), W2).fit(disp=False)
+
+    # A1: Pagan-Vella score test. Add (W'gamma)^2 and (W'gamma)^3 to the
+    # stage-1 probit; LR chi2(2) under V normal.
+    W1_pv = np.column_stack([W1, lin_sel ** 2, lin_sel ** 3])
+    sel_pv = sm.Probit(S, W1_pv).fit(disp=False)
+    lr_pv = 2.0 * (sel_pv.llf - sel.llf)
+    a1 = pd.DataFrame(
+        {"statistic": [lr_pv],
+         "p_value":   [float(1.0 - stats.chi2.cdf(lr_pv, df=2))]},
+        index=["Pagan-Vella score test on stage-1 probit (chi2 df=2)"])
+
+    # A2: Pregibon link test on stage 1 plus Hosmer-Lemeshow on P(S=1).
+    W1_pl = np.column_stack([W1, lin_sel ** 2])
+    sel_pl = sm.Probit(S, W1_pl).fit(disp=False)
+    pregibon_t = float(sel_pl.tvalues[-1])
+    pregibon_p = float(sel_pl.pvalues[-1])
+    groups = pd.qcut(p_hat, n_hl_groups, labels=False, duplicates="drop")
+    hl_chi2, df_hl = 0.0, 0
+    for g in pd.unique(groups):
+        mask = groups == g
+        n_g = int(mask.sum())
+        o_g = float(S[mask].sum())
+        e_g = float(p_hat[mask].sum())
+        if e_g > 0 and n_g - e_g > 0:
+            hl_chi2 += ((o_g - e_g) ** 2 / e_g
+                        + ((n_g - o_g) - (n_g - e_g)) ** 2 / (n_g - e_g))
+            df_hl += 1
+    df_hl = max(df_hl - 2, 1)
+    hl_p = float(1.0 - stats.chi2.cdf(hl_chi2, df=df_hl))
+    a2 = pd.DataFrame(
+        {"statistic": [pregibon_t, hl_chi2],
+         "p_value":   [pregibon_p, hl_p]},
+        index=["Pregibon link test (lin_sel^2 in stage 1)",
+               f"Hosmer-Lemeshow on P(S=1) ({df_hl} df)"])
+
+    # A4: overlap of P(S=1).
+    eps = 0.01
+    a4 = pd.DataFrame(
+        {"share": [float(((p_hat > eps) & (p_hat < 1 - eps)).mean()),
+                   float((p_hat <= eps).mean()),
+                   float((p_hat >= 1 - eps).mean()),
+                   float(np.quantile(p_hat, 0.01)),
+                   float(np.quantile(p_hat, 0.99))]},
+        index=["overlap mass in (0.01, 0.99)",
+               "extreme-low mass <= 0.01",
+               "extreme-high mass >= 0.99",
+               "1st percentile of p_hat",
+               "99th percentile of p_hat"])
+
+    # A5: refit Heckman per segment; meta-analysis Wald test for equal IMR.
+    seg = pd.Series(segment).values
+    rows = []
+    for v_seg in pd.unique(seg):
+        mask = (seg == v_seg) & a
+        if mask.sum() < 200:
+            continue
+        Wseg = np.column_stack([np.ones(mask.sum()), X[mask], imr_full[mask]])
+        try:
+            fit_s = sm.Probit(Y[mask].astype(float), Wseg).fit(disp=False)
+            rows.append({"segment": v_seg, "n_acc": int(mask.sum()),
+                         "beta_imr": float(fit_s.params[-1]),
+                         "se_imr":   float(fit_s.bse[-1])})
+        except Exception:
+            continue
+    a5 = pd.DataFrame(rows).set_index("segment")
+    if len(a5) >= 2:
+        b  = a5["beta_imr"].values
+        se = a5["se_imr"].values
+        w  = 1.0 / se ** 2
+        b_bar = (w * b).sum() / w.sum()
+        wald_chi2 = float((w * (b - b_bar) ** 2).sum())
+        wald_p = float(1.0 - stats.chi2.cdf(wald_chi2, df=len(b) - 1))
+    else:
+        wald_chi2 = float("nan")
+        wald_p    = float("nan")
+
+    return HeckmanAssumptionAudit(
+        a1=a1, a2=a2, a4=a4, a5=a5,
+        a5_pooled_imr=float(out.params[-1]),
+        a5_wald_chi2=wald_chi2, a5_wald_p=wald_p)
+
+
+# Run on the synthetic lender. We attach a synthetic channel column so A5
+# has segments to test against.
+channel = rng.choice(["digital", "branch", "agent"], size=n,
+                     p=[0.5, 0.3, 0.2])
+y_audit = y.astype(float).copy()
+y_audit[s == 0] = np.nan
+
+audit_a = heckman_assumption_audit(
+    np.column_stack([X1, X2]), Z.reshape(-1, 1), s, y_audit, channel)
+
+print("A1: bivariate normality of (U, V)")
+print(audit_a.a1.round(3))
+print()
+print("A2: correct selection link")
+print(audit_a.a2.round(3))
+print()
+print("A4: overlap of P(S=1) on the support of (X, Z)")
+print(audit_a.a4.round(3))
+print()
+print(f"A5: rho stability across channel  (pooled IMR = "
+      f"{audit_a.a5_pooled_imr:.3f}, "
+      f"Wald chi2 = {audit_a.a5_wald_chi2:.2f}, "
+      f"p = {audit_a.a5_wald_p:.3f})")
+print(audit_a.a5.round(3))
+```
+
+The four tables read cleanly under the correctly-specified DGP: A1 fails to reject (Pagan-Vella $\chi^2 \approx 4$, $p \approx 0.13$); A2 fails to reject on both Pregibon and Hosmer-Lemeshow ($p > 0.18$); A4 reports about 91 percent of mass inside $(0.01, 0.99)$ with the 99th-percentile $\hat P(S=1)$ pinned at 1.0 (a realistic feature of an underwriter who occasionally faces near-deterministic accept regions); A5 fails to reject equal $\rho$ across channels (Wald $p \approx 0.78$). The visible weak point is A4: even on a tame DGP, the steepness of the policy puts about 9 percent of applicants in the near-deterministic tails, and the model document should report that share, restrict inference to the overlap region, and let the validator audit the trimmed slice.
+
+```{python}
+#| label: fig-ch10-assumption-audit
+#| fig-cap: "Visual companion to the A1, A2, A4, A5 audit. (a) QQ-plot of the stage-1 generalized residual against the standard normal: the bounded shape is structural for binary $S$, but linearity over the bulk is consistent with $V$-normality. (b) Hosmer-Lemeshow calibration: observed accept rate inside each $\\hat P(S=1)$ decile against the predicted average; off-diagonal points flag link mis-specification. (c) Overlap histogram of $\\hat P(S=1)$ stratified by $S$: rejected mass piling near 0 and accepted mass piling near 1 mark the trimmed region. (d) Forest plot of the per-segment IMR coefficient with 95 percent normal-theory bars; non-overlapping intervals are evidence against constant $\\rho$."
+import matplotlib.pyplot as plt
+
+W1_fig = np.column_stack([np.ones(n), X1, X2, Z])
+sel_fig = sm.Probit(s, W1_fig).fit(disp=False)
+lin_fig = W1_fig @ sel_fig.params
+phi_fig = stats.norm.pdf(lin_fig)
+Phi_fig = stats.norm.cdf(lin_fig)
+e_sel_fig = ((s - Phi_fig) * phi_fig
+             / np.clip(Phi_fig * (1 - Phi_fig), 1e-12, 1.0))
+
+fig, axes = plt.subplots(2, 2, figsize=(11.5, 8.0))
+
+ax = axes[0, 0]
+stats.probplot(e_sel_fig, dist="norm", plot=ax)
+ax.set_title("(a) A1: QQ-plot of stage-1 generalized residual")
+ax.get_lines()[0].set_markersize(3.0)
+ax.get_lines()[0].set_alpha(0.5)
+ax.grid(alpha=0.3)
+
+ax = axes[0, 1]
+groups_fig = pd.qcut(Phi_fig, 10, labels=False, duplicates="drop")
+calib = pd.DataFrame({"p_hat": Phi_fig, "s": s, "g": groups_fig}).groupby(
+    "g").agg(pred=("p_hat", "mean"), obs=("s", "mean")).reset_index()
+ax.plot([0, 1], [0, 1], "k--", lw=1.0, alpha=0.7)
+ax.plot(calib["pred"], calib["obs"], "o-", color="#1976d2", lw=1.8)
+ax.set_xlabel(r"predicted $\hat P(S=1)$ in decile")
+ax.set_ylabel("observed accept rate in decile")
+ax.set_title("(b) A2: Hosmer-Lemeshow calibration")
+ax.grid(alpha=0.3)
+
+ax = axes[1, 0]
+bins = np.linspace(0, 1, 41)
+ax.hist(Phi_fig[s == 1], bins=bins, alpha=0.55,
+        color="#1976d2", label="accepted ($S=1$)", density=True)
+ax.hist(Phi_fig[s == 0], bins=bins, alpha=0.55,
+        color="#ef5350", label="rejected ($S=0$)", density=True)
+for v in (0.01, 0.99):
+    ax.axvline(v, color="0.25", ls=":", lw=1.0)
+ax.set_xlabel(r"$\hat P(S=1)$")
+ax.set_ylabel("density")
+ax.set_title("(c) A4: overlap histogram (trim outside dotted lines)")
+ax.legend(fontsize=9)
+ax.grid(alpha=0.3)
+
+ax = axes[1, 1]
+seg_df = audit_a.a5.copy()
+seg_df["lo"] = seg_df["beta_imr"] - 1.96 * seg_df["se_imr"]
+seg_df["hi"] = seg_df["beta_imr"] + 1.96 * seg_df["se_imr"]
+y_pos = np.arange(len(seg_df))
+ax.errorbar(seg_df["beta_imr"], y_pos,
+            xerr=[seg_df["beta_imr"] - seg_df["lo"],
+                  seg_df["hi"] - seg_df["beta_imr"]],
+            fmt="o", color="#1976d2", lw=1.6, capsize=4)
+ax.axvline(audit_a.a5_pooled_imr, color="0.25", ls="--", lw=1.0,
+           label=f"pooled = {audit_a.a5_pooled_imr:.2f}")
+ax.set_yticks(y_pos)
+ax.set_yticklabels(seg_df.index)
+ax.set_xlabel(r"per-segment IMR coefficient (proxy for $\rho$)")
+ax.set_title("(d) A5: rho stability by channel (95% bars)")
+ax.legend(fontsize=9, loc="lower right")
+ax.grid(alpha=0.3, axis="x")
+
+plt.tight_layout()
+plt.show()
+```
+
+Each panel is the smallest visualization a validator can execute and the smallest a model-development team can build into a regression suite. Panel (a) probes A1: linearity in the bulk of the QQ-plot is consistent with normal $V$, while a banana shape or a heavy-tail flare on either end points to the copula or Student-$t$ generalizations of @sec-ch10-modern. Panel (b) probes A2: a calibration line tracking the diagonal is consistent with the probit link; systematic over-prediction in low deciles or under-prediction in high deciles is the signature of a mismatched link, and the @lee1983generalized logit-with-generalized-residual replacement is then the move. Panel (c) probes A4: the mass outside $(0.01, 0.99)$ is the trimmed share, and the model document should both report it and restrict inference to the overlap region. Panel (d) probes A5: a horizontal alignment of segment dots inside one another's confidence bars supports a pooled $\hat\rho$; a vertical fan that crosses zero is evidence one segment is MAR while another is MNAR, with direct consequences for the per-segment PD curve.
+
+A *bad* audit flips each signal in turn. An A1 failure shows up as curvature on (a) and a Pagan-Vella $p$ below 0.05; the analyst then either applies a Yeo-Johnson pre-transform of $X$ or moves to the Student-$t$ Heckman of @marchenko2012heckman. An A2 failure shows up as a Hosmer-Lemeshow $p$ below 0.05 and a calibration line that bows away from the diagonal; the analyst swaps the probit selection model for a logit and uses Lee's generalized residual. An A4 failure shows up as overlap mass below 80 percent and an extreme-mass exceeding 10 percent on either tail; the analyst trims, or replaces the parametric correction with a design-based estimator over the overlap support (@sec-ch10-design-based). An A5 failure shows up as a Wald $p$ below 0.05 and a forest plot whose intervals do not overlap; the analyst refits Heckman *per segment*, reports a per-segment $\hat\rho$, and rejects the pooled model as a misspecification of A5 rather than a problem of the segment in isolation. Together with the IV audit of @sec-ch10-iv-diagnostics-code, the assumption audit is the unit a validator should ask for whenever a Heckman correction enters a credit-decisioning model.
 
 ### A from-scratch IMR computation
 
@@ -2401,6 +2790,147 @@ print(pd.DataFrame({
 ```
 
 The bootstrap interval on $\rho$ covers the simulation truth (0.6), and the bootstrap SEs on the slopes are tight enough that the through-the-door coefficients $\hat\beta_1, \hat\beta_2$ are statistically distinguishable from the naive accept-only fit. The probit-probit estimates are on a different link from the OLS-Heckman case above, so a direct numerical comparison of SEs across the two specifications is not meaningful; the bootstrap is the only viable variance estimator for the probit-probit fit, since the closed-form analog of @eq-heckman-sandwich does not apply when stage 2 is itself a maximum-likelihood probit. In production, the cluster argument should be the granularity at which residual dependence is suspected: application ID for repeat applicants within a household, origination month for vintage-correlated economic shocks, branch ID for operational-noise correlation.
+
+### Remediating A5 in production: segment-interaction Heckman {#sec-ch10-heckman-segment-interaction}
+
+When the per-segment Wald test of @sec-ch10-other-assumption-diagnostics rejects equality of $\rho$ across channels or vintages, the audit is necessary but not sufficient: the model team needs a fitted estimator that *uses* the heterogeneity rather than smearing it into a pooled $\hat\rho$. The frequent temptation, flagged in @sec-ch10-heckman-assumptions and worth re-stating here because it shows up in real model documents, is to keep the pooled fit and simply replace the closed-form sandwich with HC1, HC3, or a cluster-robust variant and declare the variance "robust." This does not fix the bias.
+
+The mechanics are worth being explicit about. The HC family estimates $\text{Var}(\hat\beta) = (X^\top X)^{-1} \big(\sum_i \hat e_i^2 X_i X_i^\top\big) (X^\top X)^{-1}$ under the assumption that $\mathbb{E}[Y_i \mid X_i, S_i = 1] = X_i^\top \beta + \rho \hat\lambda_i$ for the *correct* scalar $\rho$. Under varying $\rho_g$, the right mean function is $X_i^\top \beta + \rho_{g(i)} \hat\lambda_i$, and pooling forces a single coefficient that minimises a weighted-average squared error across segments rather than recovering any one of them. The bias in $\hat\beta$ is omitted-interaction bias on the IMR, not residual-variance heteroskedasticity, and HC-robust sandwiches do not see it. The consistent remedies change the mean specification: interact $\hat\lambda$ with segment, or refit Heckman per segment.
+
+We demonstrate on a heterogeneous-$\rho$ DGP that mirrors the production case where digital traffic is closer to MAR (low $\rho$), branch traffic is moderate, and agent traffic is strongly MNAR (high $\rho$). The `channel` column was attached in @sec-ch10-other-assumption-diagnostics; we regenerate $(U, V, S, Y)$ under channel-specific correlation while leaving $X_1, X_2, Z$ and the channel column intact, then fit four estimators side by side: (1) pooled Heckman with naive stage-2 SE, (2) the same pooled fit with an HC1 sandwich (the false fix), (3) segment-interaction Heckman, (4) per-segment Heckman with inverse-variance meta-analytic pool.
+
+```{python}
+rho_by_channel = {"digital": 0.20, "branch": 0.55, "agent": 0.85}
+seg_names = ["digital", "branch", "agent"]
+
+rng_a5 = np.random.default_rng(SEED + 17)
+u_het = rng_a5.standard_normal(n)
+w_het = rng_a5.standard_normal(n)
+rho_vec = np.array([rho_by_channel[c] for c in channel])
+v_het = rho_vec * u_het + np.sqrt(1.0 - rho_vec ** 2) * w_het
+
+y_het = ((beta_true[0] + beta_true[1] * X1 + beta_true[2] * X2
+          + u_het) > 0).astype(int)
+s_het = ((gamma_true[0] + gamma_true[1] * X1 + gamma_true[2] * X2
+          + gamma_true[3] * Z + v_het) > 0).astype(int)
+
+W_sel = np.column_stack([np.ones(n), X1, X2, Z])
+sel_fit = sm.Probit(s_het, W_sel).fit(disp=False)
+lin_sel = W_sel @ sel_fit.params
+lam = stats.norm.pdf(lin_sel) / np.clip(stats.norm.cdf(lin_sel), 1e-12, 1.0)
+acc = s_het == 1
+
+# (1) Pooled Heckman, naive stage-2 SE.
+W_out_pool = np.column_stack([np.ones(acc.sum()), X1[acc], X2[acc], lam[acc]])
+out_pool = sm.Probit(y_het[acc].astype(float), W_out_pool).fit(disp=False)
+
+# (2) Same point estimate, HC1 sandwich (the false fix).
+out_pool_hc = sm.Probit(y_het[acc].astype(float), W_out_pool).fit(
+    disp=False, cov_type="HC1")
+
+# (3) Segment-interaction Heckman: one IMR coefficient per channel,
+#     inside one stage-2 fit, so X1 and X2 still pool across segments.
+chan_acc = pd.Series(channel[acc])
+D = pd.get_dummies(chan_acc).reindex(
+    columns=seg_names, fill_value=0).astype(float).values
+lam_by_seg = lam[acc][:, None] * D
+W_out_int = np.column_stack(
+    [np.ones(acc.sum()), X1[acc], X2[acc], lam_by_seg])
+out_int = sm.Probit(y_het[acc].astype(float), W_out_int).fit(disp=False)
+
+# (4) Per-segment Heckman with inverse-variance meta-analytic pool.
+per_seg = []
+for g in seg_names:
+    m = (channel == g) & acc
+    Wm = np.column_stack([np.ones(m.sum()), X1[m], X2[m], lam[m]])
+    fit_m = sm.Probit(y_het[m].astype(float), Wm).fit(disp=False)
+    per_seg.append({"segment": g, "n_acc": int(m.sum()),
+                    "rho_imr": float(fit_m.params[-1]),
+                    "se_imr":  float(fit_m.bse[-1])})
+per_seg_df = pd.DataFrame(per_seg).set_index("segment")
+w_meta = 1.0 / per_seg_df["se_imr"].values ** 2
+rho_meta = float((w_meta * per_seg_df["rho_imr"].values).sum() / w_meta.sum())
+se_meta  = float(1.0 / np.sqrt(w_meta.sum()))
+
+summary = pd.DataFrame({
+    "true rho":          [rho_by_channel[g] for g in seg_names],
+    "(1) pooled IMR":    [float(out_pool.params[-1])] * len(seg_names),
+    "(1) naive SE":      [float(out_pool.bse[-1])] * len(seg_names),
+    "(2) HC1 SE":        [float(out_pool_hc.bse[-1])] * len(seg_names),
+    "pooled bias":       [float(out_pool.params[-1]) - rho_by_channel[g]
+                          for g in seg_names],
+    "(3) interacted":    [float(out_int.params[3 + i])
+                          for i in range(len(seg_names))],
+    "(3) interacted SE": [float(out_int.bse[3 + i])
+                          for i in range(len(seg_names))],
+    "(4) per-seg":       per_seg_df["rho_imr"].values,
+    "(4) per-seg SE":    per_seg_df["se_imr"].values,
+}, index=seg_names)
+
+print(summary.round(3))
+print(f"\nMeta-analytic pooled rho (4): {rho_meta:.3f}  "
+      f"(inverse-variance SE = {se_meta:.3f})")
+print("If A5 holds, (3) and (4) collapse to a single rho; the spread above "
+      "is the heterogeneity that pooled fits hide.")
+```
+
+The summary table is the clean exhibit. The pooled IMR is one number, somewhere in the middle of the three truths (0.20, 0.55, 0.85), and the bias on each segment is large and signed. Switching the SE column from naive to HC1 leaves that number untouched: HC1 moves the SE only in the third decimal and the point estimate not at all. The segment-interaction fit recovers a per-segment IMR that brackets each channel's true $\rho$ within roughly one standard error and gives the model document a per-segment $\hat\rho_g$ to monitor. The per-segment refit (column 4) gives qualitatively the same per-segment IMRs with wider SEs because each fit uses only its own slice; it also lets $\beta_1, \beta_2$ vary across segments, where the interacted model holds them pooled. Comparing the per-segment IMRs from (3) and (4) is therefore an A5 stress test against the stronger assumption that *only* $\rho$ varies across segments while $\beta$ stays pooled. The inverse-variance meta-analytic pool of (4) collapses the per-segment IMRs into a single number whose only legitimate use is the Wald test of equality; pooling is itself a misspecification when the test rejects, and the model document should report the per-segment row, not the pooled scalar.
+
+The interacted model is a single estimating equation, so the cluster bootstrap of @sec-ch10-heckman-se-impl applies without modification. We resample whole vintages, refit segment-interaction Heckman from scratch on each resample, and let the IMR coefficients vary at their bootstrap percentiles. This is the production variance estimator: the closed-form Heckman sandwich does not extend cleanly to the interacted probit-probit case (Murphy-Topel with multiple generated regressors), and a vintage cluster bootstrap composes correctly with both the segment-by-IMR mean specification and any residual within-vintage dependence.
+
+```{python}
+def fit_heckman_segment_interaction(s_b, X_b, Z_b, y_b, channel_b,
+                                    seg_names=seg_names):
+    """Segment-interaction probit-probit Heckman. Returns the stage-2
+    parameter vector ordered as [intercept, X1, X2, rho_seg_1, ..., rho_seg_G].
+    """
+    Wsel_b = np.column_stack([np.ones(len(s_b)), X_b, Z_b])
+    sel_b = sm.Probit(s_b, Wsel_b).fit(disp=False, warn_convergence=False)
+    lin_b = Wsel_b @ sel_b.params
+    lam_b = stats.norm.pdf(lin_b) / np.clip(
+        stats.norm.cdf(lin_b), 1e-12, 1.0)
+    a_b = s_b == 1
+    chan_a = pd.Series(channel_b[a_b])
+    D_b = pd.get_dummies(chan_a).reindex(
+        columns=seg_names, fill_value=0).astype(float).values
+    Wout_b = np.column_stack(
+        [np.ones(a_b.sum()), X_b[a_b], lam_b[a_b][:, None] * D_b])
+    out_b = sm.Probit(y_b[a_b].astype(float), Wout_b).fit(
+        disp=False, warn_convergence=False)
+    return out_b.params
+
+def one_boot_a5(seed):
+    rng_b = np.random.default_rng(seed)
+    drawn = rng_b.choice(n_vintages, size=n_vintages, replace=True)
+    idx = np.concatenate([np.flatnonzero(vintage == v) for v in drawn])
+    return fit_heckman_segment_interaction(
+        s_het[idx], X_mat[idx], Z[idx], y_het[idx], channel[idx])
+
+B = 200
+seeds_a5 = np.random.default_rng(13).integers(0, 2**31 - 1, size=B)
+boot_a5 = np.vstack(Parallel(n_jobs=-1)(
+    delayed(one_boot_a5)(int(sd)) for sd in seeds_a5))
+
+theta_a5 = fit_heckman_segment_interaction(
+    s_het, X_mat, Z, y_het, channel)
+ci_lo, ci_hi = np.percentile(boot_a5, [2.5, 97.5], axis=0)
+boot_se_a5 = boot_a5.std(axis=0, ddof=1)
+
+cols = ["intercept", "X1", "X2"] + [f"rho_{g}" for g in seg_names]
+out_table = pd.DataFrame({
+    "estimate": theta_a5,
+    "boot_se":  boot_se_a5,
+    "ci2.5":    ci_lo,
+    "ci97.5":   ci_hi,
+}, index=cols)
+out_table.loc[[f"rho_{g}" for g in seg_names], "true"] = [
+    rho_by_channel[g] for g in seg_names]
+print(out_table.round(3))
+```
+
+The vintage-clustered intervals on $\rho_{\text{digital}}, \rho_{\text{branch}}, \rho_{\text{agent}}$ each cover their simulation truths, while the through-the-door slopes $\hat\beta_1, \hat\beta_2$ are recovered with intervals tight enough to distinguish them from the naive accept-only fit. By contrast, a 95-percent confidence interval on the pooled $\hat\rho$ from estimator (1) sits around the inverse-variance midpoint of the three truths and *covers none of them individually*. The model document should report the segment-interaction table, not the pooled-with-HC1 table; the validator's first reproduction is a `groupby(channel)` Wald test that the pooled column will fail and the interacted column will pass.
+
+The pattern generalises. The same construction handles vintage as a continuous segment (replace channel dummies with vintage spline bases interacted with $\hat\lambda$), file-thickness as an ordinal segment (use thin / medium / thick bands as the dummies), and product as a nested segment (digital-secured, digital-unsecured, branch-secured, branch-unsecured) by interacting $\hat\lambda$ with the cell indicators. The cost is parameter count: $G$ extra IMR coefficients plus $G$ extra clusters in the bootstrap. The benefit is that A5 is no longer an assumption to defend; it has been relaxed by construction, and the per-segment $\hat\rho_g$ become an audit artefact that downstream PD monitoring can track over time. When the per-segment $\hat\rho_g$ start to diverge across vintages on the live portfolio, the same machinery that built the model gives the analyst the diagnostic that triggers a refit.
 
 ### Parceling and fuzzy augmentation
 
@@ -4855,6 +5385,13 @@ Governance cadence. Reject inference is one of the few modeling areas where the 
 -   @sugiyama2007covariate, @bickel2009discriminative, @huang2007correcting: covariate-shift density-ratio estimators.
 -   @kiryo2017positive, @elkan2008bayesian: positive-unlabeled learning, with the failure-mode discussion for credit.
 -   @hahn2001identification, @imbens2008recent, @thistlethwaite1960regression: regression-discontinuity identification at known cutoffs.
+-   @cellini2010value, @grembi2016diffinrdd, @hausman2018rddtime: dynamic and difference-in-discontinuities designs that pool sequential policy thresholds into multi-instrument identifications, with the time-RDD failure modes that vintage-cohort instruments inherit.
+-   @callaway2021difference, @sunabraham2021estimating, @borusyak2024revisiting, @goodmanbacon2021difference, @dechaisemartin2020two: heterogeneity-robust staggered-adoption estimators that replace two-way fixed-effects when vintage cohorts adopt at different dates.
+-   @arkhangelsky2021synthetic: synthetic difference-in-differences, the cohort-weighted estimator that combines DiD with synthetic-control balancing for vintage panels.
+-   @rambachan2023parallel, @roth2023what: sensitivity bounds on parallel trends, the explicit way to disclose how much vintage-effect entanglement the design can absorb before conclusions flip.
+-   @turjeman2024databreach: temporal causal forests applied to a data-breach event study, the closest marketing-science analog to cohort-matched reject inference with heterogeneous applicant effects; @pattabhiramaiah2018paywall and @simester2020targeting are useful companions on cohort-staggered rollouts and cross-vintage targeting in marketing analytics.
+-   @keys2010did: canonical credit-side dynamic-RDD application (FICO-620 securitization cutoff), illustrating both the strength of vintage-instrument identification and the lender-incentive channel that limits external validity.
+-   @ascarza2018retention: causal-forest-based heterogeneous treatment effects on retention, a precursor template for cohort-stratified reject inference with heterogeneous CATE.
 -   @swaminathan2015counterfactual: counterfactual risk minimization from logged bandit feedback.
 -   @bai2013doubly, @clayton1985multivariate, @zheng1995estimates: the survival analogs (AIPCW, joint frailty, copula competing risks) that translate the @sec-ch10-modern toolbox to lifetime PD.
 -   @copas1997inferring: a less-normal, Bayesian treatment of non-random selection.

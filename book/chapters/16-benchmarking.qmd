@@ -752,6 +752,141 @@ Expected maximum profit, @verbraken2014novel, integrates profit over a distribut
 
 A classifier that wins on AUC but is poorly calibrated will make wrong lending decisions at any given threshold. AUC is invariant to monotone transformations; real decisions are not. The reporting template for a credit model should include a calibration plot (reliability diagram), the Hosmer-Lemeshow test, the calibration slope and intercept from a logistic regression of $y$ on $\mathrm{logit}(\hat p)$, and the expected calibration error. @sec-ch04 covers the calibration machinery; here the lesson is that benchmarking on AUC alone is insufficient.
 
+## Score comparability across models and time {#sec-ch16-score-comparability}
+
+A benchmark table that ranks models by AUC silently assumes the scores live on a common axis. They do not. Two scorecards with identical AUC can score the same applicant differently, send different bad-rate signals at the same numeric cutoff, and disagree about who sits in the top decile. The same scorecard run on two vintages can shift its score distribution without any change in the underlying default risk. Both failures break the cross-model and cross-time comparisons that operating cutoffs, regulatory monitoring, and credit-econometrics analyses depend on. The @demsar2006statistical machinery in this chapter survives the failures (rank tests are invariant to monotone score transformations) but everything downstream of the benchmark does not.
+
+### The two failure modes
+
+*Cross-model* incomparability has three sources: different functional forms map the same risk to different ranges; different calibration procedures (Platt, isotonic, none) place different cumulative mass at any point; different training samples shift the score-to-odds anchor. Two models with the same AUC and the same Brier score can still produce different score distributions, because AUC is invariant to any monotone rescaling and Brier is invariant to many post-hoc affine adjustments.
+
+*Cross-time* incomparability has two causes that can occur together or apart: population drift moves the score distribution without moving the default rate at any score, and calibration drift moves the default rate at any score without necessarily moving the score distribution. PSI flags the first (@sec-ch04-psi); reliability diagrams flag the second (@sec-ch04). Neither metric, on its own, tells a downstream consumer whether the score is still comparable to last quarter's score.
+
+### Score as the dependent variable in econometric work
+
+Academic and policy work often uses a credit score as the outcome variable in a difference-in-differences, regression-discontinuity, or event-study design. The hidden assumption is that the scoring engine is fixed across the panel and across treatment and control. The assumption fails three ways: scoring vendors version their models periodically (FICO 8 to 9 to 10, VantageScore 3 to 4); bureaus update underlying data feeds, which silently re-scores every borrower; cross-borrower comparability requires that all borrowers were scored by the same engine, which fails when a treated cohort migrates to a different bureau or product line. The cleanest response is to drop the score and model the default event $y_{it}$ directly: default is invariant to the model, and the long horizon required for default to mature (@sec-ch09 and @sec-ch32) is a smaller cost than the spurious treatment effect produced by mid-window re-scoring. When the score itself is the object of policy interest (a regulator wants to know whether intervention $X$ moved bureau scores), pin the analysis to a single frozen scoring engine applied to the full panel of inputs, accepting that the analysis-side scores will diverge from the bureau-reported scores after the freeze date.
+
+### Four operations that recover comparability
+
+**Calibrate to PD.** A score $s$ from any model can be mapped to a probability of default $\hat\pi(s)$ on a recent labeled window via Platt, isotonic, or beta calibration (@sec-ch04). Once both models are mapped to PD, the two streams are comparable in the sense that they target the same conditional probability $P(Y=1\mid X)$. The map drifts; refit on a rolling window.
+
+**Points-to-double-odds (PDO) anchoring.** The FICO scaling derived in @sec-ch07-scaling, $\text{score} = a + b \log(\text{odds})$ with $b = \text{PDO}/\log 2$, lets two models be compared on a shared anchor pair $(s_0, \text{odds}_0)$. The map is one-to-one with PD in different units and shares its drift behavior. PDO is the right representation when downstream consumers (underwriters, regulators) read scores as numbers rather than probabilities.
+
+**Equipercentile equating.** Borrowed from psychometric test equating [@kolen2014equating]. Score a common anchor population with both models; build a quantile-to-quantile map; for each percentile $q$, the score from model B that has the same population CDF value as score $s_A$ from model A. The map preserves rank order in the anchor population and reproduces model B's marginal distribution from inputs that arrive only with model A's score. This is the standard tool when a bureau versions a score and clients need a translation from the old scale to the new.
+
+**Within-cell rank/percentile transform.** Convert each score to its empirical percentile in the cell defined by (model version, vintage, segment). The percentile is invariant to monotone transformations of the score and to monotone calibration drift. The cost: it discards cardinal information. A percentile of 0.95 in a 2 percent default population is not the same risk as a percentile of 0.95 in a 6 percent default population. Use percentile when downstream use is *relative ranking within a cell*; do not use it when downstream use is *absolute risk* (provisioning, capital, IFRS 9 ECL).
+
+### Cross-time: through-the-cycle versus point-in-time
+
+A point-in-time (PIT) PD is the conditional default probability given current macro conditions and moves with the cycle by design. A through-the-cycle (TTC) PD averages over the cycle and is meant to be cycle-stable. The Carlehed-Petrov decomposition and Vasicek mapping live in @sec-ch35-pit-ttc. Two consequences: a benchmark that compares classifiers across vintages should either compare TTC against TTC or de-trend PIT against a macro index; a drift alert that fires on a PIT score during a downturn may be flagging a correctly-calibrated reaction to the cycle, not a model failure.
+
+### A small numerical illustration
+
+Two models are trained on the same synthetic credit-like data, scored on a shared holdout, mapped to a common PDO scale, then linked by equipercentile equating and by a within-sample percentile transform. The point of the illustration is that AUC-equivalent models on a shared anchor still disagree about who is approved at any numeric cutoff, and that the two comparability operations recover different things.
+
+```{python}
+#| label: score-comparability-demo
+#| fig-cap: "Two models with comparable AUC produce different score distributions on the same holdout. The equipercentile linking curve maps quantiles of one scale onto the other; the percentile-vs-percentile scatter shows residual rank disagreement that the linking step cannot remove."
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+
+X, y = make_classification(
+    n_samples=20000, n_features=12, n_informative=8, n_redundant=2,
+    weights=[0.92, 0.08], flip_y=0.02, random_state=0,
+)
+X_tr, X_te, y_tr, y_te = train_test_split(
+    X, y, test_size=0.5, stratify=y, random_state=1,
+)
+
+mA = LogisticRegression(max_iter=1000).fit(X_tr, y_tr)
+mB = GradientBoostingClassifier(
+    n_estimators=200, max_depth=3, random_state=0,
+).fit(X_tr, y_tr)
+
+pA = mA.predict_proba(X_te)[:, 1]
+pB = mB.predict_proba(X_te)[:, 1]
+
+# PDO-style score: higher = better borrower; anchor (600, 50:1 good:bad), PDO = 20.
+PDO, anchor_score, anchor_odds = 20.0, 600.0, 50.0
+b = PDO / np.log(2.0)
+a = anchor_score - b * np.log(anchor_odds)
+def to_pdo_score(p):
+    return a + b * np.log((1.0 - p) / np.maximum(p, 1e-9))
+
+sA = to_pdo_score(pA)
+sB = to_pdo_score(pB)
+
+cutoff = 600.0
+summary = pd.DataFrame({
+    'model': ['A (logistic)', 'B (boosting)'],
+    'AUC': [roc_auc_score(y_te, pA), roc_auc_score(y_te, pB)],
+    'mean_score': [sA.mean(), sB.mean()],
+    'std_score':  [sA.std(),  sB.std()],
+    'share_below_600':   [(sA <= cutoff).mean(), (sB <= cutoff).mean()],
+    'bad_rate_below_600':[
+        y_te[sA <= cutoff].mean() if (sA <= cutoff).any() else np.nan,
+        y_te[sB <= cutoff].mean() if (sB <= cutoff).any() else np.nan,
+    ],
+}).round(4)
+summary
+```
+
+```{python}
+#| label: score-comparability-figs
+#| fig-cap: "Left: two PDO-anchored score distributions on the same holdout. Center: equipercentile linking curve from model A's scale to model B's. Right: per-borrower percentile in model A versus model B; off-diagonal mass is rank disagreement that no monotone linking can remove."
+qs = np.linspace(0.001, 0.999, 999)
+sA_q = np.quantile(sA, qs)
+sB_q = np.quantile(sB, qs)
+rA = pd.Series(sA).rank(pct=True).values
+rB = pd.Series(sB).rank(pct=True).values
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+axes[0].hist(sA, bins=40, alpha=0.55, label='Model A')
+axes[0].hist(sB, bins=40, alpha=0.55, label='Model B')
+axes[0].axvline(cutoff, color='k', lw=0.8, ls=':')
+axes[0].set_xlabel('PDO score'); axes[0].set_ylabel('Count')
+axes[0].set_title('Same anchor, different distributions')
+axes[0].legend()
+
+axes[1].plot(sA_q, sB_q, lw=1.4)
+lo, hi = min(sA_q.min(), sB_q.min()), max(sA_q.max(), sB_q.max())
+axes[1].plot([lo, hi], [lo, hi], 'k--', lw=0.8)
+axes[1].set_xlabel('Model A score quantile')
+axes[1].set_ylabel('Model B score quantile')
+axes[1].set_title('Equipercentile linking curve')
+
+axes[2].scatter(rA, rB, s=2, alpha=0.25)
+axes[2].plot([0, 1], [0, 1], 'k--', lw=0.8)
+axes[2].set_xlabel('Within-sample percentile, model A')
+axes[2].set_ylabel('Within-sample percentile, model B')
+axes[2].set_title('Rank-vs-rank residual disagreement')
+fig.tight_layout()
+plt.show()
+```
+
+The summary table shows three facts the prose has claimed. The two AUCs are within roughly one point of each other, a difference that on the @lessmann2015benchmarking scale would be a typical logistic-versus-boosting gap and would not on its own justify a model swap. Yet the score distributions differ in mean and standard deviation by amounts that matter for any score-numeric decision: the share of applicants below the 600 cutoff differs by roughly ten percentage points, so the same numeric cutoff implies different approval rates, and the bad rate below the cutoff differs by several percentage points, so the same cutoff implies different operating risk. The equipercentile curve in the center panel is the translation a downstream consumer would apply to convert model A scores onto model B's scale on this anchor population. The right panel is the residual: even after a perfectly monotone linking, individual borrowers are ranked differently by the two models, and equipercentile equating does not (and cannot) remove that disagreement.
+
+### A decision rubric
+
+| Downstream use | Recommended representation |
+| --- | --- |
+| Underwriting cutoff, capital, ECL provisioning | PD calibrated on a recent labeled window |
+| Cross-version monitoring or score translation | Equipercentile map against a fixed anchor population |
+| Cross-time econometric outcome (DiD, RD on score) | Default event $y$, or score from a frozen engine |
+| Relative-rank segmentation within a cell | Within-cell percentile |
+| Regulatory capital pool assignment | Master-scale PD bands (@sec-ch07-scaling) |
+| Marketing eligibility under a fixed bureau cutoff | Raw bureau score with PSI monitored monthly |
+
+### When to drop the score and use the default event
+
+Three situations argue for switching the analytic object from the score $\hat S$ to the default event $Y$: (i) the scoring engine is versioned within the analysis window and equipercentile linking does not bridge a structural change in inputs; (ii) the comparison spans bureaus or jurisdictions with no shared anchor population; (iii) the question is causal and the treatment plausibly affects how the score is constructed (a policy that changes what enters the bureau file changes the inputs and therefore the score, even if the underlying default risk is unchanged). In these cases the score is a polluted outcome and the default event is the cleaner one. The cost is the maturation horizon (12 to 24 months in retail, longer in mortgage), which the survival and behavioral chapters (@sec-ch09, @sec-ch32) handle directly.
+
 ## Scalability
 
 Benchmarks at the laptop scale use small samples. At production scale, two questions dominate: can the model be trained on a cluster, and can inference be served at the latency the business needs.
@@ -844,6 +979,7 @@ Operationally, a Vietnam-context benchmark pipeline looks like this. Pull CIC-eq
 - Logistic regression remains the rational choice when regulators demand interpretability, when $N$ is small, or when domain knowledge dictates monotone linear structure.
 - Gradient-boosted trees still dominate deep learning on typical tabular credit data under comparable tuning budgets [@grinsztajn2022why]. Deep models are the right choice for sequence data, not for standard tabular features.
 - Benchmark tables should report AUC, KS, Brier, H-measure, partial AUC, calibration, and EMP, and aggregate across datasets via ranks, not arithmetic means.
+- Scores from different models, or from the same model across vintages, are not on a common axis without explicit work: PD calibration, PDO anchoring, equipercentile equating, or a within-cell percentile transform. When the analytic object is causal and the engine could re-version, use the default event instead (@sec-ch16-score-comparability).
 
 ## Further reading {.unnumbered}
 
@@ -860,3 +996,4 @@ Operationally, a Vietnam-context benchmark pipeline looks like this. Pull CIC-eq
 - @hand2009measuring, the H-measure paper and its critique of AUC incoherence.
 - @verbraken2014novel, the EMP metric for credit with loss-given-default awareness.
 - @dietterich1998approximate and @alpaydin1999combined, the 5-by-2 CV protocol.
+- @kolen2014equating, the canonical psychometric reference on equipercentile equating, scaling, and linking. The framework transfers directly to credit-score versioning (FICO 8 to 9 to 10 type migrations) and to cross-bureau score translation.
