@@ -106,6 +106,238 @@ The Taiwan dataset we use throughout the book has a 22% bad rate, which is a cre
 
 The class prior matters because it appears in every decision-theoretic calculation and because the posterior $\eta(x)$ is prior-dependent. If we retrain on a resampled dataset with different prior $\pi_1'$, the score is still useful for ranking but the probability is wrong. We return to this at length in a later chapter.
 
+## What is a PD? Five conditioning choices {#sec-ch02-pd-construct}
+
+A PD on a screen looks like a number. It is not. It is a conditional probability whose conditioning set has five moving parts. Two PDs that disagree on any one of the five are not comparable as numbers, only as ranks. This section names the five parts and gives the operating rules for making PDs comparable when the business forces a cross-vendor, cross-portfolio, or cross-vintage comparison.
+
+The five parts also explain a recurring surprise. A vendor quotes a 4% PD on a borrower; an internal model quotes 1.5% on the same borrower; both pass calibration on their own books. Neither model is wrong. The two numbers are estimates of different quantities under different conditioning. The reconciliation requires aligning the conditioning set, not retraining the models.
+
+### The construct expanded {#sec-ch02-pd-construct-expanded}
+
+Write the PD as the full conditional probability it really is:
+
+$$
+\mathrm{PD}(x) = \Pr(Y \in \mathcal{B} \text{ within horizon } h \mid X = x, \mathcal{P}, \mathcal{C}, \mathcal{S}).
+$$ {#eq-pd-construct}
+
+The five conditioners:
+
+1.  $\mathcal{B}$, the bad event set. Which outcomes count as a default.
+2.  $h$, the performance horizon. The window over which $Y$ is observed.
+3.  $\mathcal{P}$, the reference population. The portfolio whose mixture defines $\eta_{\mathcal{P}}(x) = \Pr(Y \in \mathcal{B} \mid X = x)$.
+4.  $\mathcal{C}$, the conditioning information used. Whether macro state is conditioned on (PIT) or integrated out (TTC).
+5.  $\mathcal{S}$, the sampling frame. The selection from the through-the-door (TTD) population that produced the training data.
+
+In plain English: who counts as defaulted, how long we wait, who is in the pool, what macro state we assume, and whether the data we used reflects the full applicant pool or only the accepted slice. Change any one and the number changes, often by a factor of two or three on the same borrower.
+
+A PD quote without the five-tuple is incomplete the same way a bond yield without a maturity is incomplete. The construct here is the thing the model is estimating; @sec-ch02-pd-lgd-ead-and-regulatory-capital starts from a fully specified construct and works out the capital arithmetic. Get the construct wrong and the arithmetic is exact but meaningless.
+
+### Choice 1: the bad event $\mathcal{B}$ {#sec-ch02-pd-construct-bad-event}
+
+The bad event has already been treated at length in @sec-ch02-setup. We restate the point here because it is the most common source of cross-vendor non-comparability. The Basel anchor is 90+ dpd or UTP, but real PD numbers in the market correspond to half a dozen variants: ever-90 within 12 months, ever-60, worst-status, charge-off, distressed-restructuring flag, bankruptcy. The variants differ by a factor of two to four on the same book.
+
+A useful identity. If $\mathcal{B}_A \subseteq \mathcal{B}_B$ (the looser definition is a superset of the stricter one), then
+
+$$
+\Pr(Y \in \mathcal{B}_A) \le \Pr(Y \in \mathcal{B}_B) \quad \text{pointwise in } x,
+$$ {#eq-pd-bad-monotone}
+
+so a loose-bad PD is always at least as large as a strict-bad PD on the same exposure. In plain English: counting more events as "default" can only push the default probability up. The ratio between the two is not constant in $x$, which is why a simple multiplicative correction across all borrowers fails.
+
+Operating rule. Before comparing two PD numbers, write down each model's $\mathcal{B}$. If they differ, do not compare the numbers directly. Fit a mapping $\mathcal{B}_A \to \mathcal{B}_B$ on a held-out sample using a roll-rate matrix [@thomas2017credit], then convert one to the other before comparison.
+
+### Choice 2: the performance horizon $h$ {#sec-ch02-pd-construct-horizon}
+
+The horizon turns a PD from a probability into a function of time. Hazard intensity matters: a borrower with a 4% 12-month PD does not have a 16% four-year PD, because survival compounds and the hazard typically decays or peaks for seasoned exposures.
+
+Three horizons dominate in practice:
+
+-   12-month PD. Basel IRB anchor and the standard for application scoring on unsecured retail.
+-   Lifetime PD. IFRS 9 stage-2/3 and CECL anchor. Computed by integrating a hazard over the remaining contractual term.
+-   Term PD (point-event). Probability of default before the next behavioral score refresh, often one to three months.
+
+The naive conversion $h$-year PD $\approx 1 - (1 - p_{12})^h$ assumes a constant hazard and independent yearly trials. It is correct only as a first-order approximation. The right derivation uses a survival or Markov framework (see @sec-ch35-ifrs9 and the survival chapter referenced there):
+
+$$
+\mathrm{PD}(x, h) = 1 - \exp\!\left(-\int_0^h \lambda(u \mid x, \mathcal{F}_0) \, du\right),
+$$ {#eq-pd-horizon}
+
+with $\lambda$ the hazard intensity at age $u$ conditional on covariates at origination $\mathcal{F}_0$. In plain English: time stretches the probability the same way it stretches a bond's default risk. A 1% one-year PD is not a 1% lifetime PD on a 30-year mortgage; it is 20% to 30%, depending on hazard shape and prepayment.
+
+Operating rule. Never compare a 12-month PD to a lifetime PD. Translate one to the other via a hazard model fit on the same portfolio, then compare. A reported PD without a horizon is unusable for provisioning or pricing.
+
+### Choice 3: the reference population $\mathcal{P}$ {#sec-ch02-pd-construct-population}
+
+The posterior $\eta(x) = \Pr(Y = 1 \mid X = x)$ is a function of the joint distribution of $(X, Y)$. The joint distribution is determined by the population. Two models trained on a prime card book and a subprime auto book learn different $\eta$ functions, and a borrower with identical feature vector $x$ gets different PDs from the two.
+
+This is not a calibration bug. It is the correct posterior under each population. The same $x$ is genuinely riskier in a subprime book because the unobserved factors that landed the borrower in the subprime channel are themselves correlated with default. By Bayes' rule:
+
+$$
+\eta_{\mathcal{P}}(x) = \frac{\pi_{\mathcal{P}} f_{\mathcal{P}}(x \mid Y = 1)}{\pi_{\mathcal{P}} f_{\mathcal{P}}(x \mid Y = 1) + (1 - \pi_{\mathcal{P}}) f_{\mathcal{P}}(x \mid Y = 0)},
+$$ {#eq-population-bayes}
+
+so both the class prior $\pi_{\mathcal{P}}$ and the class-conditional densities $f_{\mathcal{P}}(\cdot \mid Y)$ shift with $\mathcal{P}$.
+
+If the class-conditional densities are roughly invariant (a strong assumption sometimes called covariate shift, see @sec-ch04-drift), then the posterior on a new population is reachable by a prior-correction formula. @king2001logistic give the working version for logistic regression: adjust only the intercept by $\log(\pi_{\mathcal{P}}' / (1 - \pi_{\mathcal{P}}')) - \log(\pi_{\mathcal{P}} / (1 - \pi_{\mathcal{P}}))$. In plain English: if the *shape* of the risk function in feature space is portable but the average default rate differs, you can rescale the intercept and get usable PDs. If the *shape* is also different, you have to retrain or recalibrate, not just rescale.
+
+Operating rule. A vendor's PD on a portfolio they did not train on is suspect at the absolute-probability level even when discrimination is excellent. Always recalibrate on a holdout drawn from the target population (@sec-ch04-brier).
+
+### Choice 4: cycle treatment $\mathcal{C}$ (PIT vs TTC) {#sec-ch02-pd-construct-cycle}
+
+The same borrower with the same feature vector has a higher one-year PD in a recession than in a boom. The point-in-time (PIT) PD captures this; the through-the-cycle (TTC) PD averages over it. Both are valid quantities; they answer different questions.
+
+Formally, let $M_t$ denote a vector of macro factors at time $t$. Then:
+
+$$
+\mathrm{PD}^{\mathrm{PIT}}(x, t) = \Pr(Y = 1 \mid X = x, M_t),
+$$ {#eq-pd-pit}
+
+$$
+\mathrm{PD}^{\mathrm{TTC}}(x) = \mathbb{E}_{M}\!\left[\Pr(Y = 1 \mid X = x, M)\right] = \int \mathrm{PD}^{\mathrm{PIT}}(x, m) \, dF(m).
+$$ {#eq-pd-ttc}
+
+The TTC PD is the expected PIT PD over the long-run macro distribution $F(m)$. In plain English: PIT is "what we think will happen this year"; TTC is "what happens on average across the cycle." A pure PIT estimate moves up in recessions and down in booms; a pure TTC estimate sits still and lets the macro overlay do the work elsewhere.
+
+Basel IRB targets TTC for capital-stability reasons. IFRS 9 and CECL target PIT (or near-PIT) for provisioning. A bank therefore runs two PD numbers on the same exposure, and a vendor that ships only one of them is incompletely positioned for either use case.
+
+The intermediate construct is a hybrid PD with explicit macro overlay [@carlehed2012framework]. Common practice is to estimate $\mathrm{PD}^{\mathrm{TTC}}(x)$ as the model baseline and apply a scalar macro adjustment so that $\mathrm{PD}^{\mathrm{PIT}}(x, t) = g(\mathrm{PD}^{\mathrm{TTC}}(x), M_t)$. Rating-agency practice has been examined empirically in @loffler2013rating, who finds that even agency ratings are not pure TTC. Migration matrices conditional on the cycle are derived in @bangia2002ratings. Stress-testing chapters (@sec-ch35-ifrs9) develop this further.
+
+Operating rule. Tag every PD with its cycle stance. A 3% PD that is PIT and a 3% PD that is TTC are not the same risk claim, even if both pass calibration on their respective targets.
+
+### Choice 5: sampling frame $\mathcal{S}$ {#sec-ch02-pd-construct-sampling}
+
+The PD a model learns is a PD conditional on the data the model saw. If the data is accepted-only, the learned $\eta(x)$ is $\Pr(Y = 1 \mid X = x, D = 1)$, not the target $\Pr(Y = 1 \mid X = x)$ on the TTD applicant population. The two are equal only when $D$ is independent of $Y$ given $X$, which is precisely the assumption reject inference tries to relax (@sec-ch10-reject).
+
+The selection bias propagates into every comparison:
+
+-   Two banks with different approval rates produce different selected-sample distributions even if their TTD populations are identical. Their internal PDs are conditional on different selection events.
+-   A bureau score trained on observed-default tradelines is implicitly conditioned on having survived previous credit decisions. Apply it to a thin-file applicant who would have been rejected at past stages and the score's PD interpretation breaks.
+-   Low-default portfolios (sovereigns, prime corporates) suffer the dual problem of selection plus tiny event counts. The standard PD estimate is biased and almost certainly understates risk; @plutotasche2005 give a confidence-bound estimator that is the industry workhorse.
+
+Operating rule. State the sampling frame. When PDs from two sources need to be compared, the comparison is valid only on the intersection of their training frames or after a selection correction (Heckman or its generalizations, in @sec-ch10-heckman-selection-correction).
+
+### Score versus PD: ordinal versus cardinal {#sec-ch02-score-vs-pd}
+
+A clean separation that saves a great deal of confusion.
+
+-   A **score** is a real-valued ranking function $s : \mathcal{X} \to \mathbb{R}$. Higher means safer (or riskier, depending on sign). Designed to be rank-comparable. Says: borrower A is safer than borrower B. Does not claim an absolute probability.
+-   A **PD** is a calibrated probability $\hat p : \mathcal{X} \to [0, 1]$. Cardinal. Claims $\mathbb{E}[\mathbf{1}\{Y \in \mathcal{B}\} \mid X = x] = \hat p(x)$.
+
+A strictly monotone transform of a score is the same score for ranking purposes. AUC, KS, Gini, and the H-measure are all invariant to any strictly monotone transform of $s$ (@sec-ch04-auc). Brier, log-loss, calibration intercept and slope, and the expected calibration error are not invariant: they react to the absolute level of $\hat p$, not just the ordering.
+
+This is why two vendors can have identical AUC on the same portfolio and still produce wildly different PDs. AUC is a ranking statistic. The PDs differ because the calibration mapping from rank to probability is fit under different $(\mathcal{B}, h, \mathcal{P}, \mathcal{C}, \mathcal{S})$ tuples.
+
+In plain English: the score answers "who is riskier"; the PD answers "how risky in absolute terms." Two scoring shops can agree on the first answer perfectly and disagree on the second by factor-of-three magnitudes.
+
+### What is comparable, and what is not {#sec-ch02-pd-comparability}
+
+The five conditioners give a precise decision rule for whether a comparison is meaningful (@tbl-ch02-pd-comparability).
+
+| Comparison                              | Conditioner alignment needed                                                | What fails otherwise                                                                  |
+|-----------------------------------------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| Two borrowers, one model                | None                                                                        | Comparable by construction                                                            |
+| Two models, same portfolio              | Same $\mathcal{B}$, $h$, $\mathcal{S}$                                      | Different label definitions inflate one model's AUC                                   |
+| Two vendors, same borrower              | All five aligned, or recalibrated to a common scale                         | Vendor A's 700 corresponds to a different PD than vendor B's 700                      |
+| Same borrower, two dates                | TTC stance, or explicit PIT-with-macro decomposition                        | Cyclical PD movement gets read as a borrower-level shift                              |
+| Two products (card, auto, mortgage)     | Same $\mathcal{B}$, $h$, common scale                                       | "PD" gets contaminated by exposure and recovery, which live elsewhere                 |
+| Two vintages, same product              | Same $\mathcal{B}$, $h$, $\mathcal{S}$, plus seasoning adjustment           | Hazard-shape differences look like population changes                                 |
+
+: A decision rule for PD comparability {#tbl-ch02-pd-comparability}
+
+The pattern. Ranking comparisons are robust to most conditioner mismatches because AUC is monotone-invariant. Probability comparisons require all five to align or an explicit translation step.
+
+### The industry fix: master rating scale and recalibration {#sec-ch02-master-scale}
+
+The Basel-conformant resolution is a **master rating scale**. The bank defines a fixed ladder of grades (say 18 buckets, grade 1 the safest, grade 18 the defaulted), each with a target PD range on a fixed triple $(\mathcal{B}, h, \mathcal{C}) =$ (Basel 90+ dpd or UTP, 12 months, TTC). Every model on every portfolio is recalibrated so that its raw output PD is mapped, by isotonic regression or Platt scaling on a reference holdout, to a grade on the master scale. Low-default grades use the @plutotasche2005 confidence-bound estimator to avoid the zero-event trap.
+
+The downstream effect:
+
+-   Two vendors that map to the same grade are by definition expressing the same TTC PD claim. The grade is the common currency.
+-   Across products, the comparison is grade-to-grade. PD differences across product lines are dampened by the calibration step.
+-   Across vintages, the score-to-grade mapping is re-estimated at each refresh. Drift in that mapping is the diagnostic; the grade itself is intended to be stable.
+
+Calibration mechanics belong in @sec-ch04-brier and @sec-ch16-score-comparability; the master-scale construct belongs in this chapter because it is the construct-level resolution to the five-conditioner problem. For vendor onboarding, the master scale is the operating layer through which a candidate model is judged. The performance back-test in @sec-ch34b-perf works at the grade level for exactly this reason.
+
+### A numerical illustration {#sec-ch02-pd-illustration}
+
+We make the non-comparability concrete with a simulation. Two outcome definitions on the same latent risk produce two PD models with almost identical AUC but per-borrower PDs that disagree by factor-of-two magnitudes.
+
+```{python}
+#| label: fig-ch02-pd-construct
+#| fig-cap: "Same latent risk, two bad-event definitions. Left: ROC curves on each model's own labels. Discrimination is preserved across the choice of $\\mathcal{B}$. Right: per-borrower PD under the strict definition versus the loose definition. The systematic departure from the 45-degree line is what a master rating scale closes."
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score, roc_curve
+
+rng = np.random.default_rng(2026)
+n = 20_000
+X = rng.normal(size=(n, 3))
+beta_true = np.array([1.0, -0.7, 0.5])
+z = X @ beta_true + 0.5 * rng.normal(size=n)  # latent risk score, higher = riskier
+
+# Two bad-event definitions on the same latent z.
+# B_strict: top 6% of z, proxy for ever-90 within 12 months (tight bad).
+# B_loose:  top 18% of z, proxy for ever-30 within 12 months (looser bad).
+c_strict = np.quantile(z, 0.94)
+c_loose  = np.quantile(z, 0.82)
+y_strict = (z >= c_strict).astype(int)
+y_loose  = (z >= c_loose).astype(int)
+
+m_strict = LogisticRegression(max_iter=2000).fit(X, y_strict)
+m_loose  = LogisticRegression(max_iter=2000).fit(X, y_loose)
+p_strict = m_strict.predict_proba(X)[:, 1]
+p_loose  = m_loose.predict_proba(X)[:, 1]
+
+auc_ss = roc_auc_score(y_strict, p_strict)
+auc_ll = roc_auc_score(y_loose,  p_loose)
+auc_sl = roc_auc_score(y_loose,  p_strict)  # strict-trained model ranking loose label
+
+print(f"Bad rate strict: {y_strict.mean():.3f}")
+print(f"Bad rate loose:  {y_loose.mean():.3f}")
+print(f"AUC strict-on-strict: {auc_ss:.3f}")
+print(f"AUC loose-on-loose:   {auc_ll:.3f}")
+print(f"AUC strict-on-loose:  {auc_sl:.3f}")
+print(f"Per-borrower PD ratio (loose / strict), median: "
+      f"{np.median(p_loose / p_strict):.2f}")
+print(f"Per-borrower PD ratio (loose / strict), 95th pct: "
+      f"{np.quantile(p_loose / p_strict, 0.95):.2f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+
+ax = axes[0]
+for y, p, label in [(y_strict, p_strict, "strict"),
+                    (y_loose,  p_loose,  "loose")]:
+    fpr, tpr, _ = roc_curve(y, p)
+    ax.plot(fpr, tpr, label=f"{label} (AUC={roc_auc_score(y, p):.3f})")
+ax.plot([0, 1], [0, 1], "k--", lw=1)
+ax.set_xlabel("False positive rate")
+ax.set_ylabel("True positive rate")
+ax.set_title("ROC: two bad-event definitions, one latent risk")
+ax.legend(loc="lower right")
+ax.grid(alpha=0.3)
+
+ax = axes[1]
+ax.scatter(p_strict, p_loose, s=4, alpha=0.25)
+lim = float(max(p_strict.max(), p_loose.max()))
+ax.plot([0, lim], [0, lim], "k--", lw=1,
+        label="45 degrees (perfect comparability)")
+ax.set_xlabel("PD under strict bad definition")
+ax.set_ylabel("PD under loose bad definition")
+ax.set_title(r"Per-borrower PD: strict vs loose $\mathcal{B}$")
+ax.legend(loc="upper left")
+ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+The two models rank borrowers almost identically. AUC on each model's own label sits around 0.85, and the strict-trained model's score also ranks the loose-defined label well. At the individual borrower level, the PDs differ by a factor of three at the median, with much larger ratios in the tails. That is the gap a master rating scale closes: by mapping each model's score to a fixed grade ladder on a common $\mathcal{B}$, the per-borrower PD becomes the grade's target PD, and the cross-vendor comparison is well-defined again.
+
+The operational takeaway. If you are asked "is vendor A's PD higher than vendor B's PD on this borrower?", the answer is undefined until each vendor's PD is converted to a common scale. If you are asked "does vendor A rank this borrower higher than vendor B?", the answer is well-defined and the standard discrimination tools handle it (@sec-ch04-auc).
+
 ## PD, LGD, EAD, and regulatory capital {#sec-ch02-pd-lgd-ead-and-regulatory-capital}
 
 The three building blocks of Basel credit risk capital are the probability of default (PD), the loss given default (LGD), and the exposure at default (EAD). Each is a separate estimation problem with its own target, horizon, and regulatory treatment. The expected loss on a facility is their product, and the unexpected loss is what regulatory capital is designed to absorb.
@@ -899,6 +1131,7 @@ The two local datasets that support this chapter's machinery are the CIC inquiry
 
 -   Credit scoring is a probabilistic classification task embedded in a decision-theoretic pipeline. The probability is the intermediate output; the decision is what matters.
 -   Goods, bads, and indeterminates are defined by the Basel 90+ dpd rule, UTP triggers, and firm policy. Getting the bad definition wrong invalidates every downstream metric.
+-   A PD is a conditional probability indexed by five choices: bad event $\mathcal{B}$, horizon $h$, population $\mathcal{P}$, cycle stance $\mathcal{C}$, sampling frame $\mathcal{S}$ (@sec-ch02-pd-construct). Cross-vendor and cross-vintage comparisons are only well-defined after these are aligned or after both PDs are mapped to a common master rating scale.
 -   Expected loss decomposes as $\mathrm{EL} = \mathrm{PD} \times \mathrm{LGD} \times \mathrm{EAD}$. Unexpected loss is what Basel regulatory capital covers, via the Asymptotic Single Risk Factor (ASRF) formula.
 -   The IRB capital formula $K = \mathrm{LGD} \cdot \Phi((\Phi^{-1}(\mathrm{PD}) + \sqrt{\rho} \Phi^{-1}(0.999)) / \sqrt{1 - \rho}) - \mathrm{PD} \cdot \mathrm{LGD}$ falls out of a single-factor Vasicek model plus a 99.9% stress scenario. Memorize it.
 -   Application, behavioral, and collection scoring are three different problems. Do not confuse them.
@@ -913,6 +1146,11 @@ The two local datasets that support this chapter's machinery are the CIC inquiry
 -   @gordy2003risk for the formal risk-factor justification of the IRB formula.
 -   @vasicek2002distribution for the single-factor portfolio loss distribution.
 -   @thomas2000survey for the foundational scorecard survey.
+-   @thomas2017credit for the modern scorecard text and the standard roll-rate machinery used for bad-definition translation.
+-   @carlehed2012framework for the canonical PIT-TTC decomposition.
+-   @loffler2013rating for empirical evidence on through-the-cycle rating practice.
+-   @bangia2002ratings for cycle-conditional migration matrices.
+-   @plutotasche2005 for low-default PD estimation under the master-scale workflow.
 -   @crook2007recent for the behavioral-scoring update.
 -   @heckman1979sample for the canonical sample-selection correction.
 -   @hand1997statistical for the credit-scoring adaptation.
