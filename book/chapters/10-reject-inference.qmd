@@ -273,11 +273,11 @@ Let $X \in \mathbb{R}^p$ be the application features observed at decision time, 
 
 Throughout the chapter, $\phi$ and $\Phi$ denote the standard normal density and CDF. The inverse Mills ratio is $\lambda(a) = \phi(a)/\Phi(a)$. Expectations over the unobserved error vector $(u, v)$ respect the bivariate normal joint structure assumed in @heckman1979sample, with correlation $\rho$ and outcome-side standard deviation $\sigma$ (normalized to 1 in the probit case).
 
-**Nuisance functions.** []{#sec-ch10-nuisance-def} The chapter uses the word *nuisance* in its semiparametric-statistics sense, not its everyday sense. The *parameter of interest* (also called the target functional) is the object the lender actually wants to estimate: the through-the-door PD $\mu_0(x) = P(Y = 1 \mid X = x)$, the scorecard coefficients $\beta$, the dollar expected loss on a policy region, or any other functional of the full-population law. A *nuisance function* (or *nuisance parameter* when finite-dimensional) is any other quantity that the estimator needs as an input but that the lender does not care about reporting. In this chapter the two recurring nuisances are the propensity $\pi(x, z) = P(S = 1 \mid X = x, Z = z)$ (the probability the incumbent policy accepts an applicant with features $(x, z)$) and the accept-conditional outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ (the booked-sample default rate at $X = x$). In plain English, $\pi$ models *who gets in* and $g$ models *how the people who got in performed*; neither is the answer the credit officer wants, but the AIPW score $\hat\mu(x) = g(x) + (S / \pi(x, z))(Y - g(x))$ needs both to recover the through-the-door PD. The name *nuisance* is historical (the term goes back to @neyman1948consistent and the semiparametric efficiency literature collected in @vandervaart1998asymptotic): these functions are a *nuisance* because their estimation error has to be controlled to get a clean inference statement on the parameter of interest, even though their values are not themselves the answer. Two practical consequences of this framing recur in the chapter. (i) *A nuisance can be misspecified and the estimator still consistent.* AIPW is *doubly robust* precisely in the sense that if either $\pi$ or $g$ equals the truth, the estimator recovers $\mu_0$ even when the other nuisance is wrong (@sec-ch10-heckman-vs-dml). (ii) *Nuisances can be fit by arbitrary machine learning.* Under Neyman orthogonality and cross-fitting, both $\hat\pi$ and $\hat g$ are allowed to converge at the slow $o(n^{-1/4})$ rate that flexible learners like gradient boosting deliver, and the second-stage estimator of the parameter of interest still inherits the textbook $\sqrt n$ rate and a usable confidence interval (@chernozhukov2018double, formalized at @eq-dml-rate). In a survival or expected-loss extension the nuisance pair generalizes naturally: $\pi$ becomes a censoring or selection hazard, $g$ becomes a conditional survival or loss surface, but the role in the estimator stays the same.
+**Nuisance functions.** The chapter uses the word *nuisance* in its semiparametric-statistics sense, not its everyday sense. The *parameter of interest* (also called the target functional) is the object the lender actually wants to estimate: the through-the-door PD $\mu_0(x) = P(Y = 1 \mid X = x)$, the scorecard coefficients $\beta$, the dollar expected loss on a policy region, or any other functional of the full-population law. A *nuisance function* (or *nuisance parameter* when finite-dimensional) is any other quantity that the estimator needs as an input but that the lender does not care about reporting. In this chapter the two recurring nuisances are the propensity $\pi(x, z) = P(S = 1 \mid X = x, Z = z)$ (the probability the incumbent policy accepts an applicant with features $(x, z)$) and the accept-conditional outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ (the booked-sample default rate at $X = x$). In plain English, $\pi$ models *who gets in* and $g$ models *how the people who got in performed*; neither is the answer the credit officer wants, but the AIPW score $\hat\mu(x) = g(x) + (S / \pi(x, z))(Y - g(x))$ needs both to recover the through-the-door PD. The name *nuisance* is historical (the term goes back to @neyman1948consistent and the semiparametric efficiency literature collected in @vandervaart1998asymptotic): these functions are a *nuisance* because their estimation error has to be controlled to get a clean inference statement on the parameter of interest, even though their values are not themselves the answer. Two practical consequences of this framing recur in the chapter. (i) *A nuisance can be misspecified and the estimator still consistent.* AIPW is *doubly robust* precisely in the sense that if either $\pi$ or $g$ equals the truth, the estimator recovers $\mu_0$ even when the other nuisance is wrong (@sec-ch10-heckman-vs-dml). (ii) *Nuisances can be fit by arbitrary machine learning.* Under Neyman orthogonality and cross-fitting, both $\hat\pi$ and $\hat g$ are allowed to converge at the slow $o(n^{-1/4})$ rate that flexible learners like gradient boosting deliver, and the second-stage estimator of the parameter of interest still inherits the textbook $\sqrt n$ rate and a usable confidence interval (@chernozhukov2018double, formalized at @eq-dml-rate). In a survival or expected-loss extension the nuisance pair generalizes naturally: $\pi$ becomes a censoring or selection hazard, $g$ becomes a conditional survival or loss surface, but the role in the estimator stays the same.
 
 ## The selection bias problem {#sec-ch10-reject}
 
-### The naive fit and what it estimates
+### The naive fit and what it estimates {#sec-ch10-naive-fit}
 
 Fix the incumbent policy as a deterministic rule $s(x, z)$ with $S = s(X, Z)$ almost surely (we relax this later). The lender observes $\{(X_i, Z_i, Y_i) : S_i = 1\}$. A naive maximum-likelihood fit of a PD model $P(Y=1 \mid X; \beta)$ on this sample estimates
 
@@ -291,51 +291,61 @@ The distinction matters because there exist rules that induce covariate shift wi
 
 ### Two mechanisms {#sec-ch10-two-mechanisms}
 
-To make the distinction concrete, fix one outcome model and run two selection rules through it. The outcome model has one observable feature $X$ and one latent residual $U$ that stands in for everything not in the feature store: informal-income flags, free-text underwriter notes, desk overlays. Two selection rules differ only in what drives the accept decision. @fig-ch10-two-mechanisms-a and @fig-ch10-two-mechanisms-b show the mechanism graphs in turn; the only structural difference is the arrow into $S$ in the second graph. In both graphs $Y$ is the latent default that *would* be realized if the applicant were funded; $S$ governs whether we observe $Y$, not whether it occurs, which is why no arrow runs from $S$ into $Y$.
+To make the distinction concrete, fix one outcome model and run two selection rules through it. The outcome model has one observable feature $X$ and one latent residual $U$ that stands in for everything not in the feature store: informal-income flags, free-text underwriter notes, desk overlays. Two selection rules differ only in what drives the accept decision. @fig-ch10-two-mechanisms-a and @fig-ch10-two-mechanisms-b show the full mechanism graphs in turn. In both graphs $Y$ is the *latent* default that the applicant would realize if funded, generated by $(X, U)$; the modeler-visible outcome is $Y_{\text{obs}}$, which equals $Y$ when $S = 1$ and is missing when $S = 0$. The accept decision $S$ therefore has *no* arrow into $Y$ (it does not change the would-be default), but it *does* have an arrow into $Y_{\text{obs}}$ (it gates whether the latent default is recorded). That gate is the entire reason a reject-inference problem exists: every estimator in this chapter is some scheme for inferring properties of $Y$ from the censored signal $Y_{\text{obs}}$. The only structural difference between the two graphs is what drives $S$: in (a), $S$ depends on an independent noise $W$, so the gate on $Y_{\text{obs}}$ is uninformative about $U$; in (b), $S$ depends on a latent $V$ correlated with $U$, so the gate is informative about the very residual that drives $Y$.
 
 ::: no-panzoom
 ```{mermaid}
 %%| label: fig-ch10-two-mechanisms-a
-%%| fig-cap: "Scenario A: covariate shift only. Squares are observed at decision time; dashed circles are latent residuals the modeler does not see. The accept rule depends on observable $X$ and an independent noise $W$, so $P(X \\mid S=1)$ shifts relative to $P(X)$ but the conditional $P(Y \\mid X)$ is preserved. Reweighting on $X$ alone closes the gap."
+%%| fig-cap: "Scenario A: covariate shift only. Solid boxes are quantities the modeler observes at decision time. Dashed circles are latent shocks the modeler does not see. The latent default $Y$ is generated by $(X, U)$ for *every* applicant. The accept rule $S = \\mathbf{1}\\{W > X\\}$ then gates whether $Y$ is recorded: the observed outcome $Y_{\\text{obs}}$ equals $Y$ when $S = 1$ and is missing when $S = 0$. Because $W$ is independent of $U$, the gate is uninformative about the residual that drives $Y$, so within any $X$-bin the booked sample is a uniform random subsample of the latent population. $P(X \\mid S = 1)$ shifts relative to $P(X)$, but $P(Y \\mid X, S = 1) = P(Y \\mid X)$. Reweighting on $X$ alone closes the gap."
 flowchart TB
     classDef obs fill:#cfd8dc,stroke:#37474f,color:#111;
-    classDef lat fill:#fff,stroke:#c62828,color:#c62828;
-    classDef noise fill:#fff,stroke:#90a4ae,color:#455a64;
+    classDef lat fill:#fff,stroke:#c62828,color:#c62828,stroke-dasharray: 5 5;
+    classDef noise fill:#fff,stroke:#90a4ae,color:#455a64,stroke-dasharray: 5 5;
     classDef sel fill:#90caf9,stroke:#0d47a1,color:#111;
-    classDef out fill:#1976d2,stroke:#0d47a1,color:#fff;
+    classDef laty fill:#fff,stroke:#0d47a1,color:#0d47a1,stroke-dasharray: 5 5;
+    classDef obsy fill:#1976d2,stroke:#0d47a1,color:#fff;
 
-    XA["X<br/>features"]:::obs
+    XA["X<br/>features (observed)"]:::obs
     UA(("U<br/>latent residual")):::lat
-    WA(("W<br/>noise, indep of U")):::noise
-    SA{{"S<br/>accept if W &gt; X"}}:::sel
-    YA["Y<br/>default"]:::out
+    WA(("W<br/>selection noise, indep of U")):::noise
+    YA(("Y<br/>latent default, would-be")):::laty
+    SA{{"S = 1{W &gt; X}<br/>accept decision"}}:::sel
+    YobsA["Y_obs<br/>= Y if S=1, missing if S=0"]:::obsy
+
     XA --> YA
     UA --> YA
     XA --> SA
     WA --> SA
+    YA --> YobsA
+    SA -. gates .-> YobsA
 ```
 :::
 
 ::: no-panzoom
 ```{mermaid}
 %%| label: fig-ch10-two-mechanisms-b
-%%| fig-cap: "Scenario B: selection bias proper. The accept rule depends on a latent $V$ correlated with the outcome residual $U$ (correlation $\\rho$). The marginal $P(X \\mid S=1)$ is identical to Scenario A by construction, so both induce the same covariate shift, but here the conditional $P(Y \\mid X, S=1) \\ne P(Y \\mid X)$. That single arrow from $U$ into $V$ is what reject inference exists to address."
+%%| fig-cap: "Scenario B: selection bias proper. Same gating structure as (a): the latent default $Y$ is generated by $(X, U)$ for every applicant, and $S$ gates whether $Y$ is recorded as $Y_{\\text{obs}}$. The structural change is the arrow $U \\to V$: the accept rule $S = \\mathbf{1}\\{V > X\\}$ now depends on a latent $V$ correlated with $U$ (correlation $\\rho$). The gate is now *informative* about the residual that drives the latent default. The marginal $P(X \\mid S = 1)$ is identical to Scenario A by construction, so both induce the same covariate shift, but here $P(Y \\mid X, S = 1) \\ne P(Y \\mid X)$. That single $U \\to V$ arrow is what reject inference exists to address."
 flowchart TB
     classDef obs fill:#cfd8dc,stroke:#37474f,color:#111;
-    classDef lat fill:#fff,stroke:#c62828,color:#c62828;
+    classDef lat fill:#fff,stroke:#c62828,color:#c62828,stroke-dasharray: 5 5;
     classDef sel fill:#90caf9,stroke:#0d47a1,color:#111;
-    classDef out fill:#1976d2,stroke:#0d47a1,color:#fff;
+    classDef laty fill:#fff,stroke:#0d47a1,color:#0d47a1,stroke-dasharray: 5 5;
+    classDef obsy fill:#1976d2,stroke:#0d47a1,color:#fff;
 
-    XB["X<br/>features"]:::obs
+    XB["X<br/>features (observed)"]:::obs
     UB(("U<br/>latent residual")):::lat
-    VB(("V<br/>Corr with U = 0.6")):::lat
-    SB{{"S<br/>accept if V &gt; X"}}:::sel
-    YB["Y<br/>default"]:::out
+    VB(("V<br/>latent, Corr(U,V) = rho")):::lat
+    YB(("Y<br/>latent default, would-be")):::laty
+    SB{{"S = 1{V &gt; X}<br/>accept decision"}}:::sel
+    YobsB["Y_obs<br/>= Y if S=1, missing if S=0"]:::obsy
+
     XB --> YB
     UB --> YB
     XB --> SB
     VB --> SB
     UB -.->|rho| VB
+    YB --> YobsB
+    SB -. gates .-> YobsB
 ```
 :::
 
@@ -1317,7 +1327,7 @@ plt.show()
 **The case-by-case fix table.** A model-risk team reading the per-source panel runs the decision tree in @tbl-ch10-bureau-source-fix against each source. The fix is mechanical once the panel and the registry are in place.
 
 | Source | What the panel shows | Reading | Fix in next retrain |
-|-----------------|-------------------|-----------------|-------------------|
+|------------------|-------------------|------------------|-------------------|
 | `accepted` | tracks diagonal except a small upward gap at the top bin | residual MNAR signature at $\rho = 0.4$ | weight stays at 1.0; the residual is what Heckman / AIPW closes on the bureau-missing slice |
 | `pl` | tracks the accepted pattern within bin noise | same-product surrogate is faithful | weight stays at 0.70 |
 | `cc` | tracks the accepted pattern with wider bin-noise | product-distant on limit and term but rank-orders correctly | weight stays at 0.60; flag for product-mix audit if the bin-noise band widens past 10pp |
@@ -2204,7 +2214,7 @@ flowchart TB
 
 The four subsections that follow walk the tree node by node: the Horvitz-Thompson identity and the IPW plug-in are derived next, the Hájek and clipping patches sit in the subsection after, AIPW and the double-robustness algebra come third, and DML with Neyman orthogonality and cross-fitting closes the MAR chain. The MNAR off-ramp is summarized at the end of this subsection and developed in full at @sec-ch10-modern.
 
-#### Inverse probability weighting and the Horvitz-Thompson identity
+#### Inverse probability weighting and the Horvitz-Thompson identity {#sec-ch10-ipw-ht}
 
 **The problem this subsection solves.** The lender observes the outcome $Y$ only on the accepted slice ($S = 1$). Any sample average computed on that slice (default rate, calibration-by-bin, scorecard log-likelihood, dollar loss) is an estimate of an *accepted-pool* quantity, not the *through-the-door* quantity the policy is supposed to govern. The conditional-shift figure earlier in the chapter (@fig-ch10-conditional-shift) is the visual statement of that gap. The identification question of this subsection is whether, and under what assumption, an average computed on the accepted slice can be reweighted into the corresponding through-the-door average without importing extra structure on the joint $(U, V)$. The Horvitz-Thompson identity is the answer when selection is MAR, and it is the algebraic root that the entire blue MAR branch of @fig-ch10-ipw-lineage descends from.
 
@@ -2236,7 +2246,7 @@ provided $\pi(x, z) > 0$ on the support of $(X, Z)$ and selection satisfies $S \
 
 Two consequences. First, IPW does not assume normality, parametric outcomes, or a specific score family: any base learner whose loss is a sum of per-observation contributions can be fit on the weighted accepted sample. Second, when $\pi$ is unknown it must be estimated, and the first-stage estimation propagates into the scorecard. The naive plug-in is consistent under MAR, but inefficient.
 
-#### Hájek normalization and weight instability in credit
+#### Hájek normalization and weight instability in credit {#sec-ch10-hajek}
 
 The raw Horvitz-Thompson estimator inflates its variance through two distinct mechanisms, and both bite in credit. The first is *small* $\pi$ anywhere in feature space: a region with $\hat \pi_i \approx 0.02$ contributes weights of order $50$, and the squared weight dominates the variance of the estimator regardless of how the rest of the population looks. The second is *heterogeneity in* $\pi$, which matters even when no individual $\pi$ is near zero. The variance of the Horvitz-Thompson mean depends on $\mathrm{Var}(S \cdot h / \pi)$, and a population in which half the applicants have $\pi = 0.9$ and half have $\pi = 0.1$ produces a weight ratio of $9$ and a variance contribution from the low-$\pi$ stratum nine times larger than from the high-$\pi$ stratum, even though neither floor is pathological. In credit, both mechanisms run simultaneously: the policy declines a substantial share of through-the-door volume so the rejected mass concentrates at low $\pi$ (small-$\pi$ channel), and the accepted population spans a wide range of $\pi$ from prime to near-thin-file (heterogeneity channel). A handful of accepted observations with $\hat \pi_i \approx 0.02$ then dominate the weighted sum, and the estimator is volatile. The Hájek normalization divides through by the empirical sum of weights:
 
@@ -2246,7 +2256,7 @@ $$ {#eq-hajek}
 
 Hájek has the same asymptotic mean as Horvitz-Thompson, but a smaller finite-sample variance whenever the propensity has heavy tails. In production, we further clip $\hat \pi_i$ at a floor, typically 1 to 5 percent, and report the clipped share alongside the estimate. A clipped share above 5 percent is a hard overlap diagnostic: it means the policy is near-deterministic on the trimmed slice, the D1 (policy overlap) dimension from @tbl-ch10-bias-dimensions bites, and the IPW estimator is extrapolating along the parametric form of the propensity model rather than from data.
 
-#### AIPW as the efficient influence function
+#### AIPW as the efficient influence function {#sec-ch10-aipw}
 
 The augmented IPW estimator of @robins1994estimation achieves the semiparametric efficiency bound under MAR and corrects a key inefficiency of raw IPW. Define the outcome regression $g(x) = \mathbb{E}[Y \mid X = x, S = 1]$ and the AIPW pseudo-outcome
 
@@ -2279,13 +2289,13 @@ Average over $Z$ given $X$ by the law of total expectation, and $\mathbb{E}[\til
 (2) **Correct regression** ($g$ correct, $\pi$ arbitrary). The route is symmetric, but the cancellation lives in a different factor. "Correct $g$" here means $g$ is read as a function of the same conditioning set $\pi$ uses, with $g(X, Z) = \mathbb{E}[Y \mid X, Z, S = 1]$ (we silently upgrade $g(X)$ to $g(X, Z)$ for this calculation; the argument is unchanged either way). Under MAR, this equals $\mathbb{E}[Y \mid X, Z]$ too. Condition the augmentation on $(X, Z, S = 1)$:
 
 $$
-\mathbb{E}\!\left[ \frac{S}{\pi(X, Z)} \big( Y - g(X, Z) \big) \Big| X, Z, S = 1 \right] = \frac{1}{\pi(X, Z)} \big( \mathbb{E}[Y \mid X, Z, S = 1] - g(X, Z) \big) = 0.
+\mathbb{E}\left[ \frac{S}{\pi(X, Z)} \big( Y - g(X, Z) \big) \Big| X, Z, S = 1 \right] = \frac{1}{\pi(X, Z)} \big( \mathbb{E}[Y \mid X, Z, S = 1] - g(X, Z) \big) = 0.
 $$
 
 The bracket is zero by the very definition of "correct $g$", and this zero is preserved no matter what value $\pi(X, Z)$ takes. The $S = 0$ branch contributes zero identically because $S$ multiplies the residual. Averaging over $S$ given $(X, Z)$:
 
 $$
-\mathbb{E}\!\left[ \frac{S}{\pi(X, Z)} \big( Y - g(X, Z) \big) \Big| X, Z \right] = \pi(X, Z) \cdot 0 + (1 - \pi(X, Z)) \cdot 0 = 0.
+\mathbb{E}\left[ \frac{S}{\pi(X, Z)} \big( Y - g(X, Z) \big) \Big| X, Z \right] = \pi(X, Z) \cdot 0 + (1 - \pi(X, Z)) \cdot 0 = 0.
 $$
 
 Both branches contribute zero for different reasons: the $S = 1$ branch because the residual is conditionally mean-zero, the $S = 0$ branch because $S$ kills the term outright. The augmentation has expected value zero given $(X, Z)$, so it has expected value zero given $X$ after averaging over $Z$. Therefore
@@ -2300,19 +2310,21 @@ The weight $1 / \pi(X, Z)$ can be misspecified by any finite factor without dist
 
 Two complementary cancellations, only one of which needs to fire. In route (1) the propensity weight reproduces $\mathbb{E}[Y \mid X, Z]$ from accepted-only data and the $-g$ in the augmentation cancels the $+g$ in the leading term, leaving $\mathbb{E}[Y \mid X]$. In route (2) the residual itself has conditional mean zero, so whatever weight is attached to it averages to zero and the leading $g$ alone delivers $\mathbb{E}[Y \mid X]$. The two channels share an estimator, but rely on disjoint assumptions, and this disjointness is the algebraic content of double robustness.
 
-This is double robustness: two independent specifications, only one of which needs to be correct. The two routes share an estimator but rely on disjoint assumption sets, and the algebra above is the entire content of the claim. Beyond consistency, the AIPW score also coincides with the *efficient influence function* (the canonical gradient of $\theta \mapsto \mathbb{E}_P[Y \mid X]$ in the nonparametric tangent space of the MAR model). When both $g_0$ and $\pi_0$ are correctly specified, the asymptotic representation of $\hat\theta_{\mathrm{AIPW}}$ is
+This is double robustness: two independent specifications, only one of which needs to be correct. The two routes share an estimator but rely on disjoint assumption sets, and the algebra above is the entire content of the claim. Beyond consistency, the AIPW score also coincides with the *efficient influence function* (the canonical gradient of $\theta \mapsto \mathbb{E}_P[Y \mid X]$ in the nonparametric tangent space of the MAR model). When both $g_0$ and $\pi_0$ are correctly specified, the asymptotic representation of $\hat\theta_{\mathrm{AIPW}}$ is 
+
 $$
 \sqrt n \big(\hat\theta_{\mathrm{AIPW}} - \theta_0\big) = \frac{1}{\sqrt n} \sum_{i = 1}^n \mathrm{IF}_{\mathrm{AIPW}}(W_i) + o_P(1), \quad \mathrm{IF}_{\mathrm{AIPW}}(W) = g_0(X, Z) - \theta_0(X) + \frac{S}{\pi_0(X, Z)} \big(Y - g_0(X, Z)\big),
-$$
+$$ 
+
 and the variance $\mathbb{E}[\mathrm{IF}_{\mathrm{AIPW}}^2]$ saturates the semiparametric efficiency bound. The bound is the minimum asymptotic variance achievable by any *regular* and asymptotically linear estimator of $\theta_0$ in the MAR model, where regularity means that $\sqrt n(\hat\theta - \theta_0)$ has a limit distribution invariant under local $1 / \sqrt n$ contiguous perturbations of the data-generating measure $P$. Within the MAR model class no estimator can outperform AIPW asymptotically: the information geometry of MAR has been exhausted, and any apparent improvement against AIPW in a finite sample is a chance fluctuation that disappears as $n \to \infty$ along any regular sequence of DGPs.
 
 #### Double robustness in numbers {#sec-ch10-dr-simulation}
 
 The two cancellations above are existence proofs; they say that a single correct nuisance is enough, but they do not yet say what the four cells of the (correct $\pi$, wrong $\pi$) $\times$ (correct $g$, wrong $g$) matrix look like in finite samples, what the variance bill for each nuisance choice actually is, what the coverage of the asymptotic confidence interval is when only one channel is firing, or what the per-applicant conditional risk surface recovered by the augmented score looks like compared to a parametrically rigid accept-only fit. This subsection populates each cell with numbers, plots, and a table so that the algebra above is visible at the level of a single estimate, a single confidence interval, and a single curve through feature space. The DGP is deliberately small and one-dimensional so that the figures can be read directly, but the four-cell structure carries through verbatim to the production-scale credit simulation at @sec-ch10-modern.
 
-The synthetic lender. A single feature $X \sim \mathcal{N}(0, 1)$ stands in for a one-dimensional bureau score (positive $X$ is riskier and easier to decline). The propensity is quadratic on the logit scale, $\pi(x) = \sigma(-0.2 + 0.6 x - 0.4 x^2)$, so the policy declines both tails (low-score thin-file and high-score risky) more than the middle, producing the heavy-tail-on-each-end overlap pattern that bites in real underwriting. The outcome regression is sinusoidal on the logit scale, $g_0(x) = \sigma(-0.5 + 0.7 x + 0.6 \sin(2 x))$, so the through-the-door default surface has a wiggle that a linear-in-index model cannot reproduce. The "correct" nuisance fit adds $\{x, x^2\}$ to the propensity logit and $\{x, x^2, \sin(2x), \cos(2x)\}$ to the outcome logit; the "wrong" fit uses only $\{x\}$ in both. Wrong $\pi$ misses the quadratic decline of both tails and reports a roughly flat acceptance probability; wrong $g$ smooths through the sinusoidal wiggle and replaces it with a monotone slope. Both misspecifications are realistic stand-ins for what production scorecards do when the analyst forecloses on flexibility too early.
+**The synthetic lender**. A single feature $X \sim \mathcal{N}(0, 1)$ stands in for a one-dimensional bureau score (positive $X$ is riskier and easier to decline). The propensity is quadratic on the logit scale, $\pi(x) = \sigma(-0.2 + 0.6 x - 0.4 x^2)$, so the policy declines both tails (low-score thin-file and high-score risky) more than the middle, producing the heavy-tail-on-each-end overlap pattern that bites in real underwriting. The outcome regression is sinusoidal on the logit scale, $g_0(x) = \sigma(-0.5 + 0.7 x + 0.6 \sin(2 x))$, so the through-the-door default surface has a wiggle that a linear-in-index model cannot reproduce. The "correct" nuisance fit adds $\{x, x^2\}$ to the propensity logit and $\{x, x^2, \sin(2x), \cos(2x)\}$ to the outcome logit; the "wrong" fit uses only $\{x\}$ in both. Wrong $\pi$ misses the quadratic decline of both tails and reports a roughly flat acceptance probability; wrong $g$ smooths through the sinusoidal wiggle and replaces it with a monotone slope. Both misspecifications are realistic stand-ins for what production scorecards do when the analyst forecloses on flexibility too early.
 
-The estimand. We target the through-the-door marginal default rate $\theta_0 = \mathbb{E}[Y]$, which is the simplest scalar summary of the conditional mean derived above and the one that policy teams quote when they ask "what does the portfolio default rate look like if the policy is loosened to fund every applicant." The truth $\theta_0 \approx 0.399$ is computed once by a $10^6$-row Monte Carlo on the DGP and held fixed across replications. The accept-pool default rate, by contrast, lands near 0.45: the policy declines both tails but the right tail carries the highest defaults, so the accept pool over-represents the moderate-risk middle and over-states the through-the-door rate by roughly 5 percentage points. The direction of the naive bias is itself a ramification worth flagging, because intuition can run either way (the accepted are "safer applicants, lower default rate" or "applicants the policy let through, biased toward the policy's risk taste") and only the DGP fixes it.
+**The estimand**. We target the through-the-door marginal default rate $\theta_0 = \mathbb{E}[Y]$, which is the simplest scalar summary of the conditional mean derived above and the one that policy teams quote when they ask "what does the portfolio default rate look like if the policy is loosened to fund every applicant." The truth $\theta_0 \approx 0.399$ is computed once by a $10^6$-row Monte Carlo on the DGP and held fixed across replications. The accept-pool default rate, by contrast, lands near 0.45: the policy declines both tails but the right tail carries the highest defaults, so the accept pool over-represents the moderate-risk middle and over-states the through-the-door rate by roughly 5 percentage points. The direction of the naive bias is itself a ramification worth flagging, because intuition can run either way (the accepted are "safer applicants, lower default rate" or "applicants the policy let through, biased toward the policy's risk taste") and only the DGP fixes it.
 
 ```{python}
 #| label: dr-simulation-setup
@@ -2358,11 +2370,11 @@ THETA0 = float(expit(-0.5 + 0.7 * _x_big + 0.6 * np.sin(2 * _x_big)).mean())
 print(f"truth theta_0 = E[Y] = {THETA0:.4f}")
 ```
 
-A 500-replication Monte Carlo runs the four AIPW scenarios plus a naive accept-only baseline on $n = 4,000$ applicants per replication. The naive baseline is $\hat\theta_{\text{naive}} = \bar Y_{S = 1}$, the accept-pool default rate. The AIPW point estimate is the sample mean of the score $\tilde Y_i$ from @eq-aipw-score; the asymptotic 95 percent confidence interval is $\hat\theta \pm 1.96 \cdot \widehat{\mathrm{SE}}$ with $\widehat{\mathrm{SE}} = \mathrm{sd}(\tilde Y_i) / \sqrt n$, which is the influence-function SE that DML inherits (the next subsection makes the orthogonality argument that licenses this SE under nuisance estimation). In plain English, we simulate five hundred imaginary lenders, each with four thousand applicants, and ask how often each estimator hits the true through-the-door default rate and how wide its uncertainty intervals are.
+A 2,000-replication Monte Carlo runs the four AIPW scenarios plus a naive accept-only baseline on $n = 4,000$ applicants per replication. The naive baseline is $\hat\theta_{\text{naive}} = \bar Y_{S = 1}$, the accept-pool default rate. The AIPW point estimate is the sample mean of the score $\tilde Y_i$ from @eq-aipw-score; the asymptotic 95 percent confidence interval is $\hat\theta \pm 1.96 \cdot \widehat{\mathrm{SE}}$ with $\widehat{\mathrm{SE}} = \mathrm{sd}(\tilde Y_i) / \sqrt n$, which is the influence-function SE that DML inherits (the next subsection makes the orthogonality argument that licenses this SE under nuisance estimation). In plain English, we simulate two thousand imaginary lenders, each with four thousand applicants, and ask how often each estimator hits the true through-the-door default rate and how wide its uncertainty intervals are.
 
 ```{python}
 #| label: dr-simulation-run
-R = 500
+R = 2000
 N = 4000
 
 scenarios = {
@@ -2413,7 +2425,6 @@ def summarize(col):
 
 summary = pd.DataFrame([summarize(c) for c in
     ["naive", "AIPW pi+ g+", "AIPW pi+ g-", "AIPW pi- g+", "AIPW pi- g-"]])
-print(summary.to_string(index=False))
 ```
 
 Reading the numbers row by row. The naive accept-only mean is biased *upward* by roughly +0.054 in absolute PD (the policy declines both tails, but the right tail carries the highest default rates, so the accept pool over-represents the moderate-risk middle and over-states the through-the-door rate), with confidence intervals that cover the truth essentially zero percent of the time because the bias is several standard errors wide. All three AIPW cells with at least one correct nuisance recover the truth: bias is within $\pm 0.001$ of zero, RMSE is dominated by Monte Carlo sampling noise rather than systematic bias, and the asymptotic 95 percent coverage is in the 0.90 to 0.93 range (the small undershoot of the nominal 0.95 is the well-known plug-in slack that cross-fitting in the next subsection fixes; the influence-function SE is asymptotically correct but slightly anti-conservative at $n = 4,000$ with a plug-in nuisance). The both-wrong cell carries only a small residual bias of order +0.002, well below the naive +0.054. This is a stronger result than the strict theorem promises: the linear-in-$x$ accept-only logistic fit, although misspecified relative to the sinusoidal truth, inherits OLS-style orthogonality conditions on the accept slice ($\sum_{S=1} (Y - g_{\text{wrong}}(X)) = 0$ and $\sum_{S=1} (Y - g_{\text{wrong}}(X)) \cdot X = 0$ by the score equations of the linear logit), and those orthogonality conditions kill enough of the residual covariance with the inverse-weight to leave only a small remainder. To get the both-wrong cell to bleed back toward the naive bias, the misspecification has to be more decisive, for instance a constant nuisance with no $x$ dependence at all; the lesson is that AIPW is *more* robust in finite samples than the theorem requires, because the score equations of the wrong nuisance fits do not vanish, they reorient.
@@ -2424,7 +2435,7 @@ The single-channel cells confirm a different asymmetry than the one a careless r
 
 ```{python}
 #| label: tbl-ch10-dr-cells
-#| tbl-cap: "Monte Carlo summary of the four AIPW cells against the naive accept-only baseline (500 replications, n = 4,000 per replication, truth theta_0 about 0.399, accept-pool default rate about 0.452). All four AIPW cells essentially recover the truth: three by the strict doubly robust theorem, the fourth by orthogonality conditions inherited from the misspecified accept-slice fits. Naive carries a +0.054 bias and near-zero coverage. The mean-SE line decouples from the bias line: smoother (wrong) propensity has lower SE than the correct quadratic propensity because its weights are less variable in the tails."
+#| tbl-cap: "Monte Carlo summary of the four AIPW cells against the naive accept-only baseline (2,000 replications, n = 4,000 per replication, truth theta_0 about 0.399, accept-pool default rate about 0.452). All four AIPW cells essentially recover the truth: three by the strict doubly robust theorem, the fourth by orthogonality conditions inherited from the misspecified accept-slice fits. Naive carries a +0.054 bias and near-zero coverage. The mean-SE line decouples from the bias line: smoother (wrong) propensity has lower SE than the correct quadratic propensity because its weights are less variable in the tails."
 from IPython.display import Markdown
 labels = {
     "naive":       "naive (accept-only)",
@@ -2438,11 +2449,11 @@ disp["estimator"] = disp["estimator"].map(labels)
 Markdown(disp.to_markdown(index=False))
 ```
 
-A more granular picture: the distribution of the 500 estimates per scenario. @fig-ch10-dr-distribution overlays the histogram of $\hat\theta$ across replications for each cell against the truth. All four AIPW cells cluster around the truth (the both-wrong cell sits a hair to the right because of its small +0.002 residual bias, but well within the Monte Carlo spread of the doubly correct cell); the naive baseline sits far to the right and does not overlap any AIPW histogram. The width of each distribution is the finite-sample sampling variance and is informative on its own: the *correct* quadratic propensity cells (both pi+ rows) sit at a wider spread than the *wrong* linear propensity cells (the pi- rows), inverting the naive intuition that a correct propensity should be more efficient. The reason is mechanical: the correct quadratic propensity has more variation across feature space and produces more variable inverse weights, while the wrong linear propensity is flatter and produces stabler weights. With correct $g$ the residual is mean-zero anyway, so the variance benefit of a stable propensity dominates.
+A more granular picture: the distribution of the 2,000 estimates per scenario. @fig-ch10-dr-distribution overlays the histogram of $\hat\theta$ across replications for each cell against the truth. All four AIPW cells cluster around the truth (the both-wrong cell sits a hair to the right because of its small +0.002 residual bias, but well within the Monte Carlo spread of the doubly correct cell); the naive baseline sits far to the right and does not overlap any AIPW histogram. The width of each distribution is the finite-sample sampling variance and is informative on its own: the *correct* quadratic propensity cells (both pi+ rows) sit at a wider spread than the *wrong* linear propensity cells (the pi- rows), inverting the naive intuition that a correct propensity should be more efficient. The reason is mechanical: the correct quadratic propensity has more variation across feature space and produces more variable inverse weights, while the wrong linear propensity is flatter and produces stabler weights. With correct $g$ the residual is mean-zero anyway, so the variance benefit of a stable propensity dominates.
 
 ```{python}
 #| label: fig-ch10-dr-distribution
-#| fig-cap: "Histogram of 500 Monte Carlo replications per scenario at n = 4,000, against the truth theta_0 about 0.399 (vertical black line). All four AIPW cells overlap the truth; the naive accept-only baseline sits far to the right at about 0.45. The widths of the AIPW histograms differ in the direction opposite to naive intuition: the correct quadratic propensity has wider spread than the wrong linear propensity because the correct propensity produces more variable weights. With correct g the residual is mean-zero, so weight variance is the only thing the propensity choice still controls."
+#| fig-cap: "Histogram of 2,000 Monte Carlo replications per scenario at n = 4,000, against the truth theta_0 about 0.399 (vertical black line). All four AIPW cells overlap the truth; the naive accept-only baseline sits far to the right at about 0.45. The widths of the AIPW histograms differ in the direction opposite to naive intuition: the correct quadratic propensity has wider spread than the wrong linear propensity because the correct propensity produces more variable weights. With correct g the residual is mean-zero, so weight variance is the only thing the propensity choice still controls."
 import matplotlib.pyplot as plt
 
 cells = ["AIPW pi+ g+", "AIPW pi+ g-", "AIPW pi- g+", "AIPW pi- g-", "naive"]
@@ -2463,7 +2474,7 @@ for col, c in zip(cells, colors):
 ax.axvline(THETA0, color="black", linewidth=1.6, label=f"truth = {THETA0:.3f}")
 ax.set_xlabel(r"estimate $\hat\theta$ of through-the-door $\mathbb{E}[Y]$",
               fontsize=10.5)
-ax.set_ylabel("count across 500 Monte Carlo replications", fontsize=10.5)
+ax.set_ylabel("count across 2,000 Monte Carlo replications", fontsize=10.5)
 ax.set_title("Distribution of the four AIPW cells and the naive baseline",
              fontsize=11.5, fontweight="bold")
 ax.legend(loc="upper left", fontsize=9.2, framealpha=0.95)
@@ -2475,7 +2486,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-Variance content of the propensity choice, isolated by clip sweep. The table line already showed that, with correct $g$, the wrong linear $\pi$ has lower SE than the correct quadratic $\pi$. To trace that pattern as a function of overlap stress, fix correct $g$ and sweep the propensity clip floor from 0.02 (heavy weights allowed) up to 0.18 (aggressive trimming), comparing the correct quadratic propensity to the misspecified linear propensity. The bias contract holds in both cases because the residual $Y - g(X)$ has conditional mean zero; only variance moves. @fig-ch10-dr-variance traces the SD of $\hat\theta$ across replications as a function of the clip floor for each $\pi$ specification. Two operational patterns emerge. First, the *correct* quadratic propensity sits at a wider SD than the *wrong* linear propensity at every clip level on this DGP, because the quadratic propensity loads weight more aggressively on low-$\pi$ feature regions while the linear propensity is smoother. The gap is small (a few thousandths of a unit), but it runs in the direction that the Hajek and weight-clipping literature predicts: a stabilized propensity is preferable to a correct propensity when the correct propensity has heavy-tail weight behavior. Second, both curves flatten and converge as the clip floor rises, because clipping erases the feature regions where the two specifications disagree most; the variance cost goes down but a small downward bias creeps into the *correct* propensity arm because the clip distorts a true tail signal, while it does little to the *wrong* propensity arm because the linear fit was already flat in the tails. The figure is the operational reading of double robustness on the variance axis: bias is decided by which nuisance is *correct*, but variance is decided by which nuisance is *smooth*, and the two are not the same dimension.
+Variance content of the propensity choice, isolated by clip sweep. The table line already showed that, with correct $g$, the wrong linear $\pi$ has lower SE than the correct quadratic $\pi$. To trace that pattern as a function of overlap stress, fix correct $g$ and sweep the propensity clip floor from 0.02 (heavy weights allowed) up to 0.18 (aggressive trimming), comparing the correct quadratic propensity to the misspecified linear propensity. The bias contract holds in both cases because the residual $Y - g(X)$ has conditional mean zero; only variance moves. @fig-ch10-dr-variance traces the SD of $\hat\theta$ across replications as a function of the clip floor for each $\pi$ specification. Two operational patterns emerge. First, the *correct* quadratic propensity sits at a wider SD than the *wrong* linear propensity at every clip level on this DGP, because the quadratic propensity loads weight more aggressively on low-$\pi$ feature regions, while the linear propensity is smoother. The gap is small (a few thousandths of a unit), but it runs in the direction that the Hajek and weight-clipping literature predicts: a stabilized propensity is preferable to a correct propensity when the correct propensity has heavy-tail weight behavior. Second, both curves flatten and converge as the clip floor rises, because clipping erases the feature regions where the two specifications disagree most; the variance cost goes down but a small downward bias creeps into the *correct* propensity arm because the clip distorts a true tail signal, while it does little to the *wrong* propensity arm because the linear fit was already flat in the tails. The figure is the operational reading of double robustness on the variance axis: bias is decided by which nuisance is *correct*, but variance is decided by which nuisance is *smooth*, and the two are not the same dimension.
 
 ```{python}
 #| label: fig-ch10-dr-variance
@@ -2578,140 +2589,29 @@ plt.tight_layout()
 plt.show()
 ```
 
-Four ramifications worth pinning down, one per piece of evidence above. First, the bias contract delivers what the theorem promised and a little extra: all four AIPW cells in @tbl-ch10-dr-cells sit within $\pm 0.002$ of the truth on this DGP, three by the strict double-robustness argument and the fourth by the OLS-style orthogonality conditions baked into the misspecified linear nuisance fits on the accept slice. To break the fourth cell back toward the naive bias the misspecification has to drop the score-equation orthogonality (for instance by replacing the linear logit with a constant intercept), which is informative because it pinpoints what AIPW's robustness is actually leaning on in finite samples: the moment conditions of the wrong nuisance, not just the existence of a correct one. Second, the naive bias is *positive* (+0.054) on this DGP rather than negative, because the policy declines the worst applicants more aggressively than the safest ones; the direction of the naive bias is DGP-specific and the figure spells out which way it points so the reader does not import a sign from an unrelated example. Third, the variance comparison in @fig-ch10-dr-variance runs in the direction that the Hajek and weight-clipping literature predicts: a *smoother* propensity, even when misspecified, gives stabler inverse weights and lower SE than a *correct* propensity with tail behavior, at no cost to bias when $g$ is correct. This decouples the two nuisance-choice axes: correctness controls bias, smoothness controls variance, and a production deployment should treat the propensity choice as two design decisions rather than one. Fourth, @fig-ch10-dr-conditional reframes the figure-level evidence: under MAR the conditional mean is identified on the accept slice, so the visible gap between the linear accept-only fit and the truth is misspecification bias rather than selection bias, and the AIPW score binned in $x$ illustrates the flexibility benefit (and the role of AIPW as a nonparametric local estimator of $g_0(x)$ when the nuisances are flexible) rather than a conditional selection correction.
+Four ramifications worth pinning down, one per piece of evidence above. First, the bias contract delivers what the theorem promised and a little extra: all four AIPW cells in @tbl-ch10-dr-cells sit within $\pm 0.002$ of the truth on this DGP, three by the strict double-robustness argument and the fourth by the OLS-style orthogonality conditions baked into the misspecified linear nuisance fits on the accept slice. To break the fourth cell back toward the naive bias, the misspecification has to drop the score-equation orthogonality (for instance, by replacing the linear logit with a constant intercept), which is informative because it pinpoints what AIPW's robustness is actually leaning on in finite samples: the moment conditions of the wrong nuisance, not just the existence of a correct one. Second, the naive bias is *positive* (+0.054) on this DGP rather than negative, because the policy declines the worst applicants more aggressively than the safest ones; the direction of the naive bias is DGP-specific and the figure spells out which way it points, so the reader does not import a sign from an unrelated example. Third, the variance comparison in @fig-ch10-dr-variance runs in the direction that the Hajek and weight-clipping literature predicts: a *smoother* propensity, even when misspecified, gives stabler inverse weights and lower SE than a *correct* propensity with tail behavior, at no cost to bias when $g$ is correct. This decouples the two nuisance-choice axes: correctness controls bias, smoothness controls variance, and a production deployment should treat the propensity choice as two design decisions rather than one. Fourth, @fig-ch10-dr-conditional reframes the figure-level evidence: under MAR the conditional mean is identified on the accept slice, so the visible gap between the linear accept-only fit and the truth is misspecification bias rather than selection bias, and the AIPW score binned in $x$ illustrates the flexibility benefit (and the role of AIPW as a nonparametric local estimator of $g_0(x)$ when the nuisances are flexible) rather than a conditional selection correction.
 
-A practical reading. A bank that controls its underwriter and logs every feature used in the decision (the rich-feature-store case from @tbl-ch10-dml-heckman-cases below) can write a correct $\pi$ from the policy logs and a correct (or at least flexible) $g$ from booked-sample data; AIPW then delivers the bias contract with the influence-function SE inheriting nominal coverage modulo the small plug-in undercoverage that cross-fitting resolves next. A bank that does not log the decision logic but has strong portfolio modeling leans on $g$, treats the propensity as a stability-management knob (Hajek normalization, clip at 0.02 to 0.05, smooth enough to keep weights stable), and accepts that bias robustness comes from the regression channel rather than from getting the propensity exactly right. The four-cell simulation is the operational rebuttal to the temptation to over-fit the propensity: a *correct* propensity is not the goal, a *stable plus at-least-one-correct* nuisance pair is, and the variance bill for over-fitting the propensity is real even when bias is intact. The cross-fit DML construction of the next subsection extends this story from "one correct nuisance with parametric form" to "both nuisances learned nonparametrically and converging at $o(n^{-1/4})$" without sacrificing the inferential rate.
+A practical reading. A bank that controls its underwriter and logs every feature used in the decision (the rich-feature-store case from @tbl-ch10-dml-heckman-cases below) can write a correct $\pi$ from the policy logs and a correct (or at least flexible) $g$ from booked-sample data; AIPW then delivers the bias contract with the influence-function SE inheriting nominal coverage modulo the small plug-in undercoverage that cross-fitting resolves next. A bank that does not log the decision logic, but has strong portfolio modeling leans on $g$, treats the propensity as a stability-management knob (Hajek normalization, clip at 0.02 to 0.05, smooth enough to keep weights stable), and accepts that bias robustness comes from the regression channel rather than from getting the propensity exactly right. The four-cell simulation is the operational rebuttal to the temptation to over-fit the propensity: a *correct* propensity is not the goal, a *stable plus at-least-one-correct* nuisance pair is, and the variance bill for over-fitting the propensity is real even when bias is intact. The cross-fit DML construction of the next subsection extends this story from "one correct nuisance with parametric form" to "both nuisances learned nonparametrically and converging at $o(n^{-1/4})$" without sacrificing the inferential rate.
 
-#### Cross-fitting and Neyman orthogonality
+#### Cross-fitting and Neyman orthogonality {#sec-ch10-dml-cross-fit}
 
-The double-robustness algebra of the previous subsection is a population-level statement: it identifies $\mathbb{E}[Y \mid X]$ from the AIPW score when one of $(g, \pi)$ equals the truth. Identification does not transfer automatically from population to sample. To estimate $\beta$ at the $\sqrt n$ rate and to construct confidence intervals with correct nominal coverage when the nuisances are themselves estimated, the sample analogue of the score must inherit the same insensitivity to nuisance perturbations that the population score enjoys by construction. The structural property that delivers this transfer is *Neyman orthogonality*, formalized by @chernozhukov2018double as the keystone of double machine learning and traceable to the locally-robust-moments program of @robinson1988root, the projection arguments of @chetverikov2017cross, and the semiparametric efficient-score calculus collected in @vandervaart1998asymptotic. The subsection states the orthogonality condition formally, verifies it for the AIPW score by direct calculation, derives the rate bound @eq-dml-rate from a second-order expansion of the empirical moment, and explains why cross-fitting (rather than uniform-class control via Donsker theory) is the route that scales to learners flexible enough to satisfy the rate condition.
-
-##### Plug-in M-estimators and the first-stage-bias obstruction
-
-Fix the parameter of interest $\beta \in \mathbb{R}^p$ (the through-the-door scorecard coefficients), the nuisance pair $\eta = (g, \pi)$ taking values in a normed function space $\mathcal{T}$ equipped with the $L_2(P)$ norm, and a score function $\psi(\beta; \eta; W)$ where $W = (Y, X, Z, S)$. The AIPW score for a logistic scorecard $\mu(X; \beta) = \mathrm{expit}(X^\top \beta)$ targeting the through-the-door conditional mean reads
-$$
-\psi(\beta; g, \pi; W) = \big[g(X, Z) + \tfrac{S}{\pi(X, Z)} (Y - g(X, Z)) - \mu(X; \beta)\big] \cdot \nabla_\beta \mu(X; \beta),
-$$
-and the plug-in M-estimator $\hat\beta$ solves the empirical moment equation
-$$
-\hat M_n(\hat\beta; \hat\eta) \equiv \frac{1}{n} \sum_{i = 1}^n \psi(\hat\beta; \hat\eta; W_i) = 0.
-$$ {#eq-dml-empmoment}
-The corresponding population moment is $M(\beta; \eta) = \mathbb{E}_P[\psi(\beta; \eta; W)]$, and the truth satisfies $M(\beta_0; \eta_0) = 0$ by construction of the AIPW pseudo-outcome under MAR. The asymptotic behavior of $\hat\beta$ is read off a second-order Taylor expansion of @eq-dml-empmoment around $(\beta_0, \eta_0)$:
-$$
-0 = \hat M_n(\beta_0; \hat\eta) + J(\hat\beta - \beta_0) + O_P\big(\|\hat\beta - \beta_0\|^2\big), \qquad J = \partial_\beta M(\beta_0; \eta_0),
-$$ {#eq-dml-taylor}
-which, after solving for $\hat\beta - \beta_0$, identifies the leading-order contamination as $\hat M_n(\beta_0; \hat\eta)$. This term decomposes additively into an empirical-process piece and a plug-in-bias piece:
-$$
-\hat M_n(\beta_0; \hat\eta) = \underbrace{\big[\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta)\big]}_{\text{empirical process}} + \underbrace{\big[M(\beta_0; \hat\eta) - M(\beta_0; \eta_0)\big]}_{\text{plug-in bias}}.
-$$ {#eq-dml-decomp}
-The first piece is sample noise around the population moment evaluated at the *estimated* nuisance; the second piece is the systematic gap between the estimated and true population moments at the true $\beta_0$. The plug-in bias admits a functional Taylor expansion in the direction $\hat\eta - \eta_0$,
-$$
-M(\beta_0; \hat\eta) - M(\beta_0; \eta_0) = D_\eta M(\beta_0; \eta_0)[\hat\eta - \eta_0] + R(\hat\eta, \eta_0),
-$$
-where $D_\eta M[h]$ is the Gateaux derivative along the path $\eta_t = \eta_0 + t h$ (formally $D_\eta M[h] = \frac{d}{dt}\big|_{t = 0} M(\beta_0; \eta_0 + t h)$) and $R$ collects second-order terms in $\hat\eta - \eta_0$. For a generic score, $D_\eta M(\beta_0; \eta_0)[\hat\eta - \eta_0]$ is linear in $\hat\eta - \eta_0$ and therefore $O_P(\|\hat\eta - \eta_0\|_2)$. Modern learners deliver $\|\hat\eta - \eta_0\|_2 = o_P(n^{-1/4})$ at best (random forests, gradient boosting, and Lasso under sparsity in moderate dimensions reach this rate; deep nets reach it under depth-width-sparsity conditions that the recent ReLU-network approximation literature has formalized), and $o_P(n^{-1/4})$ is slower than the $O_P(n^{-1/2})$ rate that the standard sandwich variance estimator assumes for the leading term in @eq-dml-decomp. The first-order channel $D_\eta M[\hat\eta - \eta_0]$ is the *first-stage-bias obstruction*: a generic plug-in M-estimator with a flexible first-stage learner fails to achieve $\sqrt n$ inference because the contamination from $\hat\eta$ dominates the sample noise.
-
-##### Neyman orthogonality as a structural property of the score
-
-The fix engineers the score so that the first-order contamination channel vanishes identically.
-
-**Definition (Neyman orthogonality).** A score $\psi$ is *Neyman-orthogonal at $(\beta_0, \eta_0)$* with respect to the nuisance space $\mathcal{T}$ if the Gateaux derivative of its population moment along every admissible direction is zero at the truth:
-$$
-D_\eta M(\beta_0; \eta_0)[h] = \frac{d}{dt}\bigg|_{t = 0} M\big(\beta_0; \eta_0 + t h\big) = 0 \quad \text{for all } h = (h_g, h_\pi) \in \mathcal{T} - \eta_0.
-$$ {#eq-dml-orthogonality}
-
-The definition is a *structural* statement about the population score, not about any estimator or any dataset. It says the map $\eta \mapsto M(\beta_0; \eta)$ is stationary at the truth: tangent-flat along every direction in nuisance space, with $\nabla_\eta M|_{\eta_0} \equiv 0$ as a functional gradient. Substituting @eq-dml-orthogonality into the Taylor expansion of the plug-in bias collapses the linear channel to identically zero,
-$$
-M(\beta_0; \hat\eta) - M(\beta_0; \eta_0) = 0 + R(\hat\eta, \eta_0),
-$$
-and the surviving remainder $R$ is second-order in $\hat\eta - \eta_0$. For scores like AIPW that are *bilinear* in the two nuisance arguments (the score depends on $g$ and on $\pi$ but the mixed second derivative $\partial^2 \psi / \partial g \partial \pi$ is the only nonzero second derivative at $\eta_0$), the remainder has the product form
-$$
-R(\hat\eta, \eta_0) = O_P\big(\|\hat g - g_0\|_2 \cdot \|\hat\pi - \pi_0\|_2\big),
-$$
-rather than the sum-of-squares form $O_P(\|\hat g - g_0\|_2^2 + \|\hat\pi - \pi_0\|_2^2)$ that a generic Hessian with both diagonal blocks nonzero would produce. The product structure is the algebraic deliverable of orthogonality combined with the AIPW score's bilinear form, and it is what allows one nuisance to be parametric (rate $n^{-1/2}$) and the other fully nonparametric (rate $n^{-1/4}$) while still keeping the product at $o(n^{-1/2})$.
-
-##### Verification for the AIPW score
-
-The two Gateaux derivatives can be computed by hand, and the calculation is short enough to be worth doing once in print. For ease of notation we work with the version of the score that targets $\theta_0(x) = \mathbb{E}[Y \mid X = x]$ at a fixed $x$:
-$$
-\psi(\theta; g, \pi; W) = g(X, Z) - \theta + \frac{S}{\pi(X, Z)} \big(Y - g(X, Z)\big),
-$$
-so that $M(\theta; g, \pi) = \mathbb{E}[g(X, Z)] - \theta + \mathbb{E}\big[\frac{S}{\pi(X, Z)} (Y - g(X, Z))\big]$. The full M-estimating equation is recovered by replacing $\theta$ with $\mu(X; \beta)$ and multiplying through by $\nabla_\beta \mu$; both Gateaux derivatives carry over verbatim since the pre-multiplication by $\nabla_\beta \mu$ is a function of $(X, \beta)$ alone and commutes with the directional derivative in $\eta$.
-
-*Derivative in $g$.* For a bounded measurable perturbation $h_g(X, Z)$, the path $g_t = g_0 + t h_g$ produces
-$$
-M(\theta_0; g_t, \pi_0) - M(\theta_0; g_0, \pi_0) = t \mathbb{E}[h_g(X, Z)] - t \mathbb{E}\!\left[\frac{S}{\pi_0(X, Z)} h_g(X, Z)\right],
-$$
-and dividing by $t$ before taking $t \to 0$ identifies the Gateaux derivative
-$$
-D_g M(\theta_0; \eta_0)[h_g] = \mathbb{E}\!\left[h_g(X, Z) \left(1 - \frac{S}{\pi_0(X, Z)}\right)\right].
-$$
-Condition on $(X, Z)$. The definition $\pi_0(X, Z) = \mathbb{E}[S \mid X, Z]$ yields $\mathbb{E}[S / \pi_0(X, Z) \mid X, Z] = 1$, so the bracket has conditional mean zero, and the tower property gives $D_g M(\theta_0; \eta_0)[h_g] = 0$ for every $h_g$ in the tangent space. The AIPW score is Neyman-orthogonal in $g$.
-
-*Derivative in $\pi$.* For a bounded perturbation $h_\pi(X, Z)$ supported on a neighborhood of $\pi_0$ where overlap holds ($\pi_0 \geq \kappa > 0$, so $\pi_t = \pi_0 + t h_\pi$ stays bounded away from zero for $|t|$ small), Taylor-expand $1 / \pi_t$ around $\pi_0$:
-$$
-\frac{1}{\pi_t(X, Z)} = \frac{1}{\pi_0(X, Z)} - \frac{t h_\pi(X, Z)}{\pi_0(X, Z)^2} + O(t^2).
-$$
-Substituting,
-$$
-M(\theta_0; g_0, \pi_t) - M(\theta_0; g_0, \pi_0) = -t \mathbb{E}\!\left[\frac{S h_\pi(X, Z)}{\pi_0(X, Z)^2} \big(Y - g_0(X, Z)\big)\right] + O(t^2),
-$$
-and dividing by $t$ identifies
-$$
-D_\pi M(\theta_0; \eta_0)[h_\pi] = -\mathbb{E}\!\left[\frac{S h_\pi(X, Z)}{\pi_0(X, Z)^2} \big(Y - g_0(X, Z)\big)\right].
-$$
-Condition on $(X, Z, S = 1)$. By the definition $g_0(X, Z) = \mathbb{E}[Y \mid X, Z, S = 1]$, the residual $Y - g_0(X, Z)$ has zero conditional mean on the accepted slice. The $S = 0$ branch contributes zero outright because $S$ multiplies the integrand. Therefore $D_\pi M(\theta_0; \eta_0)[h_\pi] = 0$ for every $h_\pi$, and the AIPW score is Neyman-orthogonal in $\pi$ as well.
-
-The two calculations exhaust the orthogonality requirement. The same algebra carries over to the dollar-loss target $h(Y, X) = \mathrm{EAD}(X) \cdot \mathrm{LGD}(X) \cdot Y$, to the calibration moment $h(Y, X) = (Y - \bar p(X)) \mathbf{1}\{X \in \text{bin}_k\}$, and to any other functional of $(Y, X)$ that the bank cares to estimate; only the centering definition of $g_0$ changes, not the orthogonality calculation. Orthogonality is a property of the AIPW score's algebraic form, not of the specific target functional, and is what justifies the "swap any $h(Y, X)$" generality remark in the Horvitz-Thompson subsection above.
-
-By contrast, the raw Horvitz-Thompson score $\psi_{\mathrm{IPW}}(\theta; \pi; W) = SY / \pi(X, Z) - \theta$ has Gateaux derivative
-$$
-D_\pi M_{\mathrm{IPW}}(\theta_0; \pi_0)[h_\pi] = -\mathbb{E}\!\left[\frac{S Y h_\pi(X, Z)}{\pi_0(X, Z)^2}\right] = -\mathbb{E}\!\left[\frac{\mathbb{E}[Y \mid X, Z, S = 1] \cdot h_\pi(X, Z)}{\pi_0(X, Z)}\right],
-$$
-which is generically nonzero (it vanishes only when $h_\pi$ is $L_2$-orthogonal to $\mathbb{E}[Y \mid X, Z, S = 1] / \pi_0$, a knife-edge condition with no economic interpretation). IPW is *not* Neyman-orthogonal, which is the formal reason why naive plug-in IPW with a machine-learned propensity does not deliver $\sqrt n$ inference. The augmentation term $\frac{S}{\pi} g - g$ in the AIPW pseudo-outcome is exactly the projection onto the propensity tangent space that zeroes the linear contamination channel; without it the channel is open and the plug-in IPW estimator inherits the propensity error at first order.
-
-##### The rate theorem
-
-Substituting the orthogonality result into @eq-dml-decomp and @eq-dml-taylor produces the headline rate bound. Under (i) Neyman orthogonality of $\psi$ at $(\beta_0, \eta_0)$, (ii) invertibility of the score Jacobian $J = \partial_\beta M(\beta_0; \eta_0)$ at the truth, (iii) the bilinear-remainder bound $|R(\hat\eta, \eta_0)| \leq C \|\hat g - g_0\|_2 \|\hat\pi - \pi_0\|_2$ on a neighborhood of $\eta_0$, and (iv) control of the empirical-process term $\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta) = O_P(n^{-1/2})$ (provided below by cross-fitting), the plug-in estimator satisfies
+The double-robustness algebra above is a *population* statement: the AIPW score recovers $\mathbb{E}[Y \mid X]$ when one of $(g, \pi)$ equals the truth. When $(\hat g, \hat\pi)$ are themselves machine-learned, two extra ingredients secure $\sqrt n$ inference and nominal-coverage confidence intervals: *Neyman orthogonality* of the score (a structural property of the AIPW algebraic form, due to @chernozhukov2018double building on @robinson1988root and the semiparametric efficient-score calculus in @vandervaart1998asymptotic) and *cross-fitting* (sample splitting into $K$ folds, so the nuisance fit on the $K - 1$ training folds never sees the observations used to evaluate the score on the held-out fold). The headline payoff is the *product-rate* bound
 
 $$
-\big\| \hat \beta - \beta_0 \big\| = O_P\big( \| \hat g - g_0 \|_2 \cdot \| \hat \pi - \pi_0 \|_2 \big) + O_P(n^{-1/2}).
+\big\|\hat\beta - \beta_0\big\| = O_P\big(\|\hat g - g_0\|_2 \cdot \|\hat\pi - \pi_0\|_2\big) + O_P(n^{-1/2}),
 $$ {#eq-dml-rate}
 
-Three structural features of @eq-dml-rate deserve emphasis. *Asymmetry in the nuisance budget.* The rate is a product, not a sum, so the budget on one nuisance is conditional on the other. A correctly parameterized parametric propensity ($\|\hat\pi - \pi_0\|_2 = O_P(n^{-1/2})$) permits a fully nonparametric outcome model that converges at any $o(1)$ rate and still secures $\sqrt n$ inference; conversely, a correctly specified parametric outcome regression buys an arbitrarily flexible propensity. *Symmetric $o(n^{-1/4})$ joint rate.* If neither nuisance is parametric and the analyst wants a uniform sufficient condition, the product condition simplifies to $\|\hat g - g_0\|_2 = o_P(n^{-1/4})$ *and* $\|\hat\pi - \pi_0\|_2 = o_P(n^{-1/4})$, since the product is then $o_P(n^{-1/2})$ by Cauchy-Schwarz. The $n^{-1/4}$ threshold is the modern empirical-process boundary that gradient boosting, random forests, Lasso under standard sparsity conditions in moderate dimensions, and depth-controlled neural networks have all been shown to clear under verifiable conditions on the underlying regression functions. *Tightness.* The bound is sharp in the sense that the product term cannot be improved without strengthening the regularity assumptions on the nuisance space (for example, imposing smoothness on $g$ and $\pi$ that lets a higher-order one-step correction zero the second-order remainder as well, the higher-order influence function route developed in the semiparametric efficiency literature). For the AIPW score with generic nuisances satisfying only $L_2$ convergence, the product rate is asymptotically the best possible.
+so the bias from nuisance estimation enters as a *product* rather than a sum. If both nuisances are nonparametric, a sufficient condition is $\|\hat g - g_0\|_2 = o_P(n^{-1/4})$ and $\|\hat\pi - \pi_0\|_2 = o_P(n^{-1/4})$, the rate that gradient boosting, random forests, Lasso under sparsity, and well-tuned neural networks all deliver under verifiable conditions on the underlying regression functions. In plain English: if either nuisance converges quickly, the other can be slow, and the scorecard still inherits the textbook $\sqrt n$ rate with a usable confidence interval. Cross-fitting plays a mechanical role: it replaces a "the nuisance class is small enough" entropy condition (the Donsker requirement that fails for boosted trees and deep nets) with the much weaker pointwise condition "each fold's nuisance is $L_2$-consistent", which is what flexible learners can actually guarantee.
 
-##### Cross-fitting and the empirical-process term
+The standard error comes from the cross-fit influence-function sandwich
 
-The Taylor expansion above silently assumed that the empirical-process term $\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta)$ is $O_P(n^{-1/2})$. This is *not* automatic when $\hat\eta$ is fit on the same sample used to evaluate $\hat M_n$, because the function $\psi(\beta_0; \hat\eta; \cdot)$ is then a random element of a potentially complex function class. The classical route to control this term is to require the nuisance class $\mathcal{F} = \{\psi(\beta_0; \eta; \cdot) : \eta \in \mathcal{T}\}$ to be Donsker. A class is *Donsker* (more precisely, $P$-Donsker) if its uniform entropy integral converges,
-$$
-\int_0^1 \sqrt{\log \mathcal{N}_{[\,]}(\varepsilon, \mathcal{F}, L_2(P))} \, d\varepsilon < \infty,
-$$
-where $\mathcal{N}_{[\,]}$ is the bracketing number. Under the Donsker condition, the empirical process $\{\sqrt n (\hat M_n - M)(\beta_0; \eta) : \eta \in \mathcal{T}\}$ is asymptotically tight, the supremum over $\eta$ of the empirical-process term is $O_P(n^{-1/2})$ uniformly, and the bound on the plug-in's empirical-process contribution follows by evaluating the uniform bound at the random $\hat\eta$ [@vandervaart1998asymptotic, Chapter 19]. Donsker conditions hold for parametric models, Hölder-smooth function classes on bounded domains, sparse linear models under restricted eigenvalue conditions, and other low-complexity classes; they *fail* for the learners that practitioners actually want to use to satisfy the rate condition: random forests with unrestricted depth, gradient boosting with adaptive tree counts, deep neural networks with adaptive architectures, and stacking ensembles whose member-mixing weights depend on the data. The Donsker route therefore boxes the analyst into a restrictive nuisance class precisely when the rate condition pushes the analyst toward flexibility.
-
-Cross-fitting sidesteps Donsker control by sample splitting. Partition $\{1, \ldots, n\}$ into $K$ disjoint folds $\mathcal{I}_1, \ldots, \mathcal{I}_K$ of roughly equal size. For each $k$ fit the nuisance $\hat\eta^{(-k)}$ on the complement $\mathcal{I}_{-k} = \cup_{j \neq k} \mathcal{I}_j$, then evaluate the score on $\mathcal{I}_k$. The cross-fit moment is
-$$
-\check M_n(\beta) = \frac{1}{K} \sum_{k = 1}^K \frac{1}{|\mathcal{I}_k|} \sum_{i \in \mathcal{I}_k} \psi(\beta; \hat\eta^{(-k)}; W_i).
-$$
-The crucial property is conditional independence: conditional on $\hat\eta^{(-k)}$ (a function of $\mathcal{I}_{-k}$), the observations $\{W_i : i \in \mathcal{I}_k\}$ are i.i.d. draws from $P$ that are independent of $\hat\eta^{(-k)}$. The inner average is therefore a sum of $|\mathcal{I}_k|$ conditionally i.i.d. centered random variables with bounded second moment, and its deviation from $M(\beta_0; \hat\eta^{(-k)})$ is controlled by Chebyshev:
-$$
-\frac{1}{|\mathcal{I}_k|} \sum_{i \in \mathcal{I}_k} \psi(\beta_0; \hat\eta^{(-k)}; W_i) - M(\beta_0; \hat\eta^{(-k)}) = O_P\big(|\mathcal{I}_k|^{-1/2}\big) = O_P(n^{-1/2}),
-$$
-with the $O_P$ holding without any entropy bound, smoothness condition, or Donsker requirement on the function class generating $\hat\eta^{(-k)}$. Averaging over $k$ preserves the rate. The empirical-process contribution to the bias decomposition @eq-dml-decomp is therefore $O_P(n^{-1/2})$ for *any* nuisance learner whose $L_2$ rate satisfies the product condition pointwise, and the rate theorem @eq-dml-rate goes through unchanged. Cross-fitting has converted a uniform-class condition (Donsker, entropy-bounded $\mathcal{T}$) into a pointwise-rate condition ($L_2$ convergence of $\hat\eta^{(-k)}$ alone), at the cost of a constant-factor variance inflation that shrinks as $K \to \infty$.
-
-For credit scorecards we deploy this design with $K = 5$, using `sklearn.model_selection.GroupKFold` keyed on the application id so that no applicant is split across the nuisance and the score fold (this matters for repeated-application or refinance applicants, where two rows share the same latent risk and would otherwise leak information across folds), and stratifying within folds on the accept indicator $S$ so each fold contains the population accept rate. Stratification is the practical fix for the rare-positive pathology in subpopulations where the accept rate is low (high-risk thin-file applicants, declined-then-appealed cases): without it, a random fold assignment can produce a fold with too few accepted-and-defaulted observations to estimate $g$ stably, which inflates the variance of the cross-fit score in a way the asymptotic argument does not see. The choice $K = 5$ is conventional and motivated by a bias-variance balance on the constants of the Chebyshev bound: smaller $K$ wastes the score budget on a single large held-out fold and inflates the variance of $\check M_n$, while larger $K$ shrinks the per-fold nuisance training set and degrades the $L_2$ rate of $\hat\eta^{(-k)}$. The asymptotic argument is valid for any fixed $K \geq 2$, but finite-sample efficiency is roughly flat in $K$ across $\{5, 10\}$ in the regime where $n / K$ is in the thousands or larger, which covers all production credit datasets of interest.
-
-##### Influence-function inference
-
-The asymptotic distribution of $\hat\beta$ is read off the orthogonality-plus-rate decomposition. Substituting @eq-dml-rate into @eq-dml-taylor and rearranging,
-$$
-\sqrt n (\hat\beta - \beta_0) = -J^{-1} \cdot \frac{1}{\sqrt n} \sum_{i = 1}^n \psi(\beta_0; \eta_0; W_i) + o_P(1),
-$$ {#eq-dml-iflinearization}
-which is the asymptotically linear representation of $\hat\beta$ with influence function $\mathrm{IF}(W) = -J^{-1} \psi(\beta_0; \eta_0; W)$. The central limit theorem gives $\sqrt n (\hat\beta - \beta_0) \xrightarrow{d} \mathcal{N}(0, V)$ with $V = J^{-1} \, \mathbb{E}[\psi(\beta_0; \eta_0; W) \psi(\beta_0; \eta_0; W)^\top] \, J^{-\top}$, the sandwich variance. The plug-in sandwich estimator
 $$
 \hat V = \hat J^{-1} \left[\frac{1}{n} \sum_{i = 1}^n \psi\big(\hat\beta; \hat\eta^{(-k(i))}; W_i\big) \psi\big(\hat\beta; \hat\eta^{(-k(i))}; W_i\big)^\top\right] \hat J^{-\top},
-$$
-with $\hat J = n^{-1} \sum_i \partial_\beta \psi(\hat\beta; \hat\eta^{(-k(i))}; W_i)$ and the per-observation score using the cross-fit nuisance $\hat\eta^{(-k(i))}$ that did *not* see $W_i$, is consistent for $V$. The orthogonality of $\psi$ in $\eta$ at the truth implies that the substitution $\hat\eta^{(-k(i))} \to \eta_0$ in the variance estimator contributes only $o_P(1)$ error to $\hat V$: the variance is robust to the specific choice of nuisance learner in the same first-order sense that the point estimate is. As a consequence, two analysts running AIPW on the same dataset with different ML configurations (one using gradient boosting for $\hat\pi$, the other using a calibrated random forest) recover the *same* asymptotic standard error to first order, a property that matters for model-validation and challenger-model frameworks under SR 11-7 and equivalent regulatory regimes.
+$$ {#eq-dml-iflinearization}
 
-The multiplier-bootstrap variance estimator is the standard finite-sample alternative when the dimension of $\beta$ is high, when the influence function is heavy-tailed, or when the sandwich's small-sample coverage is in doubt. The cross-fit design permits a clean bootstrap variant: resample multipliers $\xi_i \sim \mathrm{Exp}(1)$ i.i.d., form the multiplier-weighted score $\xi_i \cdot \psi(\hat\beta; \hat\eta^{(-k(i))}; W_i)$ within each fold, recompute $\hat\beta^*$ from the perturbed moment, and read variance off the bootstrap distribution. The within-fold resampling preserves the conditional independence between the nuisance and the score that the cross-fit argument relies on, and the bootstrap inherits the same $\sqrt n$ rate without an additional regularity argument. The production implementation is at @sec-ch10-modern.
+with $\hat J = n^{-1} \sum_i \partial_\beta \psi(\hat\beta; \hat\eta^{(-k(i))}; W_i)$ and the per-observation score evaluated on the cross-fit nuisance $\hat\eta^{(-k(i))}$ that did *not* see $W_i$. The orthogonality of $\psi$ in $\eta$ at the truth implies that the substitution $\hat\eta^{(-k(i))} \to \eta_0$ in the variance estimator contributes only $o_P(1)$ error, so two analysts running AIPW on the same dataset with different ML configurations (one using gradient boosting for $\hat\pi$, the other a calibrated random forest) recover the *same* asymptotic standard error to first order, a property that matters for challenger-model frameworks under SR 11-7. The multiplier-bootstrap variant (i.i.d. $\xi_i \sim \mathrm{Exp}(1)$ resampled within each fold) is the small-sample alternative when the influence function is heavy-tailed or when $\beta$ is high-dimensional.
+
+The full derivation (Gateaux derivatives of the AIPW score that verify orthogonality, the second-order Taylor expansion that produces the product bound, the demonstration that cross-fitting replaces Donsker entropy control with a pointwise $L_2$ rate, and the formal statements of @eq-dml-rate and @eq-dml-iflinearization) is collected at @sec-ch10-dml-theory-appendix. Readers who need to defend the rate condition to a model-validation team or an SR 11-7 reviewer should work through it; readers who only need the operational recipe can move directly to the deployment paragraph below and the simulation harness at @sec-ch10-dr-simulation.
 
 ##### Operational deployment
 
@@ -2730,15 +2630,45 @@ The first term equals the accept-conditional regression $\mathbb{E}[Y \mid X, S 
 This is exactly the Hand and Henley impossibility (@sec-ch10-impossibility) restated in the language of influence functions. AIPW and DML close the covariate-shift gap (panel (a) of @fig-ch10-conditional-shift) but they cannot close the conditional shift (panel (b)). Heckman closes both, at the cost of bivariate normality and an exclusion restriction. The bias-comparison plot in @fig-ch10-method-bias visualizes the consequence: AIPW, generative imputation, and covariate-shift IW form an intermediate cluster that improves on naive but stops short of Heckman and the Frank copula on a synthetic MNAR lender.
 
 ::: {.callout-note appearance="simple"}
-**Why AIPW/DML reach one shift and Heckman reaches both.** Three observations, each tied back to the two-mechanism simulation of @sec-ch10-two-mechanisms.
+**Why AIPW/DML reach one shift and Heckman reaches both.** Four observations, each tied back to the two-mechanism simulation of @sec-ch10-two-mechanisms.
 
-1. *AIPW and DML are identified under MAR, and MAR is the formal statement "no conditional shift after conditioning on $(X, Z)$."* The MAR assumption $Y \perp S \mid (X, Z)$ is logically equivalent to $P(Y \mid X, Z, S = 1) = P(Y \mid X, Z)$. In plain English, the bin-conditional default rate on the accepted slice equals the bin-conditional default rate on the through-the-door pool. That is Scenario A at @fig-ch10-two-mechanisms-a: the accept rule depends on observables plus independent noise, so within any $X$-bin the accepts are a uniform random subsample. The only gap left to fix is the covariate one, which is why inverse-propensity reweighting on $\pi(X, Z)$ is sufficient. AIPW and DML cannot reach beyond this gap because their identifying assumption rules out the conditional gap *by definition*. There is no $\rho$ in their model to estimate.
+1.  *AIPW and DML are identified under MAR, and MAR is the formal statement "no conditional shift after conditioning on* $(X, Z)$." The MAR assumption $Y \perp S \mid (X, Z)$ is logically equivalent to $P(Y \mid X, Z, S = 1) = P(Y \mid X, Z)$. In plain English, the bin-conditional default rate on the accepted slice equals the bin-conditional default rate on the through-the-door pool. That is Scenario A at @fig-ch10-two-mechanisms-a: the accept rule depends on observables plus independent noise, so within any $X$-bin the accepts are a uniform random subsample. The only gap left to fix is the covariate one, which is why inverse-propensity reweighting on $\pi(X, Z)$ is sufficient. AIPW and DML cannot reach beyond this gap because their identifying assumption rules out the conditional gap *by definition*. There is no $\rho$ in their model to estimate.
 
-2. *Under MNAR the AIPW score still runs, but it converges to the wrong target.* In Scenario B at @fig-ch10-two-mechanisms-b the underwriter accepts on a latent $V$ with $\mathrm{Corr}(U, V) = \rho > 0$, so within each $X$-bin the accepts are the upper-$V$ tail, which is also the upper-$U$ tail, which by the outcome rule is the riskier slice. The residual $Y - g(X, Z)$ on the accepted slice no longer has mean zero on the through-the-door population (the "B minus truth" column of @tbl-ch10-two-mechanisms is exactly this nonzero mean). The cancellation that defines AIPW therefore fails. Flexibility in the learners for $g$ and $\pi$ does not save the cancellation, because the variable that drives the gap, $V$, is *not in the feature store*. No nonparametric fit on $(X, Z, S, Y)$ can recover information about an unobserved $V$.
+2.  *Under MNAR the AIPW score still runs, but it converges to the wrong target.* In Scenario B at @fig-ch10-two-mechanisms-b the underwriter accepts on a latent $V$ with $\mathrm{Corr}(U, V) = \rho > 0$, so within each $X$-bin the accepts are the upper-$V$ tail, which is also the upper-$U$ tail, which by the outcome rule is the riskier slice. The residual $Y - g(X, Z)$ on the accepted slice no longer has mean zero on the through-the-door population (the "B minus truth" column of @tbl-ch10-two-mechanisms is exactly this nonzero mean). The cancellation that defines AIPW therefore fails. Flexibility in the learners for $g$ and $\pi$ does not save the cancellation, because the variable that drives the gap, $V$, is *not in the feature store*. No nonparametric fit on $(X, Z, S, Y)$ can recover information about an unobserved $V$.
 
-3. *Heckman buys MNAR identification with parametric structure plus an exclusion restriction.* Bivariate normality on $(U, V)$ pins down the shape of the conditional-shift gap as $\rho\sigma \cdot \lambda(X_S \gamma)$, where $\lambda = \phi/\Phi$ is the inverse Mills ratio. Plain reading: the conditional gap is not free-form, it tracks how far each applicant sits from the selection threshold, and one scalar $\rho$ governs its size. The exclusion restriction $Z$ shifts $S$ without entering the outcome equation, which gives $\rho$ a source of identifying variation that is not collinear with the outcome regressors $X$. Once $\rho$ is estimated, the through-the-door conditional $P(Y \mid X)$ is recovered by subtracting $\rho\sigma \cdot \lambda(\cdot)$ from the accept-conditional regression. Heckman therefore closes the covariate gap (implicitly, since the corrected regression targets the through-the-door population) and the conditional gap (explicitly, via $\hat\rho$). The price is exactly the two assumptions in the previous sentence: bivariate normality is a strong functional form, and a defensible $Z$ is a design question the data alone cannot settle.
+3.  *Heckman buys MNAR identification with parametric structure plus an exclusion restriction.* Bivariate normality on $(U, V)$ pins down the shape of the conditional-shift gap as $\rho\sigma \cdot \lambda(X_S \gamma)$, where $\lambda = \phi/\Phi$ is the inverse Mills ratio. Plain reading: the conditional gap is not free-form, it tracks how far each applicant sits from the selection threshold, and one scalar $\rho$ governs its size. The exclusion restriction $Z$ shifts $S$ without entering the outcome equation, which gives $\rho$ a source of identifying variation that is not collinear with the outcome regressors $X$. Once $\rho$ is estimated, the through-the-door conditional $P(Y \mid X)$ is recovered by subtracting $\rho\sigma \cdot \lambda(\cdot)$ from the accept-conditional regression. Heckman therefore closes the covariate gap (implicitly, since the corrected regression targets the through-the-door population) and the conditional gap (explicitly, via $\hat\rho$). The price is exactly the two assumptions in the previous sentence: bivariate normality is a strong functional form, and a defensible $Z$ is a design question the data alone cannot settle.
 
-The slogan is that AIPW/DML and Heckman trade on *different axes* of @fig-ch10-two-axis-taxonomy. Adding flexibility to the AIPW nuisances (the horizontal axis) does not buy MNAR identification (the vertical axis); only a parametric joint plus an exclusion restriction (or a copula generalization of either) crosses the MAR/MNAR frontier.
+4.  *MAR can be a feature-engineering achievement, not a property of the world.* The labels "MAR" and "MNAR" are not properties of the data-generating process alone; they are properties of *the DGP together with the conditioning set*. Suppose there exists an observable $X_j$ in the feature store such that $U \perp V \mid X_j$, i.e. the latent default shock and the latent acceptance shock are independent once we hold $X_j$ fixed. Then the dependence that defined Scenario B becomes *observed* dependence, conditioning on $X_j$ neutralizes it, and within each $X_j$-bin the accepted slice is back to being a uniform random subsample of the through-the-door slice. AIPW/DML are identified again, this time on the richer conditioning set $(X, X_j)$, and Heckman is no longer required. The credit-modeling cases where this is most plausible are those where the bureau later supplies a covariate (utilization spike, new-trade opening, severe delinquency on a separate tradeline) that proxies the underwriter's unrecorded soft signals; see @sec-ch10-bureau-extrapolation. The general principle: richer features push systems toward MAR, and $\rho$ in the Heckman model is what is left over after the feature store has done what it can.
+
+The conditional-independence claim $U \perp V \mid (X, X_j)$ is about latent variables and is therefore *not directly testable* from any statistic computed on accepted-only data. What is checkable is its *observable implication*: the through-the-door bin-conditional default rate equals the funded-only bin-conditional default rate, $P(Y \mid X, X_j, S{=}1) = P(Y \mid X, X_j)$. That equality can be checked only on a slice of the data where the right-hand side is identified, i.e. where selection does not track $V$. Three such slices appear in this chapter and each gives a one-way model-check rather than a hypothesis test in the textbook sense.
+
+-   *Swap-set residual.* A random subset of applicants below the underwriter's cutoff is funded anyway (the D1 design in the design-based catalog, @sec-ch10-design-based). On that slice $S \perp V$ holds *by design*, so the funded-slice default rate is an unbiased estimate of the through-the-door rate inside each $(X, X_j)$-bin. Fit the accept-only model with $X_j$ in $X$, predict on the swap-set, and compare. A residual gap larger than sampling noise is the MNAR bias the proxy failed to absorb. The banded $\hat\tau(x)$ estimator on the synthetic lender, with bootstrap intervals and empirical-Bayes shrinkage for thin bands, is worked end-to-end in @sec-ch10-tau-from-holdout.
+-   *Bureau follow-up.* The bureau reports a (different-product, imperfect) default flag $Y_B$ on the rejected applicants who later took credit elsewhere (the surrogate-outcome path of @sec-ch10-bureau-extrapolation, with the bureau-product gap and within-reject coverage caveats catalogued there). Same comparison, with the caveat that $Y_B \neq Y$ in general, so a nonzero gap mixes the product gap with the unabsorbed MNAR. The worked bureau-augmentation run on the synthetic lender, including the source-tagging and per-source monitoring artefacts, is in @sec-ch10-bureau-worked and @sec-ch10-bureau-six-artefacts.
+-   *Heckman $\hat\rho$ as a one-way diagnostic.* Fit Heckman with $X_j$ in the outcome equation. A large $\hat\rho$ with tight SE *rejects* the MAR-via-proxy claim. A small $\hat\rho$ does *not* confirm it, because under a weak exclusion restriction $\hat\rho$ rides on the curvature of $\lambda$ and a near-zero estimate is consistent with both "proxy worked" and "design has no identifying variation"; the assumption-by-assumption defense, including the Staiger-Stock / LMMP $F$ thresholds for $Z$ and the falsification regression on a bureau-labelled rejected subset, is in @sec-ch10-heckman-assumptions.
+
+None of these is a hypothesis test for $U \perp V \mid (X, X_j)$ in the formal sense. They are *falsification opportunities*: a slice where the MAR claim has observable consequences, so a model-implied prediction can be checked against an outcome the model did not see. Without at least one such slice, the MAR-via-proxy story is unfalsifiable on the lender's data, which is the operational meaning of "rely on luck": there is no internal evidence that the conditioning set is rich enough, so the MNAR-branch machinery becomes the prudent default.
+
+A common confusion sits inside the previous paragraph and deserves to be named: is a $U$-proxy $X_j$ the same object as the Heckman exclusion restriction $Z$? It is not. The two objects play *opposite* roles in the structural model, and the test "in which equation does it appear?" cleanly separates them.
+:::
+
+| Object | Role in identification | In selection $S$? | In outcome $Y$? |
+|---|---|:---:|:---:|
+| Outcome regressor $X$ | Predicts $Y$ given the population the bin describes | usually yes | yes |
+| Exclusion restriction $Z$ | Supplies variation in $\pi(\cdot)$ that is orthogonal to outcome regressors, so $\hat\rho$ is not identified by curvature of $\lambda$ alone | yes | **no, by assumption** |
+| $U$-proxy $X_j$ | Absorbs a piece of the latent outcome error $U$, converting MNAR conditional on $X$ into MAR conditional on $(X, X_j)$ | typically yes | **yes, on purpose** |
+
+: Three roles a covariate can play in a selection model. The exclusion restriction is a statement about $Z$ only, not about every variable in the selection equation. A $U$-proxy and an exclusion restriction are *not* the same object: the proxy belongs in both equations; $Z$ belongs in selection only. {#tbl-ch10-x-vs-z-roles}
+
+::: {.callout-note appearance="simple"}
+Three operational consequences follow from @tbl-ch10-x-vs-z-roles.
+
+-   *Including a $U$-proxy in the outcome equation is the point of having it, not a violation of Heckman's exclusion restriction.* The exclusion restriction is the statement that $Z$ does not enter $g(X)$. It is not the statement that every variable in the selection equation is excluded from the outcome equation. The outcome regressors $X$ and any $U$-proxy $X_j$ belong in both equations.
+
+-   *Heckman without a defensible $Z$ is identified solely off the nonlinearity of the inverse Mills ratio $\lambda(\cdot)$.* This is the standard "identification by functional form" critique [@puhani2000heckman]: when $X_S = X$, the estimated $\hat\rho$ rides on the curvature of $\lambda$ over the support of $X_S \hat\gamma$, which is empirically near-linear over the bulk of the data, producing unstable estimates with very large standard errors and high collinearity between $\hat\lambda$ and $X$. The structural form survives, but the design has lost its identifying variation. The presence of a U-proxy $X_j$ in both equations does *not* fix this: it tightens the outcome regression and may reduce $|\rho|$, but it does not supply the kind of exogenous shifter that $Z$ is supposed to provide.
+
+-   *The MNAR-to-MAR reduction by feature engineering is a testable claim, not a default.* It presumes $U \perp V \mid (X, X_j)$, which is the same kind of conditional-independence assumption that ignorability assumes everywhere else in the causal-inference literature. The credit-specific tests are the same ones the chapter has already laid out: a shadow-funded slice (@sec-ch10-design-based) shows whether the proxy reduces residual selection-on-unobservables to zero; a bureau path (@sec-ch10-bureau-extrapolation) provides an outcome on the rejected slice that the accept-only model can be benchmarked against. Absent at least one of those, the prudent default is the MNAR branch, with the proxy in $X$ to tighten the outcome regression and a separate $Z$ in the selection equation to identify $\rho$.
+
+The slogan is that AIPW/DML and Heckman trade on *different axes* of @fig-ch10-two-axis-taxonomy, and a third axis lives implicitly in the feature store: the richness of $X$. Adding flexibility to the AIPW nuisances (the horizontal axis) does not buy MNAR identification (the vertical axis); only a parametric joint plus an exclusion restriction (or a copula generalization of either) crosses the MAR/MNAR frontier. But *adding a good $U$-proxy to $X$ moves the frontier itself*: with the richer conditioning set, the residual $\rho$ shrinks, possibly to zero, and the MAR branch becomes adequate. That third move is the most valuable one a bank can make, because it does not require a parametric joint or an exclusion restriction; it requires data. The two-axis picture takes the feature store as given; widening the feature store is the work that happens before the picture is drawn.
 :::
 
 #### Two-axis taxonomy of estimators
@@ -2747,14 +2677,14 @@ A compact organizing picture separates the selection regime each estimator ident
 
 | Estimator | Selection regime identified | Functional form on nuisances |
 |------------------------|------------------------|------------------------|
-| Naive accept-only MLE | None (estimates $P(Y \mid X, S=1)$) | Whatever the base learner imposes |
-| IPW (Horvitz-Thompson) | MAR | Parametric propensity |
-| Hájek IPW with weight clip | MAR | Parametric propensity, clipped support |
-| AIPW (Robins, Rotnitzky, Zhao) | MAR | Parametric or semiparametric |
-| DML (Chernozhukov et al.) | MAR | Arbitrary ML, cross-fit |
-| Heckman two-step | MNAR with $\rho \neq 0$ | Bivariate normal joint, probit selection |
-| Copula selection (Marra-Radice) | MNAR, general dependence | Probit margins, arbitrary copula family |
-| Joint frailty for survival | MNAR competing risks on time | Parametric or semiparametric frailty |
+| [Naive accept-only MLE](#sec-ch10-naive-fit) | None (estimates $P(Y \mid X, S=1)$) | Whatever the base learner imposes |
+| [IPW (Horvitz-Thompson)](#sec-ch10-ipw-ht) | MAR | Parametric propensity |
+| [Hájek IPW with weight clip](#sec-ch10-hajek) | MAR | Parametric propensity, clipped support |
+| [AIPW (Robins, Rotnitzky, Zhao)](#sec-ch10-aipw) | MAR | Parametric or semiparametric |
+| [DML (Chernozhukov et al.)](#sec-ch10-dml-cross-fit) | MAR | Arbitrary ML, cross-fit |
+| [Heckman two-step](#sec-ch10-heckman-selection-correction) | MNAR with $\rho \neq 0$ | Bivariate normal joint, probit selection |
+| [Copula selection (Marra-Radice)](#sec-ch10-copula) | MNAR, general dependence | Probit margins, arbitrary copula family |
+| [Joint frailty for survival](09-survival-analysis.qmd#sec-ch09-frailty) | MNAR competing risks on time | Parametric or semiparametric frailty |
 
 : Two-axis classification of the reject-inference estimators treated in this chapter. The selection-regime column is the identification target (MAR vs MNAR plus the dependence family); the functional-form column is what each estimator imposes on the propensity $\pi$ and outcome regression $g$. @fig-ch10-two-axis-taxonomy plots the rows on the plane spanned by the two axes. {#tbl-ch10-estimator-axes}
 
@@ -3273,7 +3203,7 @@ print(lvg_summary[[
 ]])
 ```
 
-The `lvg_summary` table reads as follows. The `bias_lee_b1`, `bias_lee_b2`, `bias_gour_b1`, `bias_gour_b2` columns all hover within Monte Carlo noise of zero across every $\rho^{*}$, while the `bias_naive_*` columns drift away from zero with a magnitude that grows roughly linearly in $\rho^{*}$ (at $\rho^{*} = 0.8$, the naive slope on $X_1$ is biased by about $+0.16$ on a true slope of $0.9$, an $18\%$ error). This is the headline that surprises readers expecting Gourieroux to fail on $\hat\beta$: it does not, because both $\hat r$ and $\hat e$ are monotone functions of the same $\hat p$ and the second-stage OLS partials out essentially the same $\hat p$-shaped variation from $X$ regardless of which one you use. Where the two estimators *do* diverge is the `lee_cf_coef` and `gour_cf_coef` columns. The Lee coefficient tracks the diagonal $\rho^{*}$ to within sampling noise (at $\rho^{*} = 0.6$ it returns $\hat\rho^{*} \approx 0.60$, at $\rho^{*} = 0.8$ it returns $\hat\rho^{*} \approx 0.80$), which is the on-scale identification of the latent-error correlation that Heckman's algebra requires. The Gourieroux coefficient sits on a completely different scale: at $\rho^{*} = 0.6$ it returns $\hat\rho^{*}_{\text{Gour}} \approx 1.00$, at $\rho^{*} = 0.8$ it returns $\hat\rho^{*}_{\text{Gour}} \approx 1.33$, a roughly constant inflation factor of $1.66$ that reflects the average ratio $|\hat r| / |\hat e|$ on the accepted slice (which under this accept-rate range and seed is exactly that). The PD-RMSE columns are the operational consequence: `rmse_lee` and `rmse_gour` are nearly identical at every $\rho^{*}$ (both around $0.04$), confirming that for *predicted-$Y$* purposes the two estimators are interchangeable on this DGP, while `rmse_naive` rises from $0.025$ at $\rho^{*} = 0$ to $0.57$ at $\rho^{*} = 0.8$, which is the bias an uncorrected accepted-only fit pays when extrapolated to the through-the-door pool.
+The `lvg_summary` table reads as follows. The `bias_lee_b1`, `bias_lee_b2`, `bias_gour_b1`, `bias_gour_b2` columns all hover within Monte Carlo noise of zero across every $\rho^{*}$, while the `bias_naive_*` columns drift away from zero with a magnitude that grows roughly linearly in $\rho^{*}$ (at $\rho^{*} = 0.8$, the naive slope on $X_1$ is biased by about $+0.16$ on a true slope of $0.9$, an $18\%$ error). This is the headline that surprises readers expecting Gourieroux to fail on $\hat\beta$: it does not, because both $\hat r$ and $\hat e$ are monotone functions of the same $\hat p$ and the second-stage OLS partials out essentially the same $\hat p$-shaped variation from $X$ regardless of which one you use. Where the two estimators *do* diverge is the `lee_cf_coef` and `gour_cf_coef` columns. The Lee coefficient tracks the diagonal $\rho^{*}$ to within sampling noise (at $\rho^{*} = 0.6$ it returns $\hat\rho^{*} \approx 0.60$, at $\rho^{*} = 0.8$ it returns $\hat\rho^{*} \approx 0.80$), which is the on-scale identification of the latent-error correlation that Heckman's algebra requires. The Gourieroux coefficient sits on a completely different scale: at $\rho^{*} = 0.6$ it returns $\hat\rho^{*}_{\text{Gour}} \approx 1.00$, at $\rho^{*} = 0.8$ it returns $\hat\rho^{*}_{\text{Gour}} \approx 1.33$, a roughly constant inflation factor of $1.66$ that reflects the average ratio $|\hat r| / |\hat e|$ on the accepted slice (which under this accept-rate range and seed is exactly that). The PD-RMSE columns are the operational consequence: `rmse_lee` and `rmse_gour` are nearly identical at every $\rho^{*}$ (both around $0.04$), confirming that for *predicted-*$Y$ purposes the two estimators are interchangeable on this DGP, while `rmse_naive` rises from $0.025$ at $\rho^{*} = 0$ to $0.57$ at $\rho^{*} = 0.8$, which is the bias an uncorrected accepted-only fit pays when extrapolated to the through-the-door pool.
 
 ```{python}
 #| label: fig-ch10-lee-vs-gourieroux
@@ -4784,7 +4714,7 @@ Bivariate copulas split into two big families, plus a handful of two-parameter c
 **Elliptical copulas** come from elliptical joints. The Gaussian copula is $C^{\text{Ga}}_\rho(u, v) = \Phi_\rho(\Phi^{-1}(u), \Phi^{-1}(v))$, where $\Phi_\rho$ is the bivariate normal CDF with correlation $\rho$. The Student-$t$ copula $C^{t}_{\rho, \nu}$ replaces $\Phi_\rho$ by the bivariate Student-$t$ CDF with $\nu$ degrees of freedom (@demarta2005t). Elliptical copulas are radially symmetric (upper and lower tails behave the same), but the Student-$t$ has nonzero symmetric tail dependence
 
 $$
-\lambda_L = \lambda_U = 2 t_{\nu+1}\!\left(-\sqrt{\tfrac{(\nu+1)(1-\rho)}{1+\rho}}\right),
+\lambda_L = \lambda_U = 2 t_{\nu+1}\left(-\sqrt{\tfrac{(\nu+1)(1-\rho)}{1+\rho}}\right),
 $$ {#eq-tcop-tail}
 
 which approaches the Gaussian limit ($\lambda = 0$) only as $\nu \to \infty$. For $\nu = 4$ and $\rho = 0.5$, $\lambda \approx 0.25$. Plain English: roughly a quarter of the time, when one latent is in the worst (or best) 1% tail, the other is too. This is the "fat-tailed Gaussian" upgrade portfolio-credit teams adopted after 2008.
@@ -4792,14 +4722,14 @@ which approaches the Gaussian limit ($\lambda = 0$) only as $\nu \to \infty$. Fo
 **Archimedean copulas** are constructed from a generator function $\varphi : [0, 1] \to [0, \infty]$ that is continuous, strictly decreasing, and convex with $\varphi(1) = 0$:
 
 $$
-C_\theta(u, v) = \varphi^{-1}\!\big(\varphi(u) + \varphi(v)\big).
+C_\theta(u, v) = \varphi^{-1}\big(\varphi(u) + \varphi(v)\big).
 $$ {#eq-archimedean}
 
 Plain English: encode each margin through $\varphi$, add the encodings, decode back through $\varphi^{-1}$. Different generators give different dependence patterns. Three generators produce the workhorse families:
 
 -   **Clayton** with $\varphi(t) = (t^{-\theta} - 1)/\theta$, $\theta > 0$. Lower-tail dependence $\lambda_L = 2^{-1/\theta}$ and no upper-tail dependence. Credit reading: when the underwriter's worst rejects and the lender's worst defaulters share latent risk drivers (a downturn-vintage pattern), Clayton fits. The empirical default for subprime and downturn cohorts.
 -   **Gumbel** with $\varphi(t) = (-\log t)^\theta$, $\theta \geq 1$. Upper-tail dependence $\lambda_U = 2 - 2^{1/\theta}$, no lower-tail dependence. The Gumbel copula is also the extreme-value copula generated by componentwise maxima of iid bivariate samples, which explains why it shares a name with the univariate Gumbel extreme-value distribution: the maximum of many iid pairs with Gumbel marginals has joint law equal to a Gumbel copula. Credit reading: rare in default modeling, more common in operational-risk and reinsurance joint extremes.
--   **Frank** with $\varphi(t) = -\log\!\big((e^{-\theta t} - 1)/(e^{-\theta} - 1)\big)$, $\theta \in \mathbb{R} \setminus \{0\}$. Zero tail dependence in both tails, symmetric dependence in the middle, full range $\tau \in (-1, 1)$. Credit reading: a "non-Gaussian Gaussian." Same identification load as Heckman without the bivariate-normal latent assumption. Routinely used as a robustness check against Gaussian-copula Heckman.
+-   **Frank** with $\varphi(t) = -\log\big((e^{-\theta t} - 1)/(e^{-\theta} - 1)\big)$, $\theta \in \mathbb{R} \setminus \{0\}$. Zero tail dependence in both tails, symmetric dependence in the middle, full range $\tau \in (-1, 1)$. Credit reading: a "non-Gaussian Gaussian." Same identification load as Heckman without the bivariate-normal latent assumption. Routinely used as a robustness check against Gaussian-copula Heckman.
 
 Three further Archimedean members appear regularly in the credit and insurance literature:
 
@@ -4814,7 +4744,7 @@ Beyond bivariate, **vine copulas** (@aas2009pair) decompose a high-dimensional j
 @tbl-ch10-copula-zoo gives a one-screen reference. The "$\tau$ map" column links the copula parameter to Kendall's $\tau$, which is on the same $[-1, 1]$ scale as Heckman's $\rho$ and is the right quantity for cross-family comparisons. The "credit use case" column names the empirical pattern that makes the family the right choice; the "diagnostic" column names the test that should reject the alternatives before a validator accepts the choice.
 
 | Family | Type | Param range | Tail dep ($\lambda_L, \lambda_U$) | $\tau$ map | Credit use case | Diagnostic |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+|:----------|:----------|:----------|:----------|:----------|:----------|:----------|
 | Gaussian | Elliptical | $\rho \in (-1, 1)$ | $(0, 0)$ | $\tau = (2/\pi)\arcsin \rho$ | Default Heckman; symmetric central dependence, thin joint tails | Pagan-Vella conditional-moment test (@sec-ch10-other-assumption-diagnostics) |
 | Student-$t$ | Elliptical | $\rho \in (-1, 1)$, $\nu > 2$ | $(\lambda, \lambda)$ symmetric, positive for finite $\nu$ via @eq-tcop-tail | $\tau = (2/\pi)\arcsin \rho$ | Fat-tailed symmetric MNAR; downturn vintage with joint shocks both ways | LR of $\nu \to \infty$ vs $\nu$ free; bootstrap on $\nu$ |
 | Frank | Archimedean | $\theta \in \mathbb{R} \setminus \{0\}$ | $(0, 0)$ | $\tau = 1 - 4(1 - D_1(\theta))/\theta$ (Debye) | Robustness against Heckman without changing the tail story | AIC against Gaussian; Wald on $\hat\theta = 0$ |
@@ -4832,7 +4762,7 @@ Beyond bivariate, **vine copulas** (@aas2009pair) decompose a high-dimensional j
 The validator's question is "why this copula." A defensible answer has three parts: (1) which tail pattern is plausible on this product and vintage, (2) which families were fit and how they compare on a likelihood criterion, and (3) what the second-stage PD spread is across the top families. @tbl-ch10-copula-decision walks the bivariate question to a default family.
 
 | If you suspect ... | Then start with | Then test against |
-| :--- | :--- | :--- |
+|:-----------------------|:-----------------------|:-----------------------|
 | No tail dependence, symmetric center, large $n$ | Frank | Gaussian (recovers Heckman) and Student-$t$ |
 | Heavy joint co-defaults in the bad tail (downturn, subprime) | Clayton | BB1, Student-$t$, survival Gumbel |
 | Heavy joint co-rejections of strong applicants (capacity binding, channel mix) | Gumbel | Joe, BB7 |
@@ -4971,7 +4901,7 @@ The score is consistent if either the Heckman parametric joint holds (so $\hat g
 
 *Shadow-variable DR.* The @miao2024identification estimator replaces $\hat\pi(X, Z)$ with $\hat\pi(X, Y)$ identified through a shadow variable $W$ and replaces $\hat g(X, Z)$ with $\hat g(X, W)$. The cancellation is the same: consistent if either nuisance is correct. The credit instantiation is the bureau-shadow construction of @sec-ch10-shadow-variable.
 
-*$\delta$-bracketed DR.* For a grid of pattern-mixture tilts $\delta \in [0, \delta_{\max}]$, run standard AIPW with the outcome regression $\hat g_\delta(X) = \hat g(X) + \delta$ on the rejected side. The estimator is consistent under MNAR with tilt exactly $\delta$, and the *bracket* across the grid is the sensitivity envelope on the through-the-door PD. This is the version a validator can read end-to-end without committing to a structural joint.
+$\delta$-bracketed DR. For a grid of pattern-mixture tilts $\delta \in [0, \delta_{\max}]$, run standard AIPW with the outcome regression $\hat g_\delta(X) = \hat g(X) + \delta$ on the rejected side. The estimator is consistent under MNAR with tilt exactly $\delta$, and the *bracket* across the grid is the sensitivity envelope on the through-the-door PD. This is the version a validator can read end-to-end without committing to a structural joint.
 
 @han2013estimation and @han2014multiply generalize the cancellation across *multiple* candidate models: specify several propensities and several outcome regressions, some MAR and some MNAR, and the multiply-robust estimator is consistent if *any one* of the candidates is correctly specified. We use this construction explicitly in the hybrid-estimator section that follows.
 
@@ -5071,7 +5001,7 @@ The credit operational pattern is to reserve the holdout permanently, retrain $w
 @tbl-ch10-hybrid-decision walks the four constructions to a default. The headline is that CF-AIPW is the cheapest production default when an exclusion exists, holdout-tuned stacking is the cleanest answer when the bank can afford a 1 to 5 percent random-accept quota, multiply-robust estimation is the right tool when the regime is genuinely uncertain and the engineering budget is large, and sensitivity-bracketed DR is the last-resort framework when no MNAR primitive is defensible.
 
 | Hybrid construction | When to use | Identifies under | Cost | SR 11-7 friendliness |
-| :--- | :--- | :--- | :--- | :--- |
+|:--------------|:--------------|:--------------|:--------------|:--------------|
 | CF-AIPW (Construction 1) | Defensible Heckman exclusion; bivariate-normal joint plausible | MAR; MNAR-Gaussian | Low; one extra control in the outcome regression | High; the IMR $t$-statistic is the regime test |
 | Multiply-robust (Construction 2) | Regime uncertain; engineering budget available; multiple candidate nuisances at hand | MAR; MNAR-Gaussian; MNAR-shadow; whichever is correct | Medium; empirical-likelihood fit, multiple nuisances | Medium; the calibration weights are interpretable as model evidence |
 | Sensitivity-bracketed DR (Construction 3) | No exclusion, no shadow, no defensible copula | MAR; MNAR envelope from $\delta$ grid | Low; reuse the MAR point estimate plus a sensitivity loop | High; the envelope is a single disclosed number |
@@ -6038,7 +5968,7 @@ flowchart TD
     L4A -->|No| L4B{"Exclusion restriction?"}:::question
     L4B -->|Yes| L4BJ{"Gaussian joint plausible<br/>(no tail dependence,<br/>light-tailed shocks)?"}:::question
     L4BJ -->|Yes| M4C["Heckman two-step<br/>(@sec-ch10-heckman-selection-correction)"]:::method
-    L4BJ -->|No (heavy tails / asymmetric)| M4CC["Copula selection<br/>(Clayton, Gumbel, Frank, Student-t)<br/>(@sec-ch10-copula)"]:::method
+    L4BJ -->|"No (heavy tails / asymmetric)"| M4CC["Copula selection<br/>(Clayton, Gumbel, Frank, Student-t)<br/>(@sec-ch10-copula)"]:::method
     L4B -->|No, rich features| M4D["AIPW + DML on (X, Z)<br/>(@sec-ch10-modern)"]:::method
     L4B -->|No, thin features| L4C{"Bureau outcome on rejects?"}:::question
     L4C -->|Yes| M4E["Bureau augmentation<br/>(@sec-ch10-bureau-extrapolation)"]:::method
@@ -7444,3 +7374,163 @@ Governance cadence. Reject inference is one of the few modeling areas where the 
 -   @chapelle2006semi and @zhu2009introduction: semi-supervised learning references behind self-training and pseudo-labeling.
 
 The empirical microeconomics of consumer credit forms a parallel literature that addresses identification head-on by randomizing the selection step. @karlan2009observing run a three-arm field experiment with a South African lender to separate the moral-hazard contribution from the adverse-selection contribution to default rates: the same machinery that separates these two effects in theory becomes operational when interest-rate offers and contract terms are randomized at origination. @einav2012contract estimate a structural model of pricing in subprime auto-loan markets where selection and pricing are jointly determined; their estimator complements the Heckman correction by leveraging within-borrower variation in offered terms. @adams2009liquidityconstraints document that subprime auto applicants face binding liquidity constraints that distort their loan-amount choice, which means a reject-inference model that ignores liquidity will over-attribute default to creditworthiness. @edelberg2006riskbased shows that the move to risk-based pricing in the late 1990s shifted the equilibrium composition of approved borrowers; reject-inference frameworks built on pre-1995 portfolios do not transfer cleanly. The downstream side of the funnel is the bankruptcy literature: @mahoney2015bankruptcy, @dobbie2015debt, and @indarte2023moralhazard use random-judge designs to identify the causal effect of bankruptcy protection on financial health, debt relief, and the relative weights of moral hazard and liquidity.
+
+## Appendix: Cross-fitting and Neyman orthogonality (technical derivation) {#sec-ch10-dml-theory-appendix .unnumbered}
+
+This appendix collects the formal derivation underlying the cross-fitted AIPW estimator presented at @sec-ch10-heckman-vs-dml. The operational recipe (cross-fitted AIPW with $K = 5$ GroupKFold and sandwich SE) and the headline results @eq-dml-rate and @eq-dml-iflinearization live in the main text; this appendix is for readers who need the step-by-step derivation, typically a model-validation team, an SR 11-7 reviewer, or a research audience reproducing the rate proof.
+
+### Plug-in M-estimators and the first-stage-bias obstruction
+
+Fix the parameter of interest $\beta \in \mathbb{R}^p$ (the through-the-door scorecard coefficients), the nuisance pair $\eta = (g, \pi)$ taking values in a normed function space $\mathcal{T}$ equipped with the $L_2(P)$ norm, and a score function $\psi(\beta; \eta; W)$ where $W = (Y, X, Z, S)$. The AIPW score for a logistic scorecard $\mu(X; \beta) = \mathrm{expit}(X^\top \beta)$ targeting the through-the-door conditional mean reads
+
+$$
+\psi(\beta; g, \pi; W) = \big[g(X, Z) + \tfrac{S}{\pi(X, Z)} (Y - g(X, Z)) - \mu(X; \beta)\big] \cdot \nabla_\beta \mu(X; \beta),
+$$
+
+and the plug-in M-estimator $\hat\beta$ solves the empirical moment equation
+
+$$
+\hat M_n(\hat\beta; \hat\eta) \equiv \frac{1}{n} \sum_{i = 1}^n \psi(\hat\beta; \hat\eta; W_i) = 0.
+$$ {#eq-dml-empmoment}
+
+The corresponding population moment is $M(\beta; \eta) = \mathbb{E}_P[\psi(\beta; \eta; W)]$, and the truth satisfies $M(\beta_0; \eta_0) = 0$ by construction of the AIPW pseudo-outcome under MAR. The asymptotic behavior of $\hat\beta$ is read off a second-order Taylor expansion of @eq-dml-empmoment around $(\beta_0, \eta_0)$:
+
+$$
+0 = \hat M_n(\beta_0; \hat\eta) + J(\hat\beta - \beta_0) + O_P\big(\|\hat\beta - \beta_0\|^2\big), \qquad J = \partial_\beta M(\beta_0; \eta_0),
+$$ {#eq-dml-taylor}
+
+which, after solving for $\hat\beta - \beta_0$, identifies the leading-order contamination as $\hat M_n(\beta_0; \hat\eta)$. This term decomposes additively into an empirical-process piece and a plug-in-bias piece:
+
+$$
+\hat M_n(\beta_0; \hat\eta) = \underbrace{\big[\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta)\big]}_{\text{empirical process}} + \underbrace{\big[M(\beta_0; \hat\eta) - M(\beta_0; \eta_0)\big]}_{\text{plug-in bias}}.
+$$ {#eq-dml-decomp}
+
+The first piece is sample noise around the population moment evaluated at the *estimated* nuisance; the second piece is the systematic gap between the estimated and true population moments at the true $\beta_0$. The plug-in bias admits a functional Taylor expansion in the direction $\hat\eta - \eta_0$,
+
+$$
+M(\beta_0; \hat\eta) - M(\beta_0; \eta_0) = D_\eta M(\beta_0; \eta_0)[\hat\eta - \eta_0] + R(\hat\eta, \eta_0),
+$$
+
+where $D_\eta M[h]$ is the Gateaux derivative along the path $\eta_t = \eta_0 + t h$ (formally $D_\eta M[h] = \frac{d}{dt}\big|_{t = 0} M(\beta_0; \eta_0 + t h)$) and $R$ collects second-order terms in $\hat\eta - \eta_0$. For a generic score, $D_\eta M(\beta_0; \eta_0)[\hat\eta - \eta_0]$ is linear in $\hat\eta - \eta_0$ and therefore $O_P(\|\hat\eta - \eta_0\|_2)$. Modern learners deliver $\|\hat\eta - \eta_0\|_2 = o_P(n^{-1/4})$ at best (random forests, gradient boosting, and Lasso under sparsity in moderate dimensions reach this rate; deep nets reach it under depth-width-sparsity conditions that the recent ReLU-network approximation literature has formalized), and $o_P(n^{-1/4})$ is slower than the $O_P(n^{-1/2})$ rate that the standard sandwich variance estimator assumes for the leading term in @eq-dml-decomp. The first-order channel $D_\eta M[\hat\eta - \eta_0]$ is the *first-stage-bias obstruction*: a generic plug-in M-estimator with a flexible first-stage learner fails to achieve $\sqrt n$ inference because the contamination from $\hat\eta$ dominates the sample noise.
+
+### Neyman orthogonality as a structural property of the score
+
+The fix engineers the score so that the first-order contamination channel vanishes identically.
+
+**Definition (Neyman orthogonality).** A score $\psi$ is *Neyman-orthogonal at* $(\beta_0, \eta_0)$ with respect to the nuisance space $\mathcal{T}$ if the Gateaux derivative of its population moment along every admissible direction is zero at the truth:
+
+$$
+D_\eta M(\beta_0; \eta_0)[h] = \frac{d}{dt}\bigg|_{t = 0} M\big(\beta_0; \eta_0 + t h\big) = 0 \quad \text{for all } h = (h_g, h_\pi) \in \mathcal{T} - \eta_0.
+$$ {#eq-dml-orthogonality}
+
+The definition is a *structural* statement about the population score, not about any estimator or any dataset. It says the map $\eta \mapsto M(\beta_0; \eta)$ is stationary at the truth: tangent-flat along every direction in nuisance space, with $\nabla_\eta M|_{\eta_0} \equiv 0$ as a functional gradient. Substituting @eq-dml-orthogonality into the Taylor expansion of the plug-in bias collapses the linear channel to identically zero,
+
+$$
+M(\beta_0; \hat\eta) - M(\beta_0; \eta_0) = 0 + R(\hat\eta, \eta_0),
+$$
+
+and the surviving remainder $R$ is second-order in $\hat\eta - \eta_0$. For scores like AIPW that are *bilinear* in the two nuisance arguments (the score depends on $g$ and on $\pi$ but the mixed second derivative $\partial^2 \psi / \partial g \partial \pi$ is the only nonzero second derivative at $\eta_0$), the remainder has the product form
+
+$$
+R(\hat\eta, \eta_0) = O_P\big(\|\hat g - g_0\|_2 \cdot \|\hat\pi - \pi_0\|_2\big),
+$$
+
+rather than the sum-of-squares form $O_P(\|\hat g - g_0\|_2^2 + \|\hat\pi - \pi_0\|_2^2)$ that a generic Hessian with both diagonal blocks nonzero would produce. The product structure is the algebraic deliverable of orthogonality combined with the AIPW score's bilinear form, and it is what allows one nuisance to be parametric (rate $n^{-1/2}$) and the other fully nonparametric (rate $n^{-1/4}$) while still keeping the product at $o(n^{-1/2})$.
+
+### Verification for the AIPW score
+
+The two Gateaux derivatives can be computed by hand, and the calculation is short enough to be worth doing once in print. For ease of notation, we work with the version of the score that targets $\theta_0(x) = \mathbb{E}[Y \mid X = x]$ at a fixed $x$:
+
+$$
+\psi(\theta; g, \pi; W) = g(X, Z) - \theta + \frac{S}{\pi(X, Z)} \big(Y - g(X, Z)\big),
+$$
+
+so that $M(\theta; g, \pi) = \mathbb{E}[g(X, Z)] - \theta + \mathbb{E}\big[\frac{S}{\pi(X, Z)} (Y - g(X, Z))\big]$. The full M-estimating equation is recovered by replacing $\theta$ with $\mu(X; \beta)$ and multiplying through by $\nabla_\beta \mu$; both Gateaux derivatives carry over verbatim since the pre-multiplication by $\nabla_\beta \mu$ is a function of $(X, \beta)$ alone and commutes with the directional derivative in $\eta$.
+
+*Derivative in* $g$. For a bounded measurable perturbation $h_g(X, Z)$, the path $g_t = g_0 + t h_g$ produces
+
+$$
+M(\theta_0; g_t, \pi_0) - M(\theta_0; g_0, \pi_0) = t \mathbb{E}[h_g(X, Z)] - t \mathbb{E}\left[\frac{S}{\pi_0(X, Z)} h_g(X, Z)\right],
+$$
+
+and dividing by $t$ before taking $t \to 0$ identifies the Gateaux derivative
+
+$$
+D_g M(\theta_0; \eta_0)[h_g] = \mathbb{E}\left[h_g(X, Z) \left(1 - \frac{S}{\pi_0(X, Z)}\right)\right].
+$$
+
+Condition on $(X, Z)$. The definition $\pi_0(X, Z) = \mathbb{E}[S \mid X, Z]$ yields $\mathbb{E}[S / \pi_0(X, Z) \mid X, Z] = 1$, so the bracket has conditional mean zero, and the tower property gives $D_g M(\theta_0; \eta_0)[h_g] = 0$ for every $h_g$ in the tangent space. The AIPW score is Neyman-orthogonal in $g$.
+
+*Derivative in* $\pi$. For a bounded perturbation $h_\pi(X, Z)$ supported on a neighborhood of $\pi_0$ where overlap holds ($\pi_0 \geq \kappa > 0$, so $\pi_t = \pi_0 + t h_\pi$ stays bounded away from zero for $|t|$ small), Taylor-expand $1 / \pi_t$ around $\pi_0$:
+
+$$
+\frac{1}{\pi_t(X, Z)} = \frac{1}{\pi_0(X, Z)} - \frac{t h_\pi(X, Z)}{\pi_0(X, Z)^2} + O(t^2).
+$$
+
+Substituting,
+
+$$
+M(\theta_0; g_0, \pi_t) - M(\theta_0; g_0, \pi_0) = -t \mathbb{E}\left[\frac{S h_\pi(X, Z)}{\pi_0(X, Z)^2} \big(Y - g_0(X, Z)\big)\right] + O(t^2),
+$$
+
+and dividing by $t$ identifies
+
+$$
+D_\pi M(\theta_0; \eta_0)[h_\pi] = -\mathbb{E}\left[\frac{S h_\pi(X, Z)}{\pi_0(X, Z)^2} \big(Y - g_0(X, Z)\big)\right].
+$$
+
+Condition on $(X, Z, S = 1)$. By the definition $g_0(X, Z) = \mathbb{E}[Y \mid X, Z, S = 1]$, the residual $Y - g_0(X, Z)$ has zero conditional mean on the accepted slice. The $S = 0$ branch contributes zero outright because $S$ multiplies the integrand. Therefore $D_\pi M(\theta_0; \eta_0)[h_\pi] = 0$ for every $h_\pi$, and the AIPW score is Neyman-orthogonal in $\pi$ as well.
+
+The two calculations exhaust the orthogonality requirement. The same algebra carries over to the dollar-loss target $h(Y, X) = \mathrm{EAD}(X) \cdot \mathrm{LGD}(X) \cdot Y$, to the calibration moment $h(Y, X) = (Y - \bar p(X)) \mathbf{1}\{X \in \text{bin}_k\}$, and to any other functional of $(Y, X)$ that the bank cares to estimate; only the centering definition of $g_0$ changes, not the orthogonality calculation. Orthogonality is a property of the AIPW score's algebraic form, not of the specific target functional, and is what justifies the "swap any $h(Y, X)$" generality remark in the Horvitz-Thompson subsection of the main text.
+
+By contrast, the raw Horvitz-Thompson score $\psi_{\mathrm{IPW}}(\theta; \pi; W) = SY / \pi(X, Z) - \theta$ has Gateaux derivative
+
+$$
+D_\pi M_{\mathrm{IPW}}(\theta_0; \pi_0)[h_\pi] = -\mathbb{E}\left[\frac{S Y h_\pi(X, Z)}{\pi_0(X, Z)^2}\right] = -\mathbb{E}\left[\frac{\mathbb{E}[Y \mid X, Z, S = 1] \cdot h_\pi(X, Z)}{\pi_0(X, Z)}\right],
+$$
+
+which is generically nonzero (it vanishes only when $h_\pi$ is $L_2$-orthogonal to $\mathbb{E}[Y \mid X, Z, S = 1] / \pi_0$, a knife-edge condition with no economic interpretation). IPW is *not* Neyman-orthogonal, which is the formal reason why naive plug-in IPW with a machine-learned propensity does not deliver $\sqrt n$ inference. The augmentation term $\frac{S}{\pi} g - g$ in the AIPW pseudo-outcome is exactly the projection onto the propensity tangent space that zeroes the linear contamination channel; without it the channel is open and the plug-in IPW estimator inherits the propensity error at first order.
+
+### The rate theorem
+
+Substituting the orthogonality result into @eq-dml-decomp and @eq-dml-taylor produces the headline rate bound @eq-dml-rate (stated in the main text). Under (i) Neyman orthogonality of $\psi$ at $(\beta_0, \eta_0)$, (ii) invertibility of the score Jacobian $J = \partial_\beta M(\beta_0; \eta_0)$ at the truth, (iii) the bilinear-remainder bound $|R(\hat\eta, \eta_0)| \leq C \|\hat g - g_0\|_2 \|\hat\pi - \pi_0\|_2$ on a neighborhood of $\eta_0$, and (iv) control of the empirical-process term $\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta) = O_P(n^{-1/2})$ (provided below by cross-fitting), the plug-in estimator satisfies @eq-dml-rate.
+
+Three structural features of @eq-dml-rate deserve emphasis. *Asymmetry in the nuisance budget.* The rate is a product, not a sum, so the budget on one nuisance is conditional on the other. A correctly parameterized parametric propensity ($\|\hat\pi - \pi_0\|_2 = O_P(n^{-1/2})$) permits a fully nonparametric outcome model that converges at any $o(1)$ rate and still secures $\sqrt n$ inference; conversely, a correctly specified parametric outcome regression buys an arbitrarily flexible propensity. *Symmetric* $o(n^{-1/4})$ joint rate. If neither nuisance is parametric and the analyst wants a uniform sufficient condition, the product condition simplifies to $\|\hat g - g_0\|_2 = o_P(n^{-1/4})$ *and* $\|\hat\pi - \pi_0\|_2 = o_P(n^{-1/4})$, since the product is then $o_P(n^{-1/2})$ by Cauchy-Schwarz. The $n^{-1/4}$ threshold is the modern empirical-process boundary that gradient boosting, random forests, Lasso under standard sparsity conditions in moderate dimensions, and depth-controlled neural networks have all been shown to clear under verifiable conditions on the underlying regression functions. *Tightness.* The bound is sharp in the sense that the product term cannot be improved without strengthening the regularity assumptions on the nuisance space (for example, imposing smoothness on $g$ and $\pi$ that lets a higher-order one-step correction zero the second-order remainder as well, the higher-order influence function route developed in the semiparametric efficiency literature). For the AIPW score with generic nuisances satisfying only $L_2$ convergence, the product rate is asymptotically the best possible.
+
+### Cross-fitting and the empirical-process term
+
+The Taylor expansion above silently assumed that the empirical-process term $\hat M_n(\beta_0; \hat\eta) - M(\beta_0; \hat\eta)$ is $O_P(n^{-1/2})$. This is *not* automatic when $\hat\eta$ is fit on the same sample used to evaluate $\hat M_n$, because the function $\psi(\beta_0; \hat\eta; \cdot)$ is then a random element of a potentially complex function class. The classical route to control this term is to require the nuisance class $\mathcal{F} = \{\psi(\beta_0; \eta; \cdot) : \eta \in \mathcal{T}\}$ to be Donsker. A class is *Donsker* (more precisely, $P$-Donsker) if its uniform entropy integral converges,
+
+$$
+\int_0^1 \sqrt{\log \mathcal{N}_{[\,]}(\varepsilon, \mathcal{F}, L_2(P))} \, d\varepsilon < \infty,
+$$
+
+where $\mathcal{N}_{[\,]}$ is the bracketing number. Under the Donsker condition, the empirical process $\{\sqrt n (\hat M_n - M)(\beta_0; \eta) : \eta \in \mathcal{T}\}$ is asymptotically tight, the supremum over $\eta$ of the empirical-process term is $O_P(n^{-1/2})$ uniformly, and the bound on the plug-in's empirical-process contribution follows by evaluating the uniform bound at the random $\hat\eta$ [@vandervaart1998asymptotic, Chapter 19]. Donsker conditions hold for parametric models, Hölder-smooth function classes on bounded domains, sparse linear models under restricted eigenvalue conditions, and other low-complexity classes; they *fail* for the learners that practitioners actually want to use to satisfy the rate condition: random forests with unrestricted depth, gradient boosting with adaptive tree counts, deep neural networks with adaptive architectures, and stacking ensembles whose member-mixing weights depend on the data. The Donsker route therefore boxes the analyst into a restrictive nuisance class precisely when the rate condition pushes the analyst toward flexibility.
+
+Cross-fitting sidesteps Donsker control by sample splitting. Partition $\{1, \ldots, n\}$ into $K$ disjoint folds $\mathcal{I}_1, \ldots, \mathcal{I}_K$ of roughly equal size. For each $k$ fit the nuisance $\hat\eta^{(-k)}$ on the complement $\mathcal{I}_{-k} = \cup_{j \neq k} \mathcal{I}_j$, then evaluate the score on $\mathcal{I}_k$. The cross-fit moment is
+
+$$
+\check M_n(\beta) = \frac{1}{K} \sum_{k = 1}^K \frac{1}{|\mathcal{I}_k|} \sum_{i \in \mathcal{I}_k} \psi(\beta; \hat\eta^{(-k)}; W_i).
+$$
+
+The crucial property is conditional independence: conditional on $\hat\eta^{(-k)}$ (a function of $\mathcal{I}_{-k}$), the observations $\{W_i : i \in \mathcal{I}_k\}$ are i.i.d. draws from $P$ that are independent of $\hat\eta^{(-k)}$. The inner average is therefore a sum of $|\mathcal{I}_k|$ conditionally i.i.d. centered random variables with bounded second moment, and its deviation from $M(\beta_0; \hat\eta^{(-k)})$ is controlled by Chebyshev:
+
+$$
+\frac{1}{|\mathcal{I}_k|} \sum_{i \in \mathcal{I}_k} \psi(\beta_0; \hat\eta^{(-k)}; W_i) - M(\beta_0; \hat\eta^{(-k)}) = O_P\big(|\mathcal{I}_k|^{-1/2}\big) = O_P(n^{-1/2}),
+$$
+
+with the $O_P$ holding without any entropy bound, smoothness condition, or Donsker requirement on the function class generating $\hat\eta^{(-k)}$. Averaging over $k$ preserves the rate. The empirical-process contribution to the bias decomposition @eq-dml-decomp is therefore $O_P(n^{-1/2})$ for *any* nuisance learner whose $L_2$ rate satisfies the product condition pointwise, and the rate theorem @eq-dml-rate goes through unchanged. Cross-fitting has converted a uniform-class condition (Donsker, entropy-bounded $\mathcal{T}$) into a pointwise-rate condition ($L_2$ convergence of $\hat\eta^{(-k)}$ alone), at the cost of a constant-factor variance inflation that shrinks as $K \to \infty$.
+
+For credit scorecards we deploy this design with $K = 5$, using `sklearn.model_selection.GroupKFold` keyed on the application id so that no applicant is split across the nuisance and the score fold (this matters for repeated-application or refinance applicants, where two rows share the same latent risk and would otherwise leak information across folds), and stratifying within folds on the accept indicator $S$ so each fold contains the population accept rate. Stratification is the practical fix for the rare-positive pathology in subpopulations where the accept rate is low (high-risk thin-file applicants, declined-then-appealed cases): without it, a random fold assignment can produce a fold with too few accepted-and-defaulted observations to estimate $g$ stably, which inflates the variance of the cross-fit score in a way the asymptotic argument does not see. The choice $K = 5$ is conventional and motivated by a bias-variance balance on the constants of the Chebyshev bound: smaller $K$ wastes the score budget on a single large held-out fold and inflates the variance of $\check M_n$, while larger $K$ shrinks the per-fold nuisance training set and degrades the $L_2$ rate of $\hat\eta^{(-k)}$. The asymptotic argument is valid for any fixed $K \geq 2$, but finite-sample efficiency is roughly flat in $K$ across $\{5, 10\}$ in the regime where $n / K$ is in the thousands or larger, which covers all production credit datasets of interest.
+
+### Influence-function inference
+
+The asymptotic distribution of $\hat\beta$ is read off the orthogonality-plus-rate decomposition. Substituting @eq-dml-rate into @eq-dml-taylor and rearranging,
+
+$$
+\sqrt n (\hat\beta - \beta_0) = -J^{-1} \cdot \frac{1}{\sqrt n} \sum_{i = 1}^n \psi(\beta_0; \eta_0; W_i) + o_P(1),
+$$
+
+which is the asymptotically linear representation of $\hat\beta$ with influence function $\mathrm{IF}(W) = -J^{-1} \psi(\beta_0; \eta_0; W)$. The central limit theorem gives $\sqrt n (\hat\beta - \beta_0) \xrightarrow{d} \mathcal{N}(0, V)$ with $V = J^{-1} \, \mathbb{E}[\psi(\beta_0; \eta_0; W) \psi(\beta_0; \eta_0; W)^\top] \, J^{-\top}$, the sandwich variance. The plug-in sandwich estimator @eq-dml-iflinearization (stated in the main text) is consistent for $V$, with $\hat J = n^{-1} \sum_i \partial_\beta \psi(\hat\beta; \hat\eta^{(-k(i))}; W_i)$ and the per-observation score using the cross-fit nuisance $\hat\eta^{(-k(i))}$ that did *not* see $W_i$. The orthogonality of $\psi$ in $\eta$ at the truth implies that the substitution $\hat\eta^{(-k(i))} \to \eta_0$ in the variance estimator contributes only $o_P(1)$ error to $\hat V$: the variance is robust to the specific choice of nuisance learner in the same first-order sense that the point estimate is.
+
+The multiplier-bootstrap variance estimator is the standard finite-sample alternative when the dimension of $\beta$ is high, when the influence function is heavy-tailed, or when the sandwich's small-sample coverage is in doubt. The cross-fit design permits a clean bootstrap variant: resample multipliers $\xi_i \sim \mathrm{Exp}(1)$ i.i.d., form the multiplier-weighted score $\xi_i \cdot \psi(\hat\beta; \hat\eta^{(-k(i))}; W_i)$ within each fold, recompute $\hat\beta^*$ from the perturbed moment, and read variance off the bootstrap distribution. The within-fold resampling preserves the conditional independence between the nuisance and the score that the cross-fit argument relies on, and the bootstrap inherits the same $\sqrt n$ rate without an additional regularity argument. The production implementation is at @sec-ch10-modern.

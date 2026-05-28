@@ -114,7 +114,7 @@ The five parts also explain a recurring surprise. A vendor quotes a 4% PD on a b
 
 ### The construct expanded {#sec-ch02-pd-construct-expanded}
 
-Write the PD as the full conditional probability it really is:
+Write the PD as the full conditional probability, it really is:
 
 $$
 \mathrm{PD}(x) = \Pr(Y \in \mathcal{B} \text{ within horizon } h \mid X = x, \mathcal{P}, \mathcal{C}, \mathcal{S}).
@@ -125,10 +125,10 @@ The five conditioners:
 1.  $\mathcal{B}$, the bad event set. Which outcomes count as a default.
 2.  $h$, the performance horizon. The window over which $Y$ is observed.
 3.  $\mathcal{P}$, the reference population. The portfolio whose mixture defines $\eta_{\mathcal{P}}(x) = \Pr(Y \in \mathcal{B} \mid X = x)$.
-4.  $\mathcal{C}$, the conditioning information used. Whether macro state is conditioned on (PIT) or integrated out (TTC).
+4.  $\mathcal{C}$, the conditioning information used. Whether the current macro state is conditioned on, giving a *point-in-time* (PIT) PD that moves with the cycle, or integrated out over the long-run macro distribution, giving a *through-the-cycle* (TTC) PD that does not. The two stances are developed formally in @sec-ch02-pd-construct-cycle.
 5.  $\mathcal{S}$, the sampling frame. The selection from the through-the-door (TTD) population that produced the training data.
 
-In plain English: who counts as defaulted, how long we wait, who is in the pool, what macro state we assume, and whether the data we used reflects the full applicant pool or only the accepted slice. Change any one and the number changes, often by a factor of two or three on the same borrower.
+In plain English: who counts as defaulted, how long we wait, who is in the pool, what macro state we assume, and whether the data we used reflects the full applicant pool or only the accepted slice. Change any one, and the number changes, often by a factor of two or three on the same borrower.
 
 A PD quote without the five-tuple is incomplete the same way a bond yield without a maturity is incomplete. The construct here is the thing the model is estimating; @sec-ch02-pd-lgd-ead-and-regulatory-capital starts from a fully specified construct and works out the capital arithmetic. Get the construct wrong and the arithmetic is exact but meaningless.
 
@@ -159,7 +159,7 @@ Three horizons dominate in practice:
 The naive conversion $h$-year PD $\approx 1 - (1 - p_{12})^h$ assumes a constant hazard and independent yearly trials. It is correct only as a first-order approximation. The right derivation uses a survival or Markov framework (see @sec-ch35-ifrs9 and the survival chapter referenced there):
 
 $$
-\mathrm{PD}(x, h) = 1 - \exp\!\left(-\int_0^h \lambda(u \mid x, \mathcal{F}_0) \, du\right),
+\mathrm{PD}(x, h) = 1 - \exp\left(-\int_0^h \lambda(u \mid x, \mathcal{F}_0) \, du\right),
 $$ {#eq-pd-horizon}
 
 with $\lambda$ the hazard intensity at age $u$ conditional on covariates at origination $\mathcal{F}_0$. In plain English: time stretches the probability the same way it stretches a bond's default risk. A 1% one-year PD is not a 1% lifetime PD on a 30-year mortgage; it is 20% to 30%, depending on hazard shape and prepayment.
@@ -193,12 +193,12 @@ $$
 $$ {#eq-pd-pit}
 
 $$
-\mathrm{PD}^{\mathrm{TTC}}(x) = \mathbb{E}_{M}\!\left[\Pr(Y = 1 \mid X = x, M)\right] = \int \mathrm{PD}^{\mathrm{PIT}}(x, m) \, dF(m).
+\mathrm{PD}^{\mathrm{TTC}}(x) = \mathbb{E}_{M}\left[\Pr(Y = 1 \mid X = x, M)\right] = \int \mathrm{PD}^{\mathrm{PIT}}(x, m) \, dF(m).
 $$ {#eq-pd-ttc}
 
 The TTC PD is the expected PIT PD over the long-run macro distribution $F(m)$. In plain English: PIT is "what we think will happen this year"; TTC is "what happens on average across the cycle." A pure PIT estimate moves up in recessions and down in booms; a pure TTC estimate sits still and lets the macro overlay do the work elsewhere.
 
-Basel IRB targets TTC for capital-stability reasons. IFRS 9 and CECL target PIT (or near-PIT) for provisioning. A bank therefore runs two PD numbers on the same exposure, and a vendor that ships only one of them is incompletely positioned for either use case.
+Basel IRB targets TTC for capital-stability reasons. IFRS 9 and CECL target PIT (or near-PIT) for provisioning. A bank therefore runs two PD numbers on the same exposure.
 
 The intermediate construct is a hybrid PD with explicit macro overlay [@carlehed2012framework]. Common practice is to estimate $\mathrm{PD}^{\mathrm{TTC}}(x)$ as the model baseline and apply a scalar macro adjustment so that $\mathrm{PD}^{\mathrm{PIT}}(x, t) = g(\mathrm{PD}^{\mathrm{TTC}}(x), M_t)$. Rating-agency practice has been examined empirically in @loffler2013rating, who finds that even agency ratings are not pure TTC. Migration matrices conditional on the cycle are derived in @bangia2002ratings. Stress-testing chapters (@sec-ch35-ifrs9) develop this further.
 
@@ -441,7 +441,7 @@ This is the Merton link [@merton1974pricing] between the structural latent model
 Condition on $M = m$. Then $Z_i \mid M = m \sim \mathcal{N}(\sqrt{\rho} m, 1 - \rho)$, and
 
 $$
-\Pr(Y_i = 1 \mid M = m) = \Pr(Z_i \le c_i \mid M = m) = \Phi\!\left(\frac{c_i - \sqrt{\rho} m}{\sqrt{1 - \rho}}\right).
+\Pr(Y_i = 1 \mid M = m) = \Pr(Z_i \le c_i \mid M = m) = \Phi\left(\frac{c_i - \sqrt{\rho} m}{\sqrt{1 - \rho}}\right).
 $$ {#eq-cond-pd}
 
 Conditional on $M$, the $Y_i$ are independent. Unconditionally, they are not: the common factor $M$ induces correlation.
@@ -453,7 +453,7 @@ Capital is calibrated at the 99.9% confidence level under Basel II IRB, meaning 
 Substituting $m = -\Phi^{-1}(0.999)$ into @eq-cond-pd:
 
 $$
-\mathrm{PD}_i^{(0.999)} = \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho} \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right).
+\mathrm{PD}_i^{(0.999)} = \Phi\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho} \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right).
 $$ {#eq-stressed-pd}
 
 This is the default probability under a one-in-a-thousand stress scenario for the systemic factor.
@@ -477,7 +477,7 @@ $$
 The 99.9% VaR includes the expected loss $\sum_i \mathrm{EAD}_i \mathrm{LGD}_i \mathrm{PD}_i$. Because EL is already covered by provisions, regulatory capital needs to cover only the gap:
 
 $$
-K_i = \mathrm{LGD}_i \cdot \Phi\!\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho}\, \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right)
+K_i = \mathrm{LGD}_i \cdot \Phi\left(\frac{\Phi^{-1}(\mathrm{PD}_i) + \sqrt{\rho}\, \Phi^{-1}(0.999)}{\sqrt{1 - \rho}}\right)
 - \mathrm{PD}_i \times \mathrm{LGD}_i.
 $$ {#eq-basel-k}
 
