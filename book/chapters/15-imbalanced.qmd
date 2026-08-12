@@ -232,7 +232,7 @@ $$
 p(x) < \frac{r(x)}{r(x) + \ell(x)} \equiv \tau(x).
 $$ {#eq-loan-threshold}
 
-The threshold is applicant-specific. For a high-LGD loan (unsecured, large), $\ell(x)$ is large and $\tau(x)$ is small; only very-low-PD applicants are approved. For a high-revenue loan (secured, high-margin), $\tau(x)$ is larger; more applicants are approved. Cost-sensitive learning with a uniform threshold across the portfolio is a blunt instrument; applicant-specific thresholds from [@eq-loan-threshold] are the principled generalization. Verbraken's Expected Maximum Profit measure [@verbraken2014novel] is the portfolio aggregate of [@eq-loan-threshold].
+The threshold is applicant-specific. For a high-LGD loan (unsecured, large), $\ell(x)$ is large and $\tau(x)$ is small; only very-low-PD applicants are approved. For a high-revenue loan (secured, high-margin), $\tau(x)$ is larger; more applicants are approved. Cost-sensitive learning with a uniform threshold across the portfolio is a blunt instrument; applicant-specific thresholds from [@eq-loan-threshold] are the principled generalization. Verbraken's Expected Maximum Profit measure [@verbraken2014novel] is the portfolio aggregate of [@eq-loan-threshold]. Whether the applicant-specific costs should also enter the fitting stage, and not only the decision rule, is a separate question with a precise answer; it is taken up in @sec-ch15-ecs.
 
 ### Empirical Bayes and hierarchical priors
 
@@ -839,6 +839,299 @@ pd.DataFrame([
 
 The corrected probabilities have the right mean and the same AUC as the raw balanced fit. The Brier score of the corrected predictions matches the reference model. For logistic regression, correcting the intercept and directly recovering base-rate probabilities are the same operation.
 
+## Example-dependent costs {#sec-ch15-ecs}
+
+Every cost calculation so far in this chapter has used one cost pair $(C_{01}, C_{10})$ for the entire portfolio. That is a portfolio-average fiction. A \$500 unsecured instalment loan and a \$40{,}000 auto loan do not carry the same write-off, and a 6% margin product and a 22% margin product do not carry the same forgone revenue. Equation [@eq-loan-threshold] already acknowledged this by making the Bayes threshold applicant-specific, but it stopped at the decision rule. The question this section answers is whether the costs should also enter the *fitting* stage, and what breaks when the two are combined carelessly.
+
+The construction is called example-dependent cost-sensitive (ECS) learning [@zadrozny2003cost; @bahnsen2014example]. It has returned to prominence in the privacy-constrained multi-institution setting: @wang2026ecsvtabnet embed an ECS loss inside a vertical federated TabNet so that the collaborative model optimizes financial loss rather than classification error, and @wang2026fedmoe pursue the same objective for imbalanced and heterogeneous federated credit data through a mixture-of-experts architecture. The federated machinery is treated in @sec-ch12 and @sec-ch18. The cost construction underneath it is separable from the federated wrapper and is what matters for a single-institution scorecard.
+
+### Setup
+
+Extend the notation of @sec-ch15-cost. For applicant $i$ with features $x_i$, let
+
+- $r(x_i) = r_i > 0$ be the expected revenue if the loan is approved and repaid, and
+- $\ell(x_i) = \ell_i > 0$ be the expected loss if the loan is approved and defaults, so $\ell_i = \mathrm{LGD}_i \cdot \mathrm{EAD}_i$ in the Basel decomposition of @sec-ch35.
+
+Keeping the book's convention that predicting $1$ means *decline*, the cost matrix of [@eq-costmat] becomes example-dependent:
+
+$$
+C(x) = \begin{pmatrix} 0 & r(x) \\ \ell(x) & 0 \end{pmatrix},
+\qquad C_{01}(x) = r(x), \quad C_{10}(x) = \ell(x).
+$$ {#eq-ecs-costmat}
+
+The scalar case of @sec-ch15-cost is the special case $r(x) \equiv C_{01}$, $\ell(x) \equiv C_{10}$.
+
+### Assumptions
+
+**(E1) Ex ante measurability.** $r(x)$ and $\ell(x)$ are functions of information available at the decision point. In practice $\mathrm{EAD}$ is the requested limit and $\mathrm{LGD}$ comes from a separate recovery model fit on defaulted accounts. Both are estimates, and E1 requires only that they be computable before the decision, not that they be correct. The consequences of their being wrong are the subject of the failure case below.
+
+**(E2) Decision invariance.** $r(x)$ and $\ell(x)$ do not depend on the decision itself. This is violated by risk-based pricing and by limit assignment: if the approved limit is a function of the score, then $\mathrm{EAD}$, and therefore $\ell$, moves with the model output. The decision problem is then a joint pricing-and-approval problem, not a classification problem, and the rule below is no longer optimal.
+
+**(E3) Cost observability on the through-the-door population.** $r$ and $\ell$ are estimable for declined applicants, not only for booked accounts. Recovery models are fit on defaults, and defaults are observed only among accepted applicants. The selection problem is the one treated in @sec-ch10, and ECS weights inherit it, because the weights are built from $\ell$.
+
+### Cost-proportionate weighting
+
+Define the weight of a training observation as the cost incurred if that observation is misclassified:
+
+$$
+w_i \;=\; C_{y_i,\,1-y_i}(x_i) \;=\; \begin{cases} \ell_i & y_i = 1, \\[2pt] r_i & y_i = 0. \end{cases}
+$$ {#eq-ecs-weight}
+
+For any decision rule $h: \mathcal{X} \to \{0,1\}$, the expected cost is a weighted error rate:
+
+$$
+\mathbb{E}\bigl[C_{Y,h(X)}(X)\bigr]
+= \mathbb{E}\bigl[w \cdot \mathbb{1}\{h(X) \neq Y\}\bigr]
+= \mathbb{E}[w] \cdot \tilde{\mathbb{E}}\bigl[\mathbb{1}\{h(X) \neq Y\}\bigr],
+$$ {#eq-ecs-reduction}
+
+where $\tilde{P}(x,y) \propto w(x,y) P(x,y)$ is the cost-tilted distribution. The first equality holds because the correct-prediction costs are zero, so the only contributions come from errors and each error contributes exactly $w$. The second is the definition of the tilted measure. Expression [@eq-ecs-reduction] is the cost-proportionate weighting reduction of @zadrozny2003cost: minimizing expected cost on $P$ is minimizing error rate on $\tilde{P}$, so any learner that accepts observation weights can be made cost-sensitive without touching its internals.
+
+### The tilted posterior
+
+Fitting on $\tilde P$ estimates the tilted posterior, not $p$. Writing $\tilde p(x) = \tilde P(Y=1 \mid X=x)$ and applying Bayes' rule to $\tilde P(x,y) \propto w(x,y)P(x,y)$,
+
+$$
+\tilde p(x) = \frac{\ell(x)\, p(x)}{\ell(x)\, p(x) + r(x)\,\bigl(1 - p(x)\bigr)}.
+$$ {#eq-ecs-tilted}
+
+In log-odds form the tilt is a pointwise offset:
+
+$$
+\operatorname{logit} \tilde p(x) = \operatorname{logit} p(x) + \log \frac{\ell(x)}{r(x)}.
+$$ {#eq-ecs-logodds}
+
+Compare [@eq-ecs-logodds] with [@eq-spw-logodds]. Under `scale_pos_weight` the offset is the constant $\log w$ and can be undone by a single intercept shift. Under example-dependent weights the offset is a *function of $x$*, so no intercept correction and no monotone recalibration curve can undo it. Recalibration has to be applied pointwise, by inverting [@eq-ecs-tilted]:
+
+$$
+p(x) = \frac{r(x)\, \tilde p(x)}{r(x)\, \tilde p(x) + \ell(x)\,\bigl(1 - \tilde p(x)\bigr)}.
+$$ {#eq-ecs-inverse}
+
+Equation [@eq-ecs-inverse] is the example-dependent analogue of the prior correction [@eq-prior-correction-half], with the cost ratio $\ell(x)/r(x)$ in place of the prior odds. It is the formula to apply before an ECS-trained model's output is used as a PD anywhere in IFRS 9 staging, ECL, or IRB capital (@sec-ch35), because those uses require probabilities on the true scale.
+
+### Instance-dependent Elkan theorem
+
+Thresholding the tilted posterior at one half is exactly the applicant-specific Bayes rule of [@eq-loan-threshold]. From [@eq-ecs-tilted],
+
+$$
+\tilde p(x) > \tfrac{1}{2}
+\iff \ell(x)\, p(x) > r(x)\,\bigl(1-p(x)\bigr)
+\iff p(x) > \frac{r(x)}{r(x) + \ell(x)} = \tau(x).
+$$ {#eq-ecs-elkan}
+
+This is Elkan's theorem with the constant threshold replaced by a function. It has an immediate and slightly deflating corollary.
+
+**Corollary (ECS training is redundant under correct specification).** If the model class contains $p$ and the fit is consistent, then training on $\tilde P$ and cutting at $0.5$ has the same population limit as training on $P$ and cutting at $\tau(x)$. The weights change nothing that the threshold has not already changed.
+
+The corollary marks out exactly where ECS training can pay. It pays only when the model cannot represent $p$: under misspecification, capacity constraints, regularization, or early stopping, the fitted model is an approximation, and the weights decide *where* the approximation error is placed. Cost-tilted fitting spends the model's limited capacity in the high-exposure region, which is where errors are expensive. That is a claim about approximation, not about identification, and it therefore has to be established empirically rather than assumed. The simulation below does that.
+
+### The double-counting trap
+
+The most common implementation error is to apply both the weights and the applicant-specific threshold. The consequence is not a small miscalibration; it is a squared cost ratio. Thresholding the tilted posterior at $\tau(x)$ rather than at $0.5$ gives, in odds form with $u = p/(1-p)$,
+
+$$
+\tilde p(x) < \tau(x)
+\iff \frac{\ell}{r}\,u < \frac{r}{\ell}
+\iff p(x) < \frac{r(x)^2}{r(x)^2 + \ell(x)^2}.
+$$ {#eq-ecs-double}
+
+The effective threshold is the Elkan threshold computed from the *squared* cost ratio. At a typical retail ratio $\ell/r = 10$, the intended cut-off $\tau = 1/11 \approx 0.091$ collapses to $1/101 \approx 0.0099$, a rule nine times tighter that declines a large share of profitable applicants. This is worth stating as a rule: **weights or threshold, never both.** Either fit on $P$ and cut at $\tau(x)$, or fit on $\tilde P$ and cut at $0.5$. Equation [@eq-ecs-elkan] guarantees those two are the same decision; [@eq-ecs-double] shows the hybrid is not.
+
+### Intuition
+
+A weight in [@eq-ecs-weight] says how many dollars are at stake if this row is called wrong, and the likelihood is a sum over rows. Multiplying a row's contribution by its dollar stake is the same as telling the optimizer that a \$40{,}000 auto default counts as eighty \$500 instalment defaults. The optimizer responds by fitting the large-exposure region more carefully and the small-exposure region less carefully. When the model is flexible enough to fit everything, the reallocation is pointless, which is the corollary. When the model is a scorecard with sixteen coefficients and the true relationship is not linear in the log-odds, the reallocation is a genuine choice about which mistakes to make, and it should be made in dollars rather than in counts. What the weighting cannot do is change the decision boundary given a correct probability: that job belongs to $\tau(x)$, and asking both to do it produces [@eq-ecs-double].
+
+### Simulation
+
+The design isolates the mechanism. Default risk is generated with an interaction term so that the linear scorecard the book teaches is *misspecified*, which is the only regime where the corollary allows ECS training to help. Exposure, LGD, and margin are heterogeneous and correlated with different features, so $\tau(x)$ varies across applicants for two distinct reasons. We compare five configurations on the same fitted models, evaluate in dollars per applicant rather than in accuracy, and repeat the whole comparison on a drifted deployment population.
+
+```{python}
+#| label: ecs-dgp
+#| eval: false
+from creditutils import psi
+
+D_FEATURES = 8
+BETA = np.array([0.90, -0.70, 0.45, 0.00, 0.30, -0.25, 0.15, 0.00])
+
+
+def make_portfolio(n, seed, shift=0.0):
+    """Simulated retail portfolio with example-dependent costs.
+
+    `shift` translates the first risk driver to emulate population drift.
+    The x1*x2 interaction makes a linear scorecard misspecified.
+    """
+    rng = np.random.default_rng(seed)
+    Xp = rng.normal(size=(n, D_FEATURES))
+    Xp[:, 0] += shift
+    eta = -3.55 + Xp @ BETA + 0.85 * Xp[:, 0] * Xp[:, 1]
+    p_true = 1.0 / (1.0 + np.exp(-eta))
+    yp = rng.binomial(1, p_true)
+    ead = 2000.0 * np.exp(0.55 * Xp[:, 2])
+    lgd = np.clip(0.45 + 0.18 * Xp[:, 3] + 0.05 * rng.normal(size=n), 0.05, 0.95)
+    margin = 0.06 + 0.02 / (1.0 + np.exp(-Xp[:, 4]))
+    return {"X": Xp, "y": yp, "ell": lgd * ead, "r": margin * ead,
+            "ead": ead, "lgd": lgd}
+
+
+ecs_tr = make_portfolio(40_000, seed=20260812)
+ecs_te = make_portfolio(20_000, seed=20260813)
+ecs_dr = make_portfolio(20_000, seed=20260814, shift=0.80)
+
+print(f"base rate  train {ecs_tr['y'].mean():.4f}  "
+      f"test {ecs_te['y'].mean():.4f}  drifted {ecs_dr['y'].mean():.4f}")
+print(f"exposure   median ${np.median(ecs_tr['ead']):,.0f}  "
+      f"p95 ${np.quantile(ecs_tr['ead'], 0.95):,.0f}")
+print(f"tau(x)     min {np.min(ecs_te['r'] / (ecs_te['r'] + ecs_te['ell'])):.4f}  "
+      f"max {np.max(ecs_te['r'] / (ecs_te['r'] + ecs_te['ell'])):.4f}")
+```
+
+The cost-proportionate weights are heavy-tailed, because exposure is lognormal. Before fitting anything it is worth checking the effective sample size $\mathrm{ESS} = (\sum_i w_i)^2 / \sum_i w_i^2$, which reports how many equally weighted observations the weighted sample is worth. A weighting scheme that drives ESS down to a small fraction of $n$ has quietly thrown away most of the data.
+
+```{python}
+#| label: ecs-fit
+#| eval: false
+w_ecs = np.where(ecs_tr["y"] == 1, ecs_tr["ell"], ecs_tr["r"])
+w_ecs = w_ecs / w_ecs.mean()
+ess = w_ecs.sum() ** 2 / (w_ecs ** 2).sum()
+print(f"weights: mean {w_ecs.mean():.3f}  max {w_ecs.max():.1f}  "
+      f"ESS {ess:,.0f} of {len(w_ecs):,} ({ess / len(w_ecs):.1%})")
+
+lr_plain = LogisticRegression(max_iter=1000, random_state=42)
+lr_plain.fit(ecs_tr["X"], ecs_tr["y"])
+
+lr_ecs = LogisticRegression(max_iter=1000, random_state=42)
+lr_ecs.fit(ecs_tr["X"], ecs_tr["y"], sample_weight=w_ecs)
+```
+
+The five configurations are the two decision rules applied to the two fitted models, plus the double-counting hybrid of [@eq-ecs-double]. Realized cost is the dollars actually incurred: an approved applicant who defaults costs $\ell_i$, a declined applicant who would have repaid costs $r_i$, and the other two cells cost nothing.
+
+```{python}
+#| label: ecs-compare
+#| eval: false
+def realized_cost(approve, dat):
+    """Dollars per applicant under a boolean approve/decline vector."""
+    return np.mean(np.where(approve, dat["y"] * dat["ell"],
+                            (1 - dat["y"]) * dat["r"]))
+
+
+def calibration_slope(y, p):
+    lo = np.log(np.clip(p, 1e-9, 1 - 1e-9) / (1 - np.clip(p, 1e-9, 1 - 1e-9)))
+    return LogisticRegression(max_iter=1000).fit(lo.reshape(-1, 1), y).coef_[0, 0]
+
+
+def ecs_table(dat, label):
+    p_plain = lr_plain.predict_proba(dat["X"])[:, 1]
+    p_tilt = lr_ecs.predict_proba(dat["X"])[:, 1]
+    # Pointwise inverse of the tilt, eq-ecs-inverse
+    p_back = (dat["r"] * p_tilt) / (dat["r"] * p_tilt + dat["ell"] * (1 - p_tilt))
+
+    tau_scalar = dat["r"].mean() / (dat["r"].mean() + dat["ell"].mean())
+    tau_inst = dat["r"] / (dat["r"] + dat["ell"])
+
+    configs = [
+        ("A plain + scalar Elkan tau*", p_plain, p_plain < tau_scalar),
+        ("B plain + instance tau(x)", p_plain, p_plain < tau_inst),
+        ("C ECS-weighted + cut at 0.5", p_tilt, p_tilt < 0.5),
+        ("D ECS-weighted + inverse map + tau(x)", p_back, p_back < tau_inst),
+        ("E hybrid (double counting)", p_tilt, p_tilt < tau_inst),
+    ]
+    rows = []
+    for name, p_i, approve in configs:
+        rows.append({
+            "config": name,
+            "AUC": roc_auc_score(dat["y"], p_i),
+            "KS": ks_statistic(dat["y"], p_i),
+            "Brier": brier_score_loss(dat["y"], p_i),
+            "cal.slope": calibration_slope(dat["y"], p_i),
+            "cost/appl": realized_cost(approve, dat),
+            "approve": approve.mean(),
+        })
+    out = pd.DataFrame(rows).set_index("config")
+    print(f"\n--- {label} ---")
+    return out.round(4)
+
+
+ecs_table(ecs_te, "test, no drift")
+```
+
+```{python}
+#| label: ecs-drift
+#| eval: false
+print(ecs_table(ecs_dr, "drifted deployment population").to_string())
+
+p_te_plain = lr_plain.predict_proba(ecs_te["X"])[:, 1]
+p_dr_plain = lr_plain.predict_proba(ecs_dr["X"])[:, 1]
+p_te_tilt = lr_ecs.predict_proba(ecs_te["X"])[:, 1]
+p_dr_tilt = lr_ecs.predict_proba(ecs_dr["X"])[:, 1]
+print(f"\nscore PSI test -> drifted:  plain {psi(p_te_plain, p_dr_plain):.4f}  "
+      f"ECS-weighted {psi(p_te_tilt, p_dr_tilt):.4f}")
+```
+
+Four results come out of this design, and only one of them is the result the ECS literature advertises.
+
+*Configurations C and D produce identical decisions.* Not similar, identical: the approve vectors agree on every applicant and the realized costs agree to floating point. This is [@eq-ecs-elkan] holding numerically, and it is the check to run first in any ECS implementation. If C and D disagree, the weights and the inverse map are inconsistent with each other.
+
+*Most of the available saving comes from the threshold, not from the weights.* Moving from the portfolio-average threshold (A) to the applicant-specific threshold (B) cuts realized cost by roughly 3%. Adding cost-proportionate training on top of that (C) buys a further fraction of a percent. For a linear scorecard on this DGP, [@eq-loan-threshold] is where the money is, and it requires no change to the fitting code at all. Reporting an ECS result without the B column is how the method gets oversold.
+
+*The weighted model is not a PD model.* Configuration C has visibly worse AUC and roughly double the Brier score of the plain fit, and a calibration slope well below one, because its output is $\tilde p$ and not $p$. Applying [@eq-ecs-inverse] restores both: configuration D has nearly the discrimination and nearly the Brier score of the plain model while making the same decisions as C. An institution that reports C's output as a PD to its IFRS 9 engine is reporting a cost-tilted quantity as a probability.
+
+*Under drift the weighting is a liability.* On the shifted population the plain model with instance thresholds (B) is clearly cheaper than the cost-weighted fit, by roughly 5% in this run, and both are worse than they were in-sample. The reason is visible in the diagnostics: the tilted fit has spent its capacity on the high-exposure region of the *training* covariate distribution, and drift moves mass away from where that capacity was spent. Worse, the monitoring is weaker precisely where the damage is larger. Score PSI over the same shift clears the conventional 0.25 action threshold for the plain model but sits just below it for the tilted one, so a monitoring pack keyed to PSI raises the alarm on the model that held up and stays silent on the model that did not. Where an ECS fit is deployed, PSI should be computed on the corrected score of [@eq-ecs-inverse], not on the raw tilted output.
+
+*The hybrid is a catastrophe, and a quiet one.* Configuration E raises realized cost by roughly 60% over the portfolio-average baseline and declines about six applicants in ten, all while showing exactly the same AUC and KS as configuration C, because ranking is invariant to the threshold. Discrimination metrics cannot see this error. Only the dollar column and the approval rate can. It is a concrete argument for putting realized cost and approval rate in the standard model-validation pack alongside Gini and KS.
+
+### Failure case: the costs are wrong
+
+E1 requires only that $r$ and $\ell$ be computable ex ante, not correct. LGD in particular comes from a recovery model fit on a small defaulted sample and is noisy. The following adds mean-zero noise to LGD and lets the noisy estimate drive both the training weights and the thresholds, which is what happens in production.
+
+```{python}
+#| label: ecs-cost-noise
+#| eval: false
+rng_noise = np.random.default_rng(7)
+rows = []
+for sd in [0.10, 0.25, 0.50]:
+    lgd_tr = np.clip(ecs_tr["lgd"] + sd * rng_noise.normal(size=len(ecs_tr["lgd"])), 0.05, 0.95)
+    lgd_te = np.clip(ecs_te["lgd"] + sd * rng_noise.normal(size=len(ecs_te["lgd"])), 0.05, 0.95)
+    ell_tr_hat = lgd_tr * ecs_tr["ead"]
+    ell_te_hat = lgd_te * ecs_te["ead"]
+
+    w_hat = np.where(ecs_tr["y"] == 1, ell_tr_hat, ecs_tr["r"])
+    w_hat = w_hat / w_hat.mean()
+    lr_noisy = LogisticRegression(max_iter=1000, random_state=42)
+    lr_noisy.fit(ecs_tr["X"], ecs_tr["y"], sample_weight=w_hat)
+    p_noisy = lr_noisy.predict_proba(ecs_te["X"])[:, 1]
+
+    p_plain_te = lr_plain.predict_proba(ecs_te["X"])[:, 1]
+    tau_hat = ecs_te["r"] / (ecs_te["r"] + ell_te_hat)
+
+    rows.append({
+        "LGD noise sd": sd,
+        "C weighted, cut 0.5": realized_cost(p_noisy < 0.5, ecs_te),
+        "B plain, noisy tau(x)": realized_cost(p_plain_te < tau_hat, ecs_te),
+    })
+pd.DataFrame(rows).set_index("LGD noise sd").round(2)
+```
+
+Cost noise degrades the threshold rule (B) substantially, because the noise enters each applicant's cut-off directly and one applicant's error is not offset by another's. It degrades the weighted fit (C) very little, because the weights enter through a sum over forty thousand observations and mean-zero noise largely averages out. The ordering does not merely narrow, it inverts: at the largest noise level here, B is more expensive than the portfolio-average baseline (A) that it was introduced to beat, while C retains nearly all of its advantage. This is the honest case for ECS *training*: not that it minimizes cost better when the costs are known, since [@eq-ecs-elkan] says it cannot, but that it degrades more gracefully when the costs are estimated. Portfolios whose LGD models are thin, which is most emerging-market consumer books, should weigh that robustness against the calibration and drift costs documented above.
+
+### Replication
+
+@wang2026ecsvtabnet evaluate on institutional lending data under a vertical federated split that cannot be redistributed, and no public dataset in @sec-app-C carries per-applicant exposure and recovery fields alongside outcomes. The headline result is therefore not replicated here. The simulation above tests the mechanism the paper relies on rather than reproducing its numbers.
+
+### Practical guidance
+
+Every mainstream learner takes the weights of [@eq-ecs-weight] directly: `sample_weight` in scikit-learn's `fit`, `weight` in the XGBoost `DMatrix`, `sample_weight` in LightGBM, and `w` in CatBoost's `Pool`. The `costcla` package implements example-dependent trees and the Bahnsen cost-sensitive logistic regression if the loss itself, rather than a weighted surrogate, is wanted. Marginal compute cost is zero.
+
+Use ECS training when the model class is genuinely constrained (a regulated scorecard with a fixed coefficient count), when exposure varies over more than an order of magnitude, and when the LGD and EAD inputs are noisy. Use the plain fit with $\tau(x)$ when the model is flexible, when the exposure distribution is tight, when the cost inputs are reliable, or when the same model output has to serve IFRS 9 and IRB reporting, since that use requires $p$ and not $\tilde p$. Both paths need realized cost and approval rate in the monitoring pack; neither is visible to Gini.
+
+### Pitfalls
+
+1. **Double counting.** Weights and $\tau(x)$ together give [@eq-ecs-double]. Assert that configurations C and D agree exactly before deployment.
+2. **Reporting $\tilde p$ as a PD.** Basel and IFRS 9 need probabilities on the true scale. Apply [@eq-ecs-inverse] pointwise; a single intercept shift or a monotone recalibration curve will not do it, because the offset in [@eq-ecs-logodds] depends on $x$.
+3. **Effective sample size collapse.** Lognormal exposures produce lognormal weights. Report ESS with every ECS fit, and winsorize the weight distribution if ESS drops below roughly half of $n$.
+4. **Weights built from a selected sample.** $\ell$ is estimated on observed defaults, which exist only among accepted applicants. The ECS weights therefore inherit the selection bias of @sec-ch10, and correcting the scorecard for reject inference while leaving the weights uncorrected treats one symptom of one problem.
+5. **Endogenous exposure.** If the approved limit responds to the score, E2 fails and the fixed-cost formulation is the wrong model of the decision.
+6. **Fairness.** $\ell(x) = \mathrm{LGD}(x)\,\mathrm{EAD}(x)$ is a function of the applicant, and exposure correlates with income and therefore with protected characteristics. Cost-tilted training moves model capacity toward large-exposure applicants by construction, which can widen performance gaps across groups even when the scorecard uses no protected attribute. Run the group-level diagnostics of @sec-ch24 on both the plain and the tilted fit and compare, rather than validating only the deployed one.
+
 ## Benchmark on German credit
 
 Small datasets are where SMOTE is often claimed to help. We repeat the benchmark on the German credit dataset (1000 rows, 30% default rate). The base rate is not very imbalanced, but the absolute minority count is only 300.
@@ -991,6 +1284,8 @@ Operational defaults that have held up on Vietnamese consumer portfolios. Fit th
 - SMOTE interpolates in feature space and distorts both the marginal and conditional distributions. The distortion requires a prior correction for any probability-dependent downstream use.
 - For credit scoring on realistic datasets, SMOTE rarely beats a properly tuned boosting model with `scale_pos_weight` and a cost-minimizing threshold. This is the consensus of the @lessmann2015benchmarking, @brown2012experimental, and @marques2013analysis benchmarks.
 - If resampling is used, always apply the prior correction of [@eq-prior-correction] before any probability-dependent calculation (pricing, IFRS 9 ECL, Basel PD).
+- Costs in credit are example-dependent, not portfolio-constant. Fitting on cost-proportionate weights and cutting at $0.5$ is *exactly* the same decision as fitting plainly and cutting at $\tau(x) = r(x)/(r(x)+\ell(x))$ [@eq-ecs-elkan]. Doing both squares the cost ratio and over-declines badly [@eq-ecs-double].
+- An ECS-weighted model outputs a cost-tilted quantity, not a PD. The correction back to the true scale is pointwise [@eq-ecs-inverse], because the log-odds offset depends on $x$; no intercept shift will do it.
 
 ## Further reading
 
@@ -1004,3 +1299,5 @@ Operational defaults that have held up on Vietnamese consumer portfolios. Fit th
 - @niculescu2005predicting for calibration of boosted trees and SVMs.
 - @batista2004study and @krawczyk2016learning for broader comparative studies.
 - @lemaitre2017imbalanced for the `imbalanced-learn` package reference.
+- @zadrozny2003cost for the cost-proportionate weighting reduction and @bahnsen2014example for example-dependent cost-sensitive logistic regression in credit scoring.
+- @wang2026ecsvtabnet and @wang2026fedmoe for example-dependent costs and class imbalance inside federated credit models.
