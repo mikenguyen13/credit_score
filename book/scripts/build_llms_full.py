@@ -106,6 +106,24 @@ def build_llms_index(book: dict, parts, appendices) -> str:
         "file with runnable Python on publicly available data."
     )
     lines.append("")
+    lines.append("## Research Methods Library (MCP server)")
+    lines.append("")
+    lines.append(
+        "- [MCP endpoint](https://research-methods-mcp.vercel.app/mcp): "
+        "Model Context Protocol server (streamable HTTP, no authentication) "
+        "that indexes the full text of this book together with the author's "
+        "other books, the causalverse R package, and research articles. Its "
+        "tools recommend study designs with their identifying assumptions "
+        "(`choose_method`), search and read sections (`search`, `fetch`), "
+        "return runnable R and Python code (`get_code`), and format citations "
+        "(`cite`); every result links to the section consulted."
+    )
+    lines.append(
+        "- [Research Methods Library](https://research-methods-mcp.vercel.app/): "
+        "setup instructions for Claude, Claude Code, ChatGPT, Cursor, Visual "
+        "Studio Code, and other MCP clients."
+    )
+    lines.append("")
 
     for part_title, qmd_list in parts:
         if part_title:
