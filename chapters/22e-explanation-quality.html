@@ -979,7 +979,7 @@ L_A(x) = \sup_{x' : \|x' - x\| \leq \varepsilon} \frac{\|A(x') - A(x)\|}{\|x' - 
 <p><strong>Coverage (conformal bridge).</strong> If the explanation comes with a confidence (a prediction set from <a href="22d-conformal-uncertainty.html" class="quarto-xref"><span>Chapter 25</span></a>) rather than a point, coverage is the natural quality metric: does the claimed uncertainty match empirical coverage?</p>
 <section id="implementation" class="level3" data-number="26.1.1">
 <h3 data-number="26.1.1" class="anchored" data-anchor-id="implementation"><span class="header-section-number">26.1.1</span> Implementation</h3>
-<div id="cf3e48a0" class="cell" data-execution_count="1">
+<div id="5797a1a6" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
@@ -1040,7 +1040,7 @@ L_A(x) = \sup_{x' : \|x' - x\| \leq \varepsilon} \frac{\|A(x') - A(x)\|}{\|x' - 
 <pre><code>local Lipschitz (TreeSHAP) ~ 26.258</code></pre>
 </div>
 </div>
-<div id="d0a9b38f" class="cell" data-execution_count="2">
+<div id="660b6452" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> infidelity_score(f_pred, f_attr, x, n<span class="op">=</span><span class="dv">100</span>, k<span class="op">=</span><span class="dv">3</span>, rng<span class="op">=</span><span class="va">None</span>):</span>
@@ -1069,7 +1069,7 @@ L_A(x) = \sup_{x' : \|x' - x\| \leq \varepsilon} \frac{\|A(x') - A(x)\|}{\|x' - 
 </div>
 </div>
 <p>A production quality dashboard should log these numbers per model release. <span class="citation" data-cites="krishna2022disagreement">Krishna et al. (<a href="../references.html#ref-krishna2022disagreement" role="doc-biblioref">2024</a>)</span> suggest monitoring method-disagreement directly: compute top-5 features under two methods and report Jaccard overlap.</p>
-<div id="0643b53b" class="cell" data-execution_count="3">
+<div id="5f422398" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> top_k_overlap(attr_a, attr_b, k<span class="op">=</span><span class="dv">5</span>):</span>
@@ -1138,7 +1138,7 @@ L_A(x) = \sup_{x' : \|x' - x\| \leq \varepsilon} \frac{\|A(x') - A(x)\|}{\|x' - 
 <section id="growing-spheres-laugel" class="level3" data-number="26.4.4">
 <h3 data-number="26.4.4" class="anchored" data-anchor-id="growing-spheres-laugel"><span class="header-section-number">26.4.4</span> Growing spheres: Laugel</h3>
 <p><span class="citation" data-cites="laugel2018comparison">Laugel et al. (<a href="../references.html#ref-laugel2018comparison" role="doc-biblioref">2018</a>)</span> propose the simplest counterfactual generator: grow an <span class="math inline">\(L_2\)</span> ball around <span class="math inline">\(x\)</span> outward until you hit a point of the target class, then select the minimum-<span class="math inline">\(L_0\)</span> counterfactual inside that ball. The appeal is operational simplicity (no optimization, no autoencoder, no graph) and interpretability (the counterfactual is literally the closest target-class applicant in feature space). For small-data credit models this is often the right first tool.</p>
-<div id="35896a5e" class="cell" data-execution_count="4">
+<div id="e67c0e1d" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> growing_spheres(f_pred, x, target_class, r_max<span class="op">=</span><span class="fl">3.0</span>, n_per_radius<span class="op">=</span><span class="dv">200</span>, rng<span class="op">=</span><span class="va">None</span>):</span>
@@ -1199,7 +1199,7 @@ C = \arg\max_{C \subseteq \mathcal{D}} \sum_{x \in C} \|\hat\rho(x) - \rho_P(x)\
 <p>where MMD is Maximum Mean Discrepancy and <span class="math inline">\(\hat\rho\)</span>, <span class="math inline">\(\rho_P\)</span> are density estimates over all data and over <span class="math inline">\(P\)</span>. The optimization is submodular and greedy selection gives a <span class="math inline">\((1-1/e)\)</span>-approximation.</p>
 <p>For credit scoring, prototypes are the most interpretable artifact in the entire explanation stack: “your application resembles these 10 past applications. Of those, 7 were approved.” A validator can read this in seconds; a customer can read it without training in machine learning.</p>
 <p>ProtoPNet <span class="citation" data-cites="chen2019looks">(<a href="../references.html#ref-chen2019looks" role="doc-biblioref">Chen et al., 2019</a>)</span> integrates prototypes into the <em>model itself</em> for image classification. Each convolutional channel is trained to respond to a learned “prototype,” the prediction is a sum over “this region of the input resembles prototype <span class="math inline">\(p\)</span> by amount <span class="math inline">\(s\)</span>,” and prototypes are visualizable. Adapting ProtoPNet-style architectures to tabular credit models is an open research direction; published adaptations substitute a feature-subspace prototype for the conv prototype, but the literature is thin.</p>
-<div id="086eabb2" class="cell" data-execution_count="5">
+<div id="7c7d7d18" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>

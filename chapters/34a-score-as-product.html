@@ -1351,7 +1351,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 <section id="sec-ch34a-impl" class="level2" data-number="39.8">
 <h2 data-number="39.8" class="anchored" data-anchor-id="sec-ch34a-impl"><span class="header-section-number">39.8</span> Implementation from scratch</h2>
 <p>A worked comparison of the rungs on the Taiwan default panel. The buyer’s question is: given a product at rung <span class="math inline">\(r\)</span>, what is the achievable downstream area-under-curve when the buyer trains a model on the product against the buyer’s outcome? The chapter measures both the mutual information <span class="math inline">\(I(Y; P)\)</span> and the realized downstream AUC at each rung. The vendor at the bottom of the ladder (rung 1) gives the buyer one column; the vendor at the top (rung 5) gives the buyer the full record. Everything in between is a compression of the full record.</p>
-<div id="5ad4bffc" class="cell" data-execution_count="1">
+<div id="3d17b4f5" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1380,7 +1380,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 </div>
 </div>
 <p>The first split holds out a buyer-side evaluation set. The vendor trains on a separate development sample. The buyer never sees the vendor’s training data.</p>
-<div id="e3f3a000" class="cell" data-execution_count="2">
+<div id="bc4e5d41" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>X_vendor, X_buyer_pool, y_vendor, y_buyer_pool <span class="op">=</span> train_test_split(</span>
@@ -1398,7 +1398,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 <section id="rung-1-the-vendor-ships-a-single-probability" class="level3" data-number="39.8.1">
 <h3 data-number="39.8.1" class="anchored" data-anchor-id="rung-1-the-vendor-ships-a-single-probability"><span class="header-section-number">39.8.1</span> Rung 1: the vendor ships a single probability</h3>
 <p>The vendor trains a gradient boosting model on the vendor development split and ships, for each buyer-side row, one column: the predicted probability of default.</p>
-<div id="3c696570" class="cell" data-execution_count="3">
+<div id="40e6c72f" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>vendor_model <span class="op">=</span> GradientBoostingClassifier(n_estimators<span class="op">=</span><span class="dv">200</span>, max_depth<span class="op">=</span><span class="dv">3</span>, random_state<span class="op">=</span><span class="dv">0</span>)</span>
@@ -1415,7 +1415,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 </div>
 </div>
 <p>The buyer’s downstream model is a logistic regression on the one-column product, which is mathematically equivalent to a monotone transform of the score and bounded above in AUC by the score’s own ranking.</p>
-<div id="77c2dbb6" class="cell" data-execution_count="4">
+<div id="9695f41b" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> downstream_auc(P_train, P_test, y_train, y_test, ridge<span class="op">=</span><span class="fl">1.0</span>):</span>
@@ -1443,7 +1443,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 <section id="rung-2-the-vendor-ships-the-score-and-three-reason-codes" class="level3" data-number="39.8.2">
 <h3 data-number="39.8.2" class="anchored" data-anchor-id="rung-2-the-vendor-ships-the-score-and-three-reason-codes"><span class="header-section-number">39.8.2</span> Rung 2: the vendor ships the score and three reason codes</h3>
 <p>The reason codes are derived from the vendor model’s largest negative contributions per row, with a controlled vocabulary of the top six feature names. Reason codes are encoded as binary indicators.</p>
-<div id="f7bc7aca" class="cell" data-execution_count="5">
+<div id="177450fb" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
@@ -1482,7 +1482,7 @@ H(Y \mid P) \le H_b(P_e) + P_e \log(|\mathcal{Y}| - 1),
 <section id="rung-3-the-vendor-ships-an-engineered-attribute-panel" class="level3" data-number="39.8.3">
 <h3 data-number="39.8.3" class="anchored" data-anchor-id="rung-3-the-vendor-ships-an-engineered-attribute-panel"><span class="header-section-number">39.8.3</span> Rung 3: the vendor ships an engineered attribute panel</h3>
 <p>A realistic rung-3 product is several hundred engineered features. For the Taiwan panel the chapter constructs a thirty-feature attribute set out of the raw variables: standardized snapshots, two-by-two interactions among the bill amounts and payment statuses, and a small number of summary aggregates. The buyer receives the attribute matrix without the model.</p>
-<div id="8ace9f89" class="cell" data-execution_count="6">
+<div id="07ecedc9" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>pay_cols <span class="op">=</span> [c <span class="cf">for</span> c <span class="kw">in</span> X.columns <span class="cf">if</span> c.startswith(<span class="st">'PAY_'</span>) <span class="kw">and</span> <span class="kw">not</span> c.startswith(<span class="st">'PAY_AMT'</span>)]</span>
@@ -1539,7 +1539,7 @@ rung 3 downstream AUC (gradient boosting): 0.7791</code></pre>
 <section id="rung-4-trended-attributes" class="level3" data-number="39.8.4">
 <h3 data-number="39.8.4" class="anchored" data-anchor-id="rung-4-trended-attributes"><span class="header-section-number">39.8.4</span> Rung 4: trended attributes</h3>
 <p>Trended attributes extend the panel with multi-period trajectories. The Taiwan panel ships six months of bill and pay history; the chapter constructs trend features on that window.</p>
-<div id="badde86e" class="cell" data-execution_count="7">
+<div id="63418997" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> build_trended(df):</span>
@@ -1579,7 +1579,7 @@ rung 4 downstream AUC (gradient boosting): 0.7855</code></pre>
 <section id="rung-5-raw-record" class="level3" data-number="39.8.5">
 <h3 data-number="39.8.5" class="anchored" data-anchor-id="rung-5-raw-record"><span class="header-section-number">39.8.5</span> Rung 5: raw record</h3>
 <p>The vendor ships the full record. The buyer can fit any model.</p>
-<div id="c3a67911" class="cell" data-execution_count="8">
+<div id="a86c4d78" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>auc_r5, ll_r5 <span class="op">=</span> downstream_auc(X_buyer_train, X_buyer_test, y_buyer_train, y_buyer_test)</span>
@@ -1598,7 +1598,7 @@ rung 5 downstream AUC (gradient boosting): 0.7788</code></pre>
 <section id="information-retention-the-kraskov-stogbauer-grassberger-estimator" class="level3" data-number="39.8.6">
 <h3 data-number="39.8.6" class="anchored" data-anchor-id="information-retention-the-kraskov-stogbauer-grassberger-estimator"><span class="header-section-number">39.8.6</span> Information retention: the Kraskov-Stogbauer-Grassberger estimator</h3>
 <p>The mutual information between <span class="math inline">\(Y\)</span> and each product is estimated using the k-nearest-neighbor MI estimator of <span class="citation" data-cites="kraskov2004estimating">Kraskov et al. (<a href="../references.html#ref-kraskov2004estimating" role="doc-biblioref">2004</a>)</span>, which is implemented as <code>mutual_info_classif</code> in scikit-learn for discrete <span class="math inline">\(Y\)</span> and continuous features. For high-dimensional products the chapter aggregates by summing per-feature MIs; the sum is an upper bound on the joint MI that is tight when features are conditionally independent given <span class="math inline">\(Y\)</span> and an upper bound otherwise.</p>
-<div id="ccaf0a53" class="cell" data-execution_count="9">
+<div id="25a0a0ac" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mi_classif(P, y, random_state<span class="op">=</span><span class="dv">0</span>):</span>
@@ -1642,7 +1642,7 @@ rung 5 downstream AUC (gradient boosting): 0.7788</code></pre>
 <section id="buyer-outcome-shift-when-the-score-is-no-longer-sufficient" class="level3" data-number="39.8.7">
 <h3 data-number="39.8.7" class="anchored" data-anchor-id="buyer-outcome-shift-when-the-score-is-no-longer-sufficient"><span class="header-section-number">39.8.7</span> Buyer outcome shift: when the score is no longer sufficient</h3>
 <p>The case-2 argument from <a href="#sec-ch34a-info" class="quarto-xref"><span>Section 39.3</span></a> says that if the buyer’s outcome <span class="math inline">\(Y'\)</span> differs from the vendor’s training outcome <span class="math inline">\(Y\)</span>, the score is informative about <span class="math inline">\(Y'\)</span> but is not generally a sufficient statistic for it. The buyer can recover information by climbing the ladder. The chapter substantiates the claim with a direct simulation on the Taiwan panel: define a shifted outcome <span class="math inline">\(Y'\)</span> that re-weights the contribution of each feature, train the vendor model on the original <span class="math inline">\(Y\)</span>, and measure the rung ladder against <span class="math inline">\(Y'\)</span>.</p>
-<div id="7e4e2eef" class="cell" data-execution_count="10">
+<div id="a82f90d2" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Construct a buyer outcome Y' that emphasizes recent delinquency</span></span>
@@ -1678,7 +1678,7 @@ rung 5 downstream AUC (gradient boosting): 0.7788</code></pre>
 </div>
 </div>
 <p>The vendor’s rung-1 score and the rung-3 panel are then evaluated against the buyer’s shifted outcome <span class="math inline">\(Y'\)</span> rather than the original <span class="math inline">\(Y\)</span>.</p>
-<div id="caef2c94" class="cell" data-execution_count="11">
+<div id="d9036bac" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>auc_r1_shift, _ <span class="op">=</span> downstream_auc(s_train_r1, s_test_r1, y_prime_train, y_prime_test)</span>
@@ -1712,7 +1712,7 @@ rung 3 vs rung 1 lift on shifted outcome: +0.0489</code></pre>
 <section id="block-stratified-cross-validation-as-a-robustness-check" class="level3" data-number="39.8.9">
 <h3 data-number="39.8.9" class="anchored" data-anchor-id="block-stratified-cross-validation-as-a-robustness-check"><span class="header-section-number">39.8.9</span> Block-stratified cross-validation as a robustness check</h3>
 <p>The MI estimator and the downstream AUC are sensitive to the train-test split. The chapter re-runs the rung-1 and rung-3 comparisons under a stratified five-fold cross-validation that uses <code>StratifiedKFold(n_splits=5, shuffle=True, random_state=44)</code> on the buyer-side data, with the stratification key the binary default label. The CV is label-stratified, not vintage-stratified or group-stratified, because the Taiwan panel does not carry a vintage column. In a production back-test on a real retro file with multiple application vintages, the appropriate CV is grouped on application month with the group key the year-month of application time, which preserves the temporal ordering and avoids leakage from future vintages into training folds.</p>
-<div id="1c316056" class="cell" data-execution_count="12">
+<div id="dbaa24b2" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> cv_auc(P, y, splitter, model_factory):</span>
@@ -1742,7 +1742,7 @@ rung 3 CV AUC: 0.7764 +/- 0.0140</code></pre>
 <section id="visualizing-the-ladder" class="level3" data-number="39.8.10">
 <h3 data-number="39.8.10" class="anchored" data-anchor-id="visualizing-the-ladder"><span class="header-section-number">39.8.10</span> Visualizing the ladder</h3>
 <p>A simple chart conveys the pattern.</p>
-<div id="8db92b39" class="cell" data-execution_count="13">
+<div id="413028d7" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
@@ -1782,7 +1782,7 @@ rung 3 CV AUC: 0.7764 +/- 0.0140</code></pre>
 <section id="sec-ch34a-lib" class="level2" data-number="39.9">
 <h2 data-number="39.9" class="anchored" data-anchor-id="sec-ch34a-lib"><span class="header-section-number">39.9</span> The standard library call</h2>
 <p>In a production setting, the rung comparison is a tooling problem more than a modeling problem. The vendor maintains an internal benchmark suite that reruns the ladder analysis on each new release of the underlying model or the attribute panel. The suite uses scikit-learn for the model class, NumPy and pandas for data handling, MLflow for run tracking, and a small wrapper for the MI estimator. The chapter shows the wrapper.</p>
-<div id="78b04a8d" class="cell" data-execution_count="14">
+<div id="ba2640b1" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> dataclasses <span class="im">import</span> dataclass, field</span>
@@ -1849,7 +1849,7 @@ rung3_attributes_logistic       24 0.6910    0.5061               0.7033
 <section id="sec-ch34a-bench" class="level2" data-number="39.10">
 <h2 data-number="39.10" class="anchored" data-anchor-id="sec-ch34a-bench"><span class="header-section-number">39.10</span> Benchmark on a public dataset</h2>
 <p>Reproducibility requires a public benchmark. The chapter uses the German credit dataset for a small-N pedagogical check and the Taiwan default panel for the production-scale numbers reported in <a href="#sec-ch34a-impl" class="quarto-xref"><span>Section 39.8</span></a>. The German dataset has only 1,000 rows; the rung ladder still shows the monotone pattern but with wider confidence intervals.</p>
-<div id="1e961ef0" class="cell" data-execution_count="15">
+<div id="8b6daf72" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> creditutils <span class="im">import</span> load_german_credit</span>
@@ -1893,7 +1893,7 @@ German rung 5 downstream AUC (gradient boosting): 0.6924</code></pre>
 <section id="a-simulated-sme-tradeline-pool" class="level3" data-number="39.10.1">
 <h3 data-number="39.10.1" class="anchored" data-anchor-id="a-simulated-sme-tradeline-pool"><span class="header-section-number">39.10.1</span> A simulated SME tradeline pool</h3>
 <p>Corporate scoring follows the same product ladder. The chapter simulates a tradeline pool of 5,000 SMEs with five features per firm (revenue, leverage, working-capital ratio, payment delinquencies, sector indicator), runs the rung comparison, and confirms the monotone pattern.</p>
-<div id="facb9f43" class="cell" data-execution_count="16">
+<div id="3d0e6f15" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>N_sme <span class="op">=</span> <span class="dv">5_000</span></span>

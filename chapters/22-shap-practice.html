@@ -1215,7 +1215,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 <section id="from-scratch-kernelshap-in-numpy" class="level2" data-number="22.4">
 <h2 data-number="22.4" class="anchored" data-anchor-id="from-scratch-kernelshap-in-numpy"><span class="header-section-number">22.4</span> From-scratch KernelSHAP in NumPy</h2>
 <p>The implementation below builds KernelSHAP end to end on a small linear model and compares the result to the <code>shap</code> library and to the closed form in <a href="#eq-linshap" class="quarto-xref">Eq.&nbsp;<span>22.7</span></a>. The code runs in under two seconds on a laptop.</p>
-<div id="e1729502" class="cell" data-execution_count="1">
+<div id="c9185b91" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
@@ -1236,7 +1236,7 @@ v_x(S) = \mathbb{E}\bigl[ f(X) \mid X_S = x_S \bigr] - \mathbb{E}[f(X)],
 </details>
 </div>
 <p>The small test model is a linear function of five features, for which <a href="#eq-linshap" class="quarto-xref">Eq.&nbsp;<span>22.7</span></a> gives the exact answer. The KernelSHAP implementation approximates the Shapley values by sampling coalitions under the kernel <span class="math inline">\(\pi_x\)</span> and solving the weighted regression.</p>
-<div id="944c79b2" class="cell" data-execution_count="2">
+<div id="d149b245" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> itertools <span class="im">import</span> combinations</span>
@@ -1303,7 +1303,7 @@ Efficiency: sum(phi) = f(x) - f(baseline)? -0.1658 vs -0.1658</code></pre>
 </div>
 <p>The from-scratch KernelSHAP matches the closed-form solution to machine precision on a linear model. The efficiency check confirms that the attributions add up to the deviation of the output from the baseline, as required by <a href="#eq-efficiency" class="quarto-xref">Eq.&nbsp;<span>22.3</span></a>.</p>
 <p>Now compare against the production library. The <code>shap.KernelExplainer</code> samples coalitions rather than enumerating them, so we expect a small Monte Carlo discrepancy.</p>
-<div id="88f5366d" class="cell" data-execution_count="3">
+<div id="6742aace" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
@@ -1322,7 +1322,7 @@ Max abs diff vs closed   : 5.551115123125783e-16</code></pre>
 <section id="sampled-kernelshap-for-larger-d" class="level3" data-number="22.4.1">
 <h3 data-number="22.4.1" class="anchored" data-anchor-id="sampled-kernelshap-for-larger-d"><span class="header-section-number">22.4.1</span> Sampled KernelSHAP for larger <span class="math inline">\(d\)</span></h3>
 <p>For a model with thirty features, <span class="math inline">\(2^{30}\)</span> is a billion, and enumeration fails. A sampled implementation, based on the antithetic sampling scheme of <span class="citation" data-cites="covert2021explaining">Covert et al. (<a href="../references.html#ref-covert2021explaining" role="doc-biblioref">2021</a>)</span>, produces stable attributions with a few thousand samples. The implementation below samples coalitions proportional to <span class="math inline">\(\pi_x\)</span>, pairs each with its complement (antithetic variance reduction), and solves the weighted regression.</p>
-<div id="40920b00" class="cell" data-execution_count="4">
+<div id="3fef9b6e" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> sample_kernelshap(x, f, baseline, d, n_samples<span class="op">=</span><span class="dv">1024</span>, seed<span class="op">=</span><span class="dv">0</span>):</span>
@@ -1392,7 +1392,7 @@ Efficiency gap: 4.44089e-16</code></pre>
 <section id="treeshap-on-xgboost-lightgbm-catboost" class="level2" data-number="22.5">
 <h2 data-number="22.5" class="anchored" data-anchor-id="treeshap-on-xgboost-lightgbm-catboost"><span class="header-section-number">22.5</span> TreeSHAP on XGBoost, LightGBM, CatBoost</h2>
 <p>For tree ensembles, TreeSHAP is faster, exact on the tree structure, and native to every major boosting library. Each of XGBoost, LightGBM, and CatBoost exposes a <code>pred_contribs</code> (or equivalent) flag that returns the attributions together with the bias term. The additivity check below is mandatory every time a new model is deployed.</p>
-<div id="8517bce7" class="cell" data-execution_count="5">
+<div id="7c6f4115" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> xgboost <span class="im">as</span> xgb</span>
@@ -1417,7 +1417,7 @@ Efficiency gap: 4.44089e-16</code></pre>
 </div>
 <section id="xgboost" class="level3" data-number="22.5.1">
 <h3 data-number="22.5.1" class="anchored" data-anchor-id="xgboost"><span class="header-section-number">22.5.1</span> XGBoost</h3>
-<div id="1f552c5c" class="cell" data-execution_count="6">
+<div id="2cf8ab90" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>xgb_mod <span class="op">=</span> xgb.XGBClassifier(</span>
@@ -1448,7 +1448,7 @@ XGBoost additivity OK; base log-odds = -1.2636</code></pre>
 </section>
 <section id="lightgbm" class="level3" data-number="22.5.2">
 <h3 data-number="22.5.2" class="anchored" data-anchor-id="lightgbm"><span class="header-section-number">22.5.2</span> LightGBM</h3>
-<div id="44dbc89e" class="cell" data-execution_count="7">
+<div id="10a27d24" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>lgb_mod <span class="op">=</span> lgb.LGBMClassifier(</span>
@@ -1482,7 +1482,7 @@ LightGBM additivity OK; base log-odds = -1.5115</code></pre>
 </section>
 <section id="catboost" class="level3" data-number="22.5.3">
 <h3 data-number="22.5.3" class="anchored" data-anchor-id="catboost"><span class="header-section-number">22.5.3</span> CatBoost</h3>
-<div id="68d3f2dd" class="cell" data-execution_count="8">
+<div id="fa0569fb" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>cb_mod <span class="op">=</span> cb.CatBoostClassifier(</span>
@@ -1513,7 +1513,7 @@ CatBoost additivity OK; base log-odds = -1.5412</code></pre>
 </section>
 <section id="agreement-across-libraries" class="level3" data-number="22.5.4">
 <h3 data-number="22.5.4" class="anchored" data-anchor-id="agreement-across-libraries"><span class="header-section-number">22.5.4</span> Agreement across libraries</h3>
-<div id="9ccb366a" class="cell" data-execution_count="9">
+<div id="1cb3a25d" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> global_importance(shap_mat):</span>
@@ -1551,7 +1551,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="global-and-local-plots" class="level2" data-number="22.6">
 <h2 data-number="22.6" class="anchored" data-anchor-id="global-and-local-plots"><span class="header-section-number">22.6</span> Global and local plots</h2>
 <p>SHAP exposes three plot families. The global bar plot ranks features by mean absolute attribution. The dependence plot relates a feature’s value to its SHAP value, with color to expose interactions. The waterfall plot (the static analog of the JavaScript force plot) is the per-applicant view. We use matplotlib only, avoiding any JS widgets, so the output embeds cleanly in PDF and HTML.</p>
-<div id="92d68561" class="cell" data-execution_count="10">
+<div id="58585c2f" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>expl_xgb <span class="op">=</span> shap.Explanation(</span>
@@ -1569,7 +1569,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <pre><code>saved /tmp/ch22_bar.png</code></pre>
 </div>
 </div>
-<div id="e50186bc" class="cell" data-execution_count="11">
+<div id="48c975b3" class="cell" data-execution_count="11">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1581,7 +1581,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <pre><code>saved /tmp/ch22_dep.png</code></pre>
 </div>
 </div>
-<div id="f84d8eb2" class="cell" data-execution_count="12">
+<div id="e91f0d27" class="cell" data-execution_count="12">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>pred_class <span class="op">=</span> (xgb_mod.predict_proba(Xte_expl)[:, <span class="dv">1</span>] <span class="op">&gt;=</span> <span class="fl">0.5</span>).astype(<span class="bu">int</span>)</span>
@@ -1597,7 +1597,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 </div>
 </div>
 <p>The force plot idea (a compact horizontal bar showing push/pull forces per feature) is produced with matplotlib directly to avoid the <code>shap.plots.force</code> JS widget.</p>
-<div id="9ea57913" class="cell" data-execution_count="13">
+<div id="8bd9fdab" class="cell" data-execution_count="13">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> force_plot_matplotlib(shap_row, feat_names, base, pred, top_k<span class="op">=</span><span class="dv">8</span>, path<span class="op">=</span><span class="st">"/tmp/ch22_force.png"</span>):</span>
@@ -1628,7 +1628,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="beeswarm-plot" class="level3" data-number="22.7.1">
 <h3 data-number="22.7.1" class="anchored" data-anchor-id="beeswarm-plot"><span class="header-section-number">22.7.1</span> Beeswarm plot</h3>
 <p>The beeswarm plot is the population-level analog of the bar plot. It keeps one dot per applicant per feature and positions dots on the x-axis by their SHAP value. Color encodes the raw feature value (red high, blue low). A beeswarm reveals direction of effect and spread, which the bar plot collapses. For credit, the beeswarm of <code>PAY_0</code> shows the near-bimodal pattern: a cluster of non-delinquent applicants at negative SHAP (protective) and a tail of late applicants at positive SHAP (adverse).</p>
-<div id="c306e697" class="cell" data-execution_count="14">
+<div id="92bda595" class="cell" data-execution_count="14">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">6.5</span>, <span class="fl">4.5</span>))</span>
@@ -1644,7 +1644,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="summary-bar-with-cohort-split" class="level3" data-number="22.7.2">
 <h3 data-number="22.7.2" class="anchored" data-anchor-id="summary-bar-with-cohort-split"><span class="header-section-number">22.7.2</span> Summary bar with cohort split</h3>
 <p>A bar plot split by a cohort variable surfaces differential feature reliance across segments. Below, the bar plot is computed separately for applicants above and below the median credit limit. The ranking of top features can shift: for high-limit applicants, <code>PAY_0</code> dominates; for low-limit applicants, <code>LIMIT_BAL</code> itself can move into the top three.</p>
-<div id="85bf4f3d" class="cell" data-execution_count="15">
+<div id="4adeaf4f" class="cell" data-execution_count="15">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>limit_hi <span class="op">=</span> Xte_expl[<span class="st">"LIMIT_BAL"</span>].values <span class="op">&gt;=</span> Xte_expl[<span class="st">"LIMIT_BAL"</span>].median()</span>
@@ -1667,7 +1667,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="heatmap-plot" class="level3" data-number="22.7.3">
 <h3 data-number="22.7.3" class="anchored" data-anchor-id="heatmap-plot"><span class="header-section-number">22.7.3</span> Heatmap plot</h3>
 <p>The heatmap plot arranges applicants on the x-axis (sorted by model output) and features on the y-axis, coloring each cell by SHAP. A line at the top traces the model output. Heatmaps expose three production patterns: clustering of applicants by explanation profile (visible as vertical banding), features that switch sign across the score distribution (horizontal gradient), and near-cutoff applicants whose explanations are numerically volatile.</p>
-<div id="94442391" class="cell" data-execution_count="16">
+<div id="f07bb32d" class="cell" data-execution_count="16">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">7</span>, <span class="dv">5</span>))</span>
@@ -1683,7 +1683,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="decision-plot" class="level3" data-number="22.7.4">
 <h3 data-number="22.7.4" class="anchored" data-anchor-id="decision-plot"><span class="header-section-number">22.7.4</span> Decision plot</h3>
 <p>The decision plot traces each applicant as a line from the model’s base value (bottom) through each feature’s SHAP contribution to the final prediction (top). Applicants that reach similar predictions by very different feature paths produce visibly crossing lines, a useful diagnostic for pipeline heterogeneity. The plot is most informative on a small sample (10 to 30 rows); with more than 100 the lines overwhelm the eye.</p>
-<div id="570b4876" class="cell" data-execution_count="17">
+<div id="2d72c5c0" class="cell" data-execution_count="17">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>sample_idx <span class="op">=</span> np.r_[denied_idx[:<span class="dv">5</span>], np.where(pred_class <span class="op">==</span> <span class="dv">0</span>)[<span class="dv">0</span>][:<span class="dv">5</span>]]</span>
@@ -1706,7 +1706,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="dependence-plot-with-interaction-color" class="level3" data-number="22.7.5">
 <h3 data-number="22.7.5" class="anchored" data-anchor-id="dependence-plot-with-interaction-color"><span class="header-section-number">22.7.5</span> Dependence plot with interaction color</h3>
 <p><code>shap.plots.scatter</code> accepts a <code>color=</code> argument to overlay a second feature. The resulting plot shows the main effect of the x-axis feature and the interaction with the colored feature. For Taiwan, coloring <code>PAY_0</code> by <code>LIMIT_BAL</code> reveals that a given delinquency level produces stronger adverse SHAP at lower credit limits. The same plot with <code>color="auto"</code> lets <code>shap</code> pick the feature with the largest approximate interaction.</p>
-<div id="fac4d1d6" class="cell" data-execution_count="18">
+<div id="0446a792" class="cell" data-execution_count="18">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">6.5</span>, <span class="fl">4.5</span>))</span>
@@ -1726,7 +1726,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="interaction-plot" class="level3" data-number="22.7.6">
 <h3 data-number="22.7.6" class="anchored" data-anchor-id="interaction-plot"><span class="header-section-number">22.7.6</span> Interaction plot</h3>
 <p><code>pred_interactions=True</code> in XGBoost returns a <span class="math inline">\((n, d+1, d+1)\)</span> tensor decomposing each applicant’s log-odds into main effects on the diagonal and pairwise interactions off-diagonal. The interaction scatter plot puts a pair <span class="math inline">\((j, k)\)</span> on the axes, colors by the interaction SHAP, and exposes nonlinear structure that the main-effect scatter hides.</p>
-<div id="3b22659c" class="cell" data-execution_count="19">
+<div id="0ea1e6d4" class="cell" data-execution_count="19">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>inter_xgb <span class="op">=</span> xgb_mod.get_booster().predict(</span>
@@ -1757,7 +1757,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="violin-plot-for-a-single-feature" class="level3" data-number="22.7.7">
 <h3 data-number="22.7.7" class="anchored" data-anchor-id="violin-plot-for-a-single-feature"><span class="header-section-number">22.7.7</span> Violin plot for a single feature</h3>
 <p>The violin is a compact per-feature view that overlays the kernel density of SHAP values on the bar. It is useful for boards that prefer a single-figure summary of each feature’s contribution.</p>
-<div id="48ff8ca0" class="cell" data-execution_count="20">
+<div id="52b6312d" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1780,7 +1780,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="per-applicant-bar-local-summary" class="level3" data-number="22.7.8">
 <h3 data-number="22.7.8" class="anchored" data-anchor-id="per-applicant-bar-local-summary"><span class="header-section-number">22.7.8</span> Per-applicant bar (local summary)</h3>
 <p>The per-applicant bar is <code>shap.plots.bar(expl_xgb[i])</code> and renders the same information as the waterfall without the stepped baseline. It is the format many call-center tools show a rep because it takes less vertical space than the waterfall.</p>
-<div id="0c072201" class="cell" data-execution_count="21">
+<div id="309f66f9" class="cell" data-execution_count="21">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
@@ -1796,7 +1796,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="partial-dependence-with-shap-overlay" class="level3" data-number="22.7.9">
 <h3 data-number="22.7.9" class="anchored" data-anchor-id="partial-dependence-with-shap-overlay"><span class="header-section-number">22.7.9</span> Partial dependence with SHAP overlay</h3>
 <p><code>shap.plots.partial_dependence</code> plots the classical partial dependence curve <span class="citation" data-cites="friedman2001greedy">(<a href="../references.html#ref-friedman2001greedy" role="doc-biblioref">Friedman, 2001</a>)</span> and overlays SHAP for a given applicant, aligning the two attributions on the same axis. This is the single most effective visualization for challenging a compliance reviewer who is suspicious that SHAP and PDP disagree: on a correctly behaving model they coincide on main effects and diverge only where interactions dominate.</p>
-<div id="47fd2ab6" class="cell" data-execution_count="22">
+<div id="85fea681" class="cell" data-execution_count="22">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> predict_log_odds(X):</span>
@@ -1830,7 +1830,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="ice-plot-individual-conditional-expectation" class="level3" data-number="22.7.10">
 <h3 data-number="22.7.10" class="anchored" data-anchor-id="ice-plot-individual-conditional-expectation"><span class="header-section-number">22.7.10</span> ICE plot (individual conditional expectation)</h3>
 <p>ICE keeps one line per applicant, exposing heterogeneity that PDP averages away <span class="citation" data-cites="goldstein2015peeking">(<a href="../references.html#ref-goldstein2015peeking" role="doc-biblioref">Goldstein et al., 2015</a>)</span>. An ICE plot of <code>PAY_0</code> that shows a subset of lines sloping flat while most slope upward is a signal that the model predicts default on payment delinquency only for some segments. In credit, this usually traces to an interaction with <code>LIMIT_BAL</code> or <code>AGE</code>.</p>
-<div id="cd2f0860" class="cell" data-execution_count="23">
+<div id="629a6d08" class="cell" data-execution_count="23">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.arange(<span class="op">-</span><span class="dv">2</span>, <span class="dv">9</span>)</span>
@@ -1869,7 +1869,7 @@ Spearman(|SHAP|, lgb, cb) on top-union = 0.881</code></pre>
 <section id="taiwan-reason-codes" class="level3" data-number="22.8.1">
 <h3 data-number="22.8.1" class="anchored" data-anchor-id="taiwan-reason-codes"><span class="header-section-number">22.8.1</span> Taiwan reason codes</h3>
 <p>Use the XGBoost TreeSHAP output from the previous section. The reason-code table groups raw features into compliance-friendly phrases.</p>
-<div id="64af386b" class="cell" data-execution_count="24">
+<div id="5e8b1cc3" class="cell" data-execution_count="24">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb45"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a>reason_table_tw <span class="op">=</span> {</span>
@@ -1940,7 +1940,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 <section id="german-reason-codes" class="level3" data-number="22.8.2">
 <h3 data-number="22.8.2" class="anchored" data-anchor-id="german-reason-codes"><span class="header-section-number">22.8.2</span> German reason codes</h3>
 <p>The German dataset is smaller and has a different feature taxonomy, but the pipeline is identical. We one-hot-encode the categorical variables for XGBoost and re-aggregate the SHAP values back to the original feature groups so that the reason-code table matches the data dictionary.</p>
-<div id="1fe04100" class="cell" data-execution_count="25">
+<div id="4403b1cd" class="cell" data-execution_count="25">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>g <span class="op">=</span> load_german_credit().copy()</span>
@@ -1980,7 +1980,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 </div>
 </div>
 <p>For German, reason-code groups reflect the original (pre-dummy) variables. A helper folds the dummy-column SHAP values back to the parent feature.</p>
-<div id="e2d03f63" class="cell" data-execution_count="26">
+<div id="0bfa523d" class="cell" data-execution_count="26">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb49"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fold_dummies(shap_mat, feats_enc, cat_cols, num_cols):</span>
@@ -2025,7 +2025,7 @@ You have the right under FCRA sec. 615 to a free credit report if a reporting ag
 <section id="fidelity-diagnostics" class="level3" data-number="22.8.3">
 <h3 data-number="22.8.3" class="anchored" data-anchor-id="fidelity-diagnostics"><span class="header-section-number">22.8.3</span> Fidelity diagnostics</h3>
 <p>Two diagnostics are run on the XGBoost Taiwan model: top-<span class="math inline">\(k\)</span> ablation fidelity (replacing the top-<span class="math inline">\(k\)</span> features by the training median must drop the margin more than replacing the bottom-<span class="math inline">\(k\)</span>), and seed stability (retraining with three seeds and comparing global rank).</p>
-<div id="d002df06" class="cell" data-execution_count="27">
+<div id="ba9f2557" class="cell" data-execution_count="27">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb50"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a>medians_tw <span class="op">=</span> Xtr_tw.median().to_dict()</span>
@@ -2056,7 +2056,7 @@ Ratio (higher = SHAP picks important features): 20.3x</code></pre>
 </div>
 </div>
 <p>The ratio typically exceeds 10x on Taiwan, confirming that SHAP’s top features are indeed the ones the model relies on. If the ratio is below 2x on a production model, SHAP attributions are not discriminating, and the reason-code pipeline should not be trusted until the model is debugged.</p>
-<div id="4604b342" class="cell" data-execution_count="28">
+<div id="8930d19e" class="cell" data-execution_count="28">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb52"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> train_seed(s):</span>
@@ -2101,7 +2101,7 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.958</code></pre>
 <section id="advanced-attribution-dependence-and-interactions" class="level2" data-number="22.10">
 <h2 data-number="22.10" class="anchored" data-anchor-id="advanced-attribution-dependence-and-interactions"><span class="header-section-number">22.10</span> Advanced attribution: dependence and interactions</h2>
 <p>TreeSHAP also supports pairwise interaction attributions via <code>pred_interactions=True</code>. The returned matrix <span class="math inline">\(\Phi \in \mathbb{R}^{n \times (d+1) \times (d+1)}\)</span> decomposes each row’s log-odds margin into a sum of main effects and interactions.</p>
-<div id="d647cbe9" class="cell" data-execution_count="29">
+<div id="524c6f8b" class="cell" data-execution_count="29">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb54"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a>inter <span class="op">=</span> xgb_mod.get_booster().predict(</span>
@@ -2138,7 +2138,7 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.958</code></pre>
 <section id="sampled-treeshap" class="level3" data-number="22.11.1">
 <h3 data-number="22.11.1" class="anchored" data-anchor-id="sampled-treeshap"><span class="header-section-number">22.11.1</span> Sampled TreeSHAP</h3>
 <p>The full TreeSHAP path-enumeration cost is <span class="math inline">\(O(T L D^2)\)</span> per row. For very deep trees, <span class="citation" data-cites="lundberg2020local">Lundberg et al. (<a href="../references.html#ref-lundberg2020local" role="doc-biblioref">2020</a>)</span> discuss a sampled variant (<code>feature_perturbation="interventional"</code> with a background subsample) whose variance shrinks as <span class="math inline">\(O(1/N_{\text{bg}})\)</span>. The practitioner tunes <span class="math inline">\(N_{\text{bg}}\)</span> to trade latency for stability.</p>
-<div id="a3c63d12" class="cell" data-execution_count="30">
+<div id="c65b4db6" class="cell" data-execution_count="30">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb56"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
@@ -2170,8 +2170,8 @@ Spearman(|SHAP|, seed=43, seed=44) = 0.958</code></pre>
 <span id="cb56-27"><a href="#cb56-27" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"mean |sv_path - sv_int| = </span><span class="sc">{</span>np<span class="sc">.</span><span class="bu">abs</span>(sv_path <span class="op">-</span> sv_int)<span class="sc">.</span>mean()<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>path-dependent TreeSHAP (native, 200 rows): 0.059s
-interventional TreeSHAP (bg=100, loop): 5.84s
+<pre><code>path-dependent TreeSHAP (native, 200 rows): 0.065s
+interventional TreeSHAP (bg=100, loop): 6.15s
 mean |sv_path - sv_int| = 0.0000</code></pre>
 </div>
 </div>
@@ -2180,7 +2180,7 @@ mean |sv_path - sv_int| = 0.0000</code></pre>
 <section id="parallel-kernelshap-with-dask" class="level3" data-number="22.11.2">
 <h3 data-number="22.11.2" class="anchored" data-anchor-id="parallel-kernelshap-with-dask"><span class="header-section-number">22.11.2</span> Parallel KernelSHAP with Dask</h3>
 <p>For a non-tree model (a neural network, an SVM, a blended ensemble), KernelSHAP is the fallback. The per-row cost is <span class="math inline">\(M\)</span> model evaluations, and rows are independent, so the embarrassingly parallel pattern is to distribute rows across workers.</p>
-<div id="7a084057" class="cell" data-execution_count="31">
+<div id="84f89ec2" class="cell" data-execution_count="31">
 <details class="code-fold">
 <summary>Show code</summary>
 <div class="sourceCode cell-code" id="cb58"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
