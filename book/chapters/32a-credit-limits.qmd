@@ -1,0 +1,668 @@
+---
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+bibliography: [../references.bib, ../refs/ch-32a.bib]
+---
+
+# Credit Limits and Exposure-Aware Decision Policy {#sec-ch32a}
+
+::: {.callout-note appearance="simple" icon="false"}
+**Scope: retail revolving credit.** Credit cards, consumer credit lines, and buy-now-pay-later lines where the lender chooses both *whether* to lend and *how much* to make available. All examples run on a synthetic lender with fixed seeds, so every number below is reproducible and nothing is downloaded at run time. Installment loans are the special case in which the limit equals the requested principal.
+:::
+
+## Overview {.unnumbered}
+
+Most of this book treats the credit decision as binary. A model estimates a probability of default, a cut-off turns the probability into approve or decline, and @sec-ch04-profit shows how to place that cut-off where expected profit peaks. For revolving products this is only half of the decision. The lender also sets a credit limit at origination, and then raises, holds, or cuts it every month for the life of the account. The limit determines how much the customer can borrow (and therefore the revenue), how much the lender can lose (the exposure at default), and, through the customer's response, the probability of default itself.
+
+This chapter makes the limit an explicit decision variable. It moves through four questions that a card or credit-line business answers in production.
+
+1.  **Count or dollars?** A policy that minimizes the *number* of defaults at a target approval rate is not the policy that minimizes the *dollars* lost, and neither maximizes profit. @sec-ch32a-exposure builds the two-part model (probability times severity) that separates the three objectives and shows how far apart they sit.
+2.  **How much to lend?** @sec-ch32a-limit writes expected profit as a function of the limit, derives the first-order condition, and solves for a per-applicant limit. Approval then falls out as a by-product: approve exactly when the best limit earns a positive expected profit.
+3.  **Where do the response curves come from?** Historical limits were set by a policy that already knew which customers were safe, so the observed association between limit and default is confounded. @sec-ch32a-identification shows the naive estimate getting the sign wrong, recovers it from a randomized limit pilot, and uses a randomized line-increase test to decide *who* should receive an increase.
+4.  **How should limits evolve?** @sec-ch32a-mdp casts limit management as a Markov decision process in the tradition of @trench2003managing and @so2011modelling, solves it by backward induction under operational constraints, and explains where reinforcement learning fits [@alfonso2024optimizing].
+
+The closing sections connect the limit decision back to cut-off selection, list the pitfalls that recur in first attempts at these problems, and summarize the regulatory constraints that bind limit changes in the United States, the European Union, and under Basel capital rules.
+
+### Notation {.unnumbered}
+
+Applicant or account $i$ has observed features $x_i$ and receives a credit limit $L$ (in thousands of a currency unit). The drawn balance is $B_i(L)$, the probability of default over the horizon is $p_i(L)$, and the exposure at default is
+
+$$
+\mathrm{EAD}_i(L) = B_i(L) + \mathrm{CCF}\,\big(L - B_i(L)\big),
+$$ {#eq-ch32a-ead}
+
+where the credit conversion factor $\mathrm{CCF} \in [0,1]$ is the share of the undrawn line that a defaulting borrower draws down before default [@tong2016exposure]. $\mathrm{LGD}$ is the loss given default, $m$ the net interest margin earned on the drawn balance over the horizon, and $c$ a fixed acquisition and servicing cost. The expected loss is $\mathrm{EL}_i = p_i \cdot \mathrm{LGD} \cdot \mathrm{EAD}_i$. In the dynamic part of the chapter, $g \in \{0, \dots, 4\}$ is a behavioral grade (0 best), $\ell$ indexes a ladder of limit levels, and $a \in \{-1, 0, +1\}$ moves one rung down, holds, or moves one rung up.
+
+------------------------------------------------------------------------
+
+## A synthetic lender {#sec-ch32a-setup}
+
+Every section below draws from one data-generating process, so that results can be compared against the truth. Each applicant carries three latent quantities the lender never observes directly: a creditworthiness factor $z_i$, a revolving propensity $\rho_i$ (the share of spending need the customer finances on the line rather than paying in full), and a spending need $s_i$. The structural responses to a limit $L$ are
+
+$$
+B_i(L) = \rho_i\, s_i \big(1 - e^{-L/s_i}\big),
+\qquad
+p_i(L) = \sigma\!\Big(\alpha_i + \delta_i \frac{L}{y_i}\Big),
+$$ {#eq-ch32a-response}
+
+where $y_i$ is income and $\sigma$ the logistic function. The balance function is concave: the marginal propensity to borrow $B_i'(L) = \rho_i e^{-L/s_i}$ starts at $\rho_i$ and decays as the line exceeds the need. This mirrors the empirical finding that card balances respond strongly to limit increases for constrained borrowers and weakly for unconstrained ones [@gross2002liquidity; @agarwal2018banking; @aydin2022consumption]. The default term $\delta_i L / y_i$ encodes credit-induced risk: more available credit relative to income raises the default probability, more steeply for weaker borrowers ($\delta_i$ is larger when $z_i$ is high). Observed features are noisy proxies of the latents: a bureau score, income, a historical revolving share, debt-to-income, and recent inquiries.
+
+```{python}
+#| label: ch32a-setup
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.special import expit, logit
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+
+SEED = 2026
+APR = 0.18    # net interest margin on the drawn balance over a one-year horizon
+LGD = 0.85    # loss given default on unsecured revolving credit
+CCF = 0.50    # share of the undrawn line drawn down before default
+COST = 0.04   # fixed acquisition and servicing cost, in thousands
+
+
+def simulate_applicants(n, rng):
+    """Synthetic applicants with latent risk z, revolving propensity rho,
+    and spending need (thousands). Returns observed features and the truth."""
+    z = rng.standard_normal(n)
+    inc = np.exp(3.4 - 0.15 * z + 0.45 * rng.standard_normal(n))      # annual income, thousands
+    rho = expit(-0.2 + 0.6 * z + 0.9 * rng.standard_normal(n))
+    need = 0.25 * inc * np.exp(0.3 * rng.standard_normal(n))
+    X = pd.DataFrame({
+        "bureau_score": 650 - 60 * z + 25 * rng.standard_normal(n),
+        "income": inc,
+        "revolve_share": np.clip(rho + 0.12 * rng.standard_normal(n), 0, 1),
+        "dti": np.clip(0.30 + 0.06 * z + 0.08 * rng.standard_normal(n), 0, None),
+        "inquiries": rng.poisson(np.exp(0.2 + 0.35 * z)),
+    })
+    truth = pd.DataFrame({"z": z, "rho": rho, "need": need, "inc": inc,
+                          "a": -3.1 + 0.95 * z, "delta": 1.0 + 0.8 * (z > 0.5)})
+    return X, truth
+
+
+def balance(L, t):
+    need = t["need"].to_numpy()
+    return t["rho"].to_numpy() * need * (1 - np.exp(-np.asarray(L) / need))
+
+
+def pd_at(L, t):
+    return expit(t["a"].to_numpy() + t["delta"].to_numpy() * np.asarray(L) / t["inc"].to_numpy())
+
+
+def ead(L, t):
+    b = balance(L, t)
+    return b + CCF * (np.asarray(L) - b)
+
+
+def profit(L, t):
+    """Expected one-year profit of granting limit L (thousands)."""
+    p = pd_at(L, t)
+    return APR * balance(L, t) * (1 - p) - LGD * ead(L, t) * p - COST
+
+
+rng = np.random.default_rng(SEED)
+X, T = simulate_applicants(60_000, rng)
+X.describe().T[["mean", "std", "min", "max"]].round(2)
+```
+
+------------------------------------------------------------------------
+
+## Counting defaults versus counting dollars {#sec-ch32a-exposure}
+
+A common brief for a risk team reads: "keep the approval rate at 70 percent and minimize risk." The brief is ambiguous. *Risk* can mean the number of accounts that default, the overdue or charged-off balance, or the profit forgone by booking the wrong customers. The three readings lead to three different rankings of the same applicants.
+
+-   **Minimize the default count.** Rank by $\hat p_i$ and approve the lowest. This is what a classifier trained with log-loss and evaluated by AUC optimizes.
+-   **Minimize the dollars lost.** Rank by $\widehat{\mathrm{EL}}_i = \hat p_i \cdot \mathrm{LGD} \cdot \widehat{\mathrm{EAD}}_i$ and approve the lowest. For a fixed number of approvals this minimizes expected charge-offs.
+-   **Maximize profit.** Rank by $\widehat{\Pi}_i = m \hat B_i (1-\hat p_i) - \widehat{\mathrm{EL}}_i - c$ and approve the highest.
+
+The dollar objectives need a model for *how much* is lost, not only *whether* a loss occurs. The standard construction is a two-part (hurdle) model: a classifier for $\Pr(\text{default} \mid x)$, and a regression for the balance at default fitted only on the defaulters. Revenue needs a third component, the expected drawn balance of a performing account. The three heads can be fitted separately, as below, or jointly as one network with a shared representation and one output per task. Joint fitting is multi-task learning in the sense of @caruana1997multitask, and it helps mainly when the severity head has few training rows (defaulters are rare) and can borrow strength from the default head. The decision layer is identical in either case, and the separate-model version is easier to validate and monitor, so it is the sensible baseline.
+
+The product in this section is an existing card with an incumbent limit rule (a fixed share of income, scaled by bureau band). We observe default, the balance at default for defaulters, and the drawn balance for performing accounts.
+
+```{python}
+#| label: ch32a-history
+def limit_table(X):
+    """Incumbent origination rule: a share of income scaled by bureau band."""
+    band = np.clip((X["bureau_score"] - 520) / 260, 0.2, 1.0)
+    return np.clip(0.40 * X["income"] * band, 1.0, 30.0).to_numpy()
+
+L0 = limit_table(X)
+D = rng.binomial(1, pd_at(L0, T))
+B_good = balance(L0, T) * np.exp(0.25 * rng.standard_normal(len(X)))
+B_def = np.minimum(ead(L0, T) * np.exp(0.20 * rng.standard_normal(len(X))), 1.05 * L0)
+
+feats = X.assign(limit=L0)
+idx = rng.permutation(len(X))
+tr, te = idx[:40_000], idx[40_000:]
+hgb = dict(max_iter=300, learning_rate=0.05, random_state=SEED)
+
+# part 1: probability of default
+pd_model = HistGradientBoostingClassifier(**hgb).fit(feats.iloc[tr], D[tr])
+# part 2: balance at default, fitted on defaulters only (log scale)
+bad_tr = tr[D[tr] == 1]
+sev_model = HistGradientBoostingRegressor(**hgb).fit(feats.iloc[bad_tr], np.log(B_def[bad_tr]))
+# part 3: drawn balance of performing accounts (revenue base)
+good_tr = tr[D[tr] == 0]
+bal_model = HistGradientBoostingRegressor(**hgb).fit(feats.iloc[good_tr], np.log(B_good[good_tr]))
+
+Xte = feats.iloc[te]
+p_hat = pd_model.predict_proba(Xte)[:, 1]
+# exp(E[log Y]) understates E[Y]; the lognormal correction restores the mean
+ead_hat = np.exp(sev_model.predict(Xte) + 0.5 * 0.20**2)
+bal_hat = np.exp(bal_model.predict(Xte) + 0.5 * 0.25**2)
+el_hat = LGD * p_hat * ead_hat
+ep_hat = APR * bal_hat * (1 - p_hat) - el_hat - COST
+
+y_te = D[te]
+loss_real = LGD * B_def[te] * y_te
+profit_real = APR * B_good[te] * (1 - y_te) - loss_real - COST
+dollar_w = np.where(y_te == 1, B_def[te], B_good[te])
+print(f"AUC, each account counted once      : {roc_auc_score(y_te, p_hat):.3f}")
+print(f"AUC, accounts weighted by exposure  : {roc_auc_score(y_te, p_hat, sample_weight=dollar_w):.3f}")
+```
+
+The two AUCs differ because the PD model ranks *accounts*, and the exposure-weighted version asks how well it ranks *dollars*. On this book the weighted figure is lower, so the model separates large balances less well than it separates accounts. A model that looks strong on count AUC can be mediocre where the money is. Reporting both is cheap, and @sec-ch15-ecs develops the related idea of training with example-dependent costs [@bahnsen2014example].
+
+```{python}
+#| label: ch32a-rankings
+rankings = {"PD (count)": p_hat, "expected loss": el_hat, "expected profit": -ep_hat}
+rates = np.linspace(0.40, 0.95, 12)
+rows = []
+for rate in rates:
+    k = int(rate * len(te))
+    for name, key in rankings.items():
+        acc = np.argsort(key)[:k]
+        rows.append({"approval": rate, "ranking": name,
+                     "default_rate": y_te[acc].mean(),
+                     "loss_per_applicant": loss_real[acc].sum() / len(te),
+                     "mean_booked_balance": B_good[te][acc].mean(),
+                     "profit_per_applicant": profit_real[acc].sum() / len(te)})
+rank_tab = pd.DataFrame(rows)
+rank_tab[np.isclose(rank_tab["approval"], 0.70, atol=0.03)].round(4)
+```
+
+```{python}
+#| label: fig-ch32a-rankings
+#| fig-cap: "Three rankings of the same applicants at every approval rate, scored on realized outcomes in the hold-out sample. Left: realized default rate among approved accounts. Middle: realized loss per applicant. Right: realized profit per applicant. Over most of the range each ranking does best on the objective it was built for, and the rankings converge as approval approaches 100 percent."
+#| fig-width: 10
+#| fig-height: 3.4
+fig, axes = plt.subplots(1, 3, figsize=(10, 3.4))
+for name, grp in rank_tab.groupby("ranking", sort=False):
+    axes[0].plot(grp["approval"] * 100, grp["default_rate"] * 100, marker="o", ms=3, label=name)
+    axes[1].plot(grp["approval"] * 100, grp["loss_per_applicant"], marker="o", ms=3, label=name)
+    axes[2].plot(grp["approval"] * 100, grp["profit_per_applicant"], marker="o", ms=3, label=name)
+titles = ["default rate of approved (%)", "loss per applicant", "profit per applicant"]
+for ax, ttl in zip(axes, titles):
+    ax.set_xlabel("approval rate (%)")
+    ax.set_title(ttl, fontsize=10)
+axes[2].legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+**Reading the results.** At a fixed approval rate, the PD ranking books the fewest defaults and the expected-loss ranking books the fewest dollars of loss. The expected-profit ranking earns the most over most of the range. Near full approval the three rankings converge, because there is little left to choose and the estimation error in the profit model starts to matter as much as the ranking itself. The expected-loss ranking achieves its low loss largely by approving small exposures: its mean booked balance is the lowest of the three, so it also earns the least revenue. Minimizing dollars lost is therefore a poor objective on its own. It is the right objective only when revenue does not scale with exposure, which is rarely true for revolving credit.
+
+Two lessons follow. First, a brief that says "minimize risk at a target approval rate" must say which risk, and the answer should usually be "maximize expected profit subject to a loss-rate ceiling," which is the constrained program of @sec-ch04-profit with a per-applicant value in place of a score. Second, the decision layer needs three models (default, balance, severity), not one. A single classifier, however accurate, cannot rank dollars.
+
+------------------------------------------------------------------------
+
+## Credit limit assignment at origination {#sec-ch32a-limit}
+
+### Expected profit as a function of the limit
+
+Holding the applicant fixed, expected profit over the horizon is
+
+$$
+\Pi_i(L) = m\, B_i(L)\,\big(1 - p_i(L)\big) - \mathrm{LGD}\cdot \mathrm{EAD}_i(L)\, p_i(L) - c.
+$$ {#eq-ch32a-profit}
+
+Differentiating and setting $\Pi_i'(L) = 0$ gives the first-order condition
+
+$$
+\underbrace{m\, B_i'(L)\,(1-p_i)}_{\text{marginal revenue}}
+=
+\underbrace{m\, B_i\, p_i'(L)}_{\text{revenue lost to extra defaults}}
++
+\underbrace{\mathrm{LGD}\Big[p_i\big(B_i' + \mathrm{CCF}(1 - B_i')\big) + \mathrm{EAD}_i\, p_i'(L)\Big]}_{\text{marginal expected loss}}.
+$$ {#eq-ch32a-foc}
+
+@eq-ch32a-foc names the three economic channels that any limit policy trades off.
+
+1.  **Marginal propensity to borrow**, $B_i'(L)$. Extra limit earns revenue only if the customer draws on it. Transactors who pay in full have $B_i' \approx 0$ and generate little interest income from a higher line.
+2.  **Credit-induced default**, $p_i'(L)$. More available credit raises the default probability for some borrowers. Quasi-experimental evidence finds that the marginal propensity to borrow is highest exactly for the borrowers whose marginal cost of lending is highest, which is the central tension of limit setting [@agarwal2018banking].
+3.  **Undrawn exposure**, $\mathrm{CCF}(1 - B_i')$. Even an unused line is expensive, because borrowers on the path to default draw it down. This term is also why undrawn commitments consume regulatory capital under Basel IRB through the conversion factor in the EAD estimate [@tong2016exposure].
+
+Approval and limit are decided jointly by $L_i^* = \arg\max_{L \in [L_{\min}, L_{\max}]} \Pi_i(L)$ and
+
+$$
+\text{approve } i \iff \Pi_i(L_i^*) > 0.
+$$ {#eq-ch32a-approve}
+
+The cut-off is no longer a fixed PD threshold. An applicant with a high PD may be worth approving at a small limit, and an applicant with a low PD may be worth declining if the product's fixed cost exceeds what a transactor generates. Lending at the "right" limit is a different question from lending at the product's default limit, which is the point @thomas2009consumer makes in arguing for profit scoring over default scoring.
+
+### Three applicants, three profit curves
+
+```{python}
+#| label: fig-ch32a-profit-curves
+#| fig-cap: "Expected one-year profit as a function of the credit limit for three archetypal applicants, computed from the true response functions. The marker is the profit-maximizing limit. The safe transactor barely uses the line, so profit is flat and small. The mid-risk revolver has an interior optimum. For the high-risk applicant every limit loses money, so the optimal decision is to decline."
+#| fig-width: 7
+#| fig-height: 3.8
+grid = np.linspace(0.5, 30.0, 60)
+T_te = T.iloc[te].reset_index(drop=True)
+X_te = X.iloc[te].reset_index(drop=True)
+Pi = np.stack([profit(np.full(len(T_te), L), T_te) for L in grid], axis=1)
+j_star = Pi.argmax(axis=1)
+L_star = grid[j_star]
+Pi_star = Pi[np.arange(len(T_te)), j_star]
+
+p5 = pd_at(np.full(len(T_te), 5.0), T_te)
+rho = T_te["rho"].to_numpy()
+targets = {"safe transactor": (0.02, 0.15), "mid-risk revolver": (0.06, 0.75),
+           "high-risk": (0.18, 0.60)}
+fig, ax = plt.subplots(figsize=(7, 3.8))
+shown = []
+for (name, (tp, tr_)), col in zip(targets.items(), ["C0", "C1", "C3"]):
+    i = int(np.argmin(((p5 - tp) / 0.02) ** 2 + ((rho - tr_) / 0.05) ** 2))
+    ax.plot(grid, Pi[i], color=col, label=f"{name} (PD at 5k = {p5[i]:.2f})")
+    ax.scatter([L_star[i]], [Pi_star[i]], color=col, zorder=5)
+    shown.append(i)
+top = max(Pi_star[shown].max(), 0.05)
+ax.set_ylim(-4 * top, 1.5 * top)    # keep the small positive optima visible
+ax.axhline(0, color="grey", lw=0.8)
+ax.set_xlabel("credit limit (thousands)")
+ax.set_ylabel("expected profit (thousands)")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+### Comparing limit policies
+
+Three policies are compared on the same hold-out applicants, all scored with the true response functions so that the comparison isolates the policy and not the estimation error (estimation comes next, in @sec-ch32a-identification).
+
+-   **Flat limit.** Every approved applicant gets the same line, and the applicant is approved when that line is profitable.
+-   **Incumbent table.** The income-and-bureau rule used to generate the history, with a PD cut-off on approval. This is the shape of most production limit strategies: a score band sets a limit multiple, and a separate cut-off sets approval.
+-   **Per-applicant optimum.** @eq-ch32a-approve on a limit grid.
+
+```{python}
+#| label: ch32a-policies
+def evaluate(L, approve, t):
+    """Expected outcomes of a (limit, approve) policy under the true responses."""
+    L = np.asarray(L, dtype=float)
+    p = pd_at(L, t)
+    pi = np.where(approve, profit(L, t), 0.0)
+    return {"approval": approve.mean(),
+            "mean_limit": L[approve].mean(),
+            "profit_per_applicant": pi.mean(),
+            "default_rate_approved": (p * approve).sum() / approve.sum(),
+            "exp_loss_per_applicant": (LGD * ead(L, t) * p * approve).mean()}
+
+L_flat = np.full(len(T_te), 5.0)
+L_tab = limit_table(X_te)
+policies = {
+    "flat 5k, approve if profitable": evaluate(L_flat, profit(L_flat, T_te) > 0, T_te),
+    "incumbent table, PD cut-off 8%": evaluate(L_tab, pd_at(L_tab, T_te) < 0.08, T_te),
+    "per-applicant optimum": evaluate(L_star, Pi_star > 0, T_te),
+}
+pd.DataFrame(policies).T.round(4)
+```
+
+The per-applicant optimum earns the most profit per applicant. It does so with a higher default rate among approved accounts than the incumbent table, which is the expected pattern: the optimizer deliberately books some riskier revolvers at modest limits because their interest income covers the expected loss. A risk committee that judges the policy by its default rate alone would reject the more profitable strategy, which is the business version of the count-versus-dollars point of @sec-ch32a-exposure.
+
+```{python}
+#| label: fig-ch32a-frontier
+#| fig-cap: "Profit frontier. Applicants are approved in order of their value under each policy, and the curve traces expected profit per applicant as the approval rate rises. Choosing the limit per applicant lifts the whole frontier, not only its peak, so the gain survives any approval-rate target the business sets."
+#| fig-width: 7
+#| fig-height: 3.8
+def frontier(value):
+    order = np.argsort(-value)
+    return np.arange(1, len(value) + 1) / len(value), np.cumsum(value[order]) / len(value)
+
+fig, ax = plt.subplots(figsize=(7, 3.8))
+for lab, val in [("flat 5k limit", profit(L_flat, T_te)),
+                 ("incumbent table limit", profit(L_tab, T_te)),
+                 ("per-applicant optimal limit", Pi_star)]:
+    a, c = frontier(val)
+    ax.plot(a * 100, c, label=lab)
+ax.axhline(0, color="grey", lw=0.8)
+ax.set_xlabel("approval rate (%)")
+ax.set_ylabel("expected profit per applicant")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+@fig-ch32a-frontier is the profit curve of @sec-ch04-profit generalized to a two-dimensional decision. With a fixed limit, the curve is traced by moving a PD cut-off. With limits chosen per applicant, each applicant's value is already maximized over $L$, and the approval rate becomes the only remaining policy dial. Any approval floor, loss-rate ceiling, or segment cap from @sec-ch04-profit applies unchanged, with $\Pi_i(L_i^*)$ in place of the score.
+
+------------------------------------------------------------------------
+
+## Where the response curves come from {#sec-ch32a-identification}
+
+The optimizer above used the true $B_i(L)$ and $p_i(L)$. In practice both must be estimated from history, and history was generated by a limit policy that responded to information about the customer. Underwriters and limit rules give large lines to customers they believe are safe. A regression of default on limit in business-as-usual data therefore finds that higher limits *go with* lower default, even when higher limits *cause* higher default. This is the same selection problem as reject inference (@sec-ch10-behavioral describes how line management censors default outcomes) applied to the treatment the lender controls.
+
+Three designs identify the causal response.
+
+-   **Randomized limit pilots.** A random subset of accounts receives a limit perturbed around the policy value. Because the perturbation is random given the policy limit, its effect is identified. @aydin2022consumption analyzes such an experiment, in which a lender randomly held back pre-approved line increases, and traces the borrowing response over several years.
+-   **Discontinuities in the limit rule.** When the limit table jumps at score thresholds, customers just either side are comparable, and the jump in limit identifies the local response. @agarwal2018banking use exactly these discontinuities in card limit policies to estimate the marginal propensity to borrow and the marginal cost of extending credit, using the regression discontinuity machinery of @sec-ch28-rdd.
+-   **Natural experiments in line changes.** Account-level variation in the timing of line increases supports panel estimates of how card debt responds to credit supply [@gross2002liquidity].
+
+The simulation below generates a history in which the incumbent limit depends on a private underwriting signal correlated with latent risk, and a quarter of accounts belong to a randomized pilot whose limits are perturbed by a log-uniform factor around the policy value.
+
+```{python}
+#| label: ch32a-identification
+rng3 = np.random.default_rng(SEED + 3)
+n3 = 40_000
+X3, T3 = simulate_applicants(n3, rng3)
+signal = -T3["z"].to_numpy() + 0.5 * rng3.standard_normal(n3)    # seen by the underwriter only
+L_pol = np.clip(0.4 * X3["income"].to_numpy() * expit(0.9 * signal), 1.0, 30.0)
+pilot = rng3.uniform(size=n3) < 0.25
+jitter = np.exp(rng3.uniform(-0.7, 0.7, n3))
+L3 = np.where(pilot, np.clip(L_pol * jitter, 1.0, 30.0), L_pol)
+D3 = rng3.binomial(1, pd_at(L3, T3))
+B3 = balance(L3, T3) * np.exp(0.25 * rng3.standard_normal(n3))
+F3 = X3.assign(log_policy_limit=np.log(L_pol), limit=L3, log_limit=np.log(L3),
+               log_ratio=np.log(L3 / L_pol))
+
+hold = np.zeros(n3, dtype=bool)
+hold[30_000:] = True                       # hold-out applicants for policy evaluation
+bau = ~pilot & ~hold                       # business-as-usual accounts
+pil = pilot & ~hold                        # randomized pilot accounts
+
+def limit_effect(mask, controls):
+    """Logit coefficient on log(limit), per unit of log(limit)."""
+    cols = ["bureau_score", "income", "dti", "inquiries", "revolve_share"] + controls + ["log_limit"]
+    Z = F3.loc[mask, cols]
+    mu, sd = Z.mean(), Z.std()
+    fit = LogisticRegression(max_iter=5000, C=1e6).fit((Z - mu) / sd, D3[mask])
+    return fit.coef_[0][-1] / sd["log_limit"]
+
+true_effect = (T3["delta"].to_numpy() * L3 / T3["inc"].to_numpy())[pil].mean()
+print(f"true average effect on the default log-odds per unit log(limit): {true_effect:+.3f}")
+print(f"naive estimate, business-as-usual data                         : {limit_effect(bau, []):+.3f}")
+print(f"pilot estimate, controlling for the policy limit               : "
+      f"{limit_effect(pil, ['log_policy_limit']):+.3f}")
+
+bins = pd.DataFrame({
+    "quintile": range(1, 6),
+    "BAU: default rate by limit quintile": pd.Series(D3[bau]).groupby(
+        pd.qcut(L3[bau], 5, labels=False)).mean().to_numpy(),
+    "pilot: default rate by perturbation quintile": pd.Series(D3[pil]).groupby(
+        pd.qcut(F3.loc[pil, "log_ratio"], 5, labels=False).to_numpy()).mean().to_numpy(),
+})
+bins.round(4)
+```
+
+The naive regression gets the sign wrong. In business-as-usual data the default rate falls steeply across limit quintiles, because the limit is a proxy for the underwriter's private view of risk. In the pilot, conditioning on the policy limit leaves only the random perturbation, and default broadly rises with the perturbation, as it does in the data-generating process. The top quintile sits within sampling noise of its neighbor, since each pilot quintile holds relatively few defaults. The pilot estimate is somewhat smaller in magnitude than the true average effect, the usual attenuation of a logit coefficient when risk factors are omitted, but the sign and order of magnitude are right.
+
+### From estimated responses to a limit policy
+
+To turn estimates into a policy, fit the default and balance responses with gradient boosting and maximize @eq-ch32a-profit over a grid for each hold-out applicant. Four variants show what goes wrong and what fixes it.
+
+1.  **Business-as-usual data, unconstrained, full grid.** The analyst fits $\hat p(x, L)$ and $\hat B(x, L)$ on history and optimizes over every limit.
+2.  **The same, inside a trust region.** Limits are restricted to half to double the policy limit, the range over which the business has experience.
+3.  **Business-as-usual data with monotone constraints.** Default and balance are forced to be non-decreasing in the limit. This encodes domain knowledge and prevents the confounded downward slope, although it does not identify the true slope.
+4.  **Pooled design with a randomized treatment.** All historical accounts are used, the log policy limit enters as a pre-treatment covariate, and the treatment is the log *ratio* of granted to policy limit. That ratio is zero for business-as-usual accounts and random in the pilot, so the limit effect is learned only from randomized variation while the baseline risk is learned from the whole book. The optimizer stays inside the trust region where the pilot provides support.
+
+```{python}
+#| label: ch32a-plugin
+base_cols = ["bureau_score", "income", "revolve_share", "dti", "inquiries"]
+
+def fit_response(mask, cols, monotone_last):
+    mono = [0] * (len(cols) - 1) + [1 if monotone_last else 0]
+    kw = dict(hgb, monotonic_cst=mono)
+    clf = HistGradientBoostingClassifier(**kw).fit(F3.loc[mask, cols], D3[mask])
+    reg = HistGradientBoostingRegressor(**kw).fit(F3.loc[mask, cols], np.log(B3[mask]))
+    return clf, reg, cols
+
+def plug_in_profit(model, Xn, L, L_policy):
+    clf, reg, cols = model
+    Z = Xn.assign(limit=L, log_ratio=np.log(L / L_policy))[cols]
+    p = clf.predict_proba(Z)[:, 1]
+    b = np.minimum(np.exp(reg.predict(Z) + 0.5 * 0.25**2), L)
+    return APR * b * (1 - p) - LGD * (b + CCF * (L - b)) * p - COST, p
+
+def plug_in_policy(model, Xn, L_policy, trust_region=False):
+    """Per-applicant profit-maximizing limit on the grid, optionally restricted
+    to [L_policy / 2, 2 * L_policy], the range the pilot actually explored."""
+    vals = []
+    for L in grid:
+        Lv = np.full(len(Xn), L)
+        v = plug_in_profit(model, Xn, Lv, L_policy)[0]
+        if trust_region:
+            v = np.where((Lv >= L_policy / 2) & (Lv <= 2 * L_policy), v, -np.inf)
+        vals.append(v)
+    vals = np.stack(vals, axis=1)
+    j = vals.argmax(axis=1)
+    return grid[j], vals[np.arange(len(j)), j] > 0
+
+X_h = F3.loc[hold].reset_index(drop=True)
+T_h = T3.loc[hold].reset_index(drop=True)
+Lpol_h = L_pol[hold]
+
+m_free = fit_response(bau, base_cols + ["limit"], monotone_last=False)
+m_mono = fit_response(bau, base_cols + ["limit"], monotone_last=True)
+m_pool = fit_response(~hold, base_cols + ["log_policy_limit", "log_ratio"], monotone_last=True)
+
+Pi_h = np.stack([profit(np.full(len(T_h), L), T_h) for L in grid], axis=1)
+in_trust = (grid[None, :] >= Lpol_h[:, None] / 2) & (grid[None, :] <= 2 * Lpol_h[:, None])
+Pi_tr = np.where(in_trust, Pi_h, -np.inf)
+j_or = Pi_tr.argmax(axis=1)
+
+plug = {"incumbent limits, approve all": evaluate(Lpol_h, np.ones(len(T_h), bool), T_h)}
+for name, model, trust in [("BAU, unconstrained, full grid", m_free, False),
+                           ("BAU, unconstrained, trust region", m_free, True),
+                           ("BAU, monotone, trust region", m_mono, True),
+                           ("pooled randomized ratio, trust region", m_pool, True)]:
+    Lp, ap = plug_in_policy(model, X_h, Lpol_h, trust)
+    plug[name] = evaluate(Lp, ap, T_h)
+plug["oracle (true responses), trust region"] = evaluate(
+    grid[j_or], Pi_tr[np.arange(len(j_or)), j_or] > 0, T_h)
+pd.DataFrame(plug).T.round(4)
+```
+
+Four findings carry over to real portfolios.
+
+-   **A confounded response model is worse than no model.** Optimized over the full grid, the unconstrained business-as-usual model believes that bigger lines make customers safer, hands out larger limits than any other policy in the table, and loses money relative to simply keeping the incumbent limits.
+-   **Stay where the data are.** Restricting the optimizer to the range the business has experienced removes most of the damage. Tree ensembles extrapolate flat beyond the observed range, so an unconstrained optimizer exploits regions where the model has no information. The trust region is the policy analogue of the overlap condition in causal inference.
+-   **Monotone constraints are cheap insurance.** Forcing default and balance to rise with the limit removes the wrong-signed slope at no cost in data.
+-   **Randomized variation buys the slope, the whole book buys the level.** The pooled design learns baseline risk from every account and the limit effect only from the pilot. It earns the most of the feasible policies. The remaining gap to the oracle row is not a failure of the design: the oracle knows each applicant's latent risk, which no model built on observed features can recover.
+
+### Who should get a line increase? {#sec-ch32a-uplift}
+
+Line-increase programs are usually targeted at "the best customers," meaning the lowest behavioral PD. The profit question is different: which accounts generate the most *incremental* profit from a higher line. That is an uplift (conditional average treatment effect) question, and it is answered cleanly by a randomized test. The simulation below offers a 50 percent line increase to a random half of an existing book and compares realized one-year profit between arms within segments defined by predicted PD and historical usage.
+
+```{python}
+#| label: ch32a-uplift
+rng4 = np.random.default_rng(SEED + 4)
+n4 = 60_000
+X4, T4 = simulate_applicants(n4, rng4)
+s4 = -T4["z"].to_numpy() + 0.5 * rng4.standard_normal(n4)
+L_cur = np.clip(0.4 * X4["income"].to_numpy() * expit(0.9 * s4), 1.0, 30.0)
+treat = rng4.uniform(size=n4) < 0.5
+L4 = np.where(treat, 1.5 * L_cur, L_cur)
+D4 = rng4.binomial(1, pd_at(L4, T4))
+B4 = balance(L4, T4) * np.exp(0.25 * rng4.standard_normal(n4))
+realized = APR * B4 * (1 - D4) - LGD * (B4 + CCF * (L4 - B4)) * D4
+tau_true = profit(1.5 * L_cur, T4) - profit(L_cur, T4)      # known only in simulation
+
+p_now = m_mono[0].predict_proba(X4.assign(limit=L_cur)[m_mono[2]])[:, 1]
+seg = pd.DataFrame({
+    "pd_band": pd.qcut(p_now, 3, labels=["low PD", "mid PD", "high PD"]),
+    "usage": pd.qcut(X4["revolve_share"], 3, labels=["transactor", "mixed", "revolver"]),
+    "treat": treat, "profit": realized, "tau": tau_true})
+
+def arm_diff(d):
+    t, c = d.loc[d["treat"], "profit"], d.loc[~d["treat"], "profit"]
+    return pd.Series({"uplift_estimate": t.mean() - c.mean(),
+                      "std_error": np.sqrt(t.var() / len(t) + c.var() / len(c)),
+                      "uplift_true": d["tau"].mean(),
+                      "accounts": len(d)})
+
+seg.groupby(["pd_band", "usage"], observed=True).apply(arm_diff, include_groups=False).round(4)
+```
+
+The table separates two groups that a PD-ranked program lumps together. Among low-PD accounts, revolvers gain from the increase because they draw on it, while transactors lose money: they add almost no balance, so the increase only adds undrawn exposure that converts into loss for the few who default. In this simulation the profit function has no interchange income, which would soften the transactor result in a real card portfolio, but the structure of the trade-off is general. Higher-PD segments lose on the increase across usage types.
+
+Three practical notes. The segment estimates are noisy, with standard errors of the same order as the effects in the smaller cells, so line-increase tests need large samples or longer horizons. Finer targeting replaces the segment table with a meta-learner or causal forest fitted on the randomized data [@kunzel2019metalearners; @gutierrez2017causal], with the double machine learning tools of @sec-ch28-dml when the variation is not randomized. And the step from estimated uplift to a deployed rule is a policy-learning problem with its own guarantees, for which @athey2021policy give regret bounds that hold with observational data.
+
+------------------------------------------------------------------------
+
+## Limit management over the account lifetime {#sec-ch32a-mdp}
+
+### The decision problem
+
+After origination the lender revisits the limit periodically. The decision is sequential because today's limit changes tomorrow's balance, default risk, and attrition, and those in turn change what the lender can do next. @trench2003managing built such a system for a large US card issuer, jointly managing lines and prices with a Markov decision process over behavioral states, and @so2011modelling formalized the profitability of card accounts as an MDP with behavioral-score states. @thomas2009consumer and @thomas2017credit give textbook treatments.
+
+The model below keeps the structure and drops the scale. The state is $(g, \ell)$: a behavioral grade from 0 (best) to 4 (seriously delinquent) and a rung on a ladder of limits. Each month the account earns $r(g,\ell) = \tfrac{m}{12} B(g,\ell)\big(1-q(g,\ell)\big) - q(g,\ell)\,\mathrm{LGD}\,\mathrm{EAD}(g,\ell)$, where $q$ is the monthly default probability and rises with the limit. The account then defaults with probability $q$, attrites with probability $\kappa$, or moves to a new grade according to a transition matrix $P$. The action $a \in \{-1, 0, +1\}$ moves one rung down, holds, or moves one rung up, and takes effect from the *next* month, which models the notice and processing lag between deciding and changing a line. Two business rules constrain the action set $\mathcal{A}(g,\ell)$: increases are allowed only from grades 0 and 1, and a decrease raises the next month's attrition probability by $\kappa_{\text{cut}}$, the customer-relationship cost of an adverse change. The finite-horizon Bellman recursion is
+
+$$
+V_t(g,\ell) = \max_{a \in \mathcal{A}(g,\ell)} \Big\{ r(g,\ell) + \gamma\,\big(1-q(g,\ell)\big)\big(1 - \kappa - \kappa_{\text{cut}}\mathbf{1}[a<0]\big) \sum_{g'} P(g' \mid g)\, V_{t+1}(g', \ell + a) \Big\},
+\qquad V_H \equiv 0,
+$$ {#eq-ch32a-bellman}
+
+solved by backward induction from the horizon $H$.
+
+```{python}
+#| label: ch32a-mdp
+L_lv = np.array([1.0, 2.0, 4.0, 6.0, 9.0, 12.0])            # limit ladder, thousands
+q_g = np.array([0.0008, 0.002, 0.006, 0.02, 0.06])          # monthly PD at a 4k line, by grade
+need_g = np.array([3.0, 5.0, 6.0, 7.0, 8.0])
+share_g = np.array([0.30, 0.55, 0.75, 0.90, 0.95])
+P = np.array([[0.92, 0.07, 0.01, 0.00, 0.00],
+              [0.08, 0.85, 0.06, 0.01, 0.00],
+              [0.02, 0.15, 0.75, 0.06, 0.02],
+              [0.00, 0.05, 0.25, 0.55, 0.15],
+              [0.00, 0.01, 0.09, 0.30, 0.60]])
+BETA_L, KAPPA, KAPPA_CUT, GAMMA, H = 0.35, 0.008, 0.05, 0.99, 36
+nG, nL = len(q_g), len(L_lv)
+
+bal_gl = share_g[:, None] * need_g[:, None] * (1 - np.exp(-L_lv[None, :] / need_g[:, None]))
+q_gl = expit(logit(q_g)[:, None] + BETA_L * np.log(L_lv[None, :] / 4.0))
+r_gl = (APR / 12) * bal_gl * (1 - q_gl) - q_gl * LGD * (bal_gl + CCF * (L_lv[None, :] - bal_gl))
+
+def allowed(g, l, a):
+    return 0 <= l + a < nL and not (a == 1 and g > 1)
+
+def backward_induction(rule=None):
+    """Optimal values and policy, or the value of a fixed rule(g, l) -> a."""
+    V = np.zeros((nG, nL))
+    policy = np.zeros((H, nG, nL), dtype=int)
+    for t in reversed(range(H)):
+        V_new = np.empty_like(V)
+        for g in range(nG):
+            for l in range(nL):
+                acts = [rule(g, l)] if rule else [a for a in (-1, 0, 1) if allowed(g, l, a)]
+                vals = [r_gl[g, l] + GAMMA * (1 - q_gl[g, l])
+                        * (1 - KAPPA - KAPPA_CUT * (a < 0)) * (P[g] @ V[:, l + a])
+                        for a in acts]
+                k = int(np.argmax(vals))
+                V_new[g, l], policy[t, g, l] = vals[k], acts[k]
+        V = V_new
+    return V, policy
+
+V_opt, pol_opt = backward_induction()
+V_hold, _ = backward_induction(lambda g, l: 0)
+V_rule, _ = backward_induction(
+    lambda g, l: 1 if (g == 0 and l < nL - 1) else (-1 if (g >= 3 and l > 0) else 0))
+
+start = (1, 2)    # a new account: grade 1 on a 4k line
+pd.DataFrame({"policy": ["hold the limit forever",
+                         "rule: raise grade 0, cut grades 3 and 4",
+                         "optimal (backward induction)"],
+              "value per account, 36 months": [V_hold[start], V_rule[start], V_opt[start]]}).round(4)
+```
+
+```{python}
+#| label: fig-ch32a-mdp-policy
+#| fig-cap: "Optimal first-period limit action by behavioral grade and current limit. Raise (green) is chosen only for good grades on small lines, hold (grey) in a band around each grade's profitable limit, and cut (red) once the line exceeds what the grade can carry. The policy is not a single score cut-off: whether to raise depends jointly on grade and current exposure."
+#| fig-width: 6.5
+#| fig-height: 3.4
+from matplotlib.colors import ListedColormap
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+ax.imshow(pol_opt[0], cmap=ListedColormap(["#d9534f", "#cfcfcf", "#5cb85c"]), vmin=-1, vmax=1,
+          aspect="auto")
+labels = {-1: "cut", 0: "hold", 1: "raise"}
+for g in range(nG):
+    for l in range(nL):
+        ax.text(l, g, labels[pol_opt[0, g, l]], ha="center", va="center", fontsize=8)
+ax.set_xticks(range(nL), [f"{v:g}k" for v in L_lv])
+ax.set_yticks(range(nG), [f"grade {g}" for g in range(nG)])
+ax.set_xlabel("current limit")
+plt.tight_layout()
+plt.show()
+```
+
+The optimal policy beats both simple alternatives. "Hold forever" leaves value on the table by never growing lines for improving customers or trimming lines for deteriorating ones. The intuitive rule does something worse: it keeps raising grade-0 customers up the ladder, but grade-0 accounts in this calibration have a low revolving share and a small spending need, so their balances stop growing well below the top of the ladder and each further increase adds undrawn exposure without revenue. The optimal policy raises good customers only to the rung where their balance stops responding, the dynamic counterpart of @eq-ch32a-foc.
+
+### From dynamic programming to reinforcement learning
+
+Backward induction needs the transition matrix and its dependence on the action. With a handful of grades and rungs the matrix is estimated from account histories and solved exactly. Reinforcement learning becomes attractive when the state is rich (many behavioral features, macro conditions, a joint price and line decision) and a tabular model is no longer adequate. @alfonso2024optimizing train an offline double Q-learning agent on historical card data to adjust limits under the competing goals of revenue and provisions, and find that the learned policy outperforms the incumbent strategies they compare against.
+
+Three cautions apply before any RL system touches real limits.
+
+-   **The action must move the state.** If the simulated environment draws next month's balance, utilization, and default from columns that do not depend on the chosen limit, the problem collapses into a one-shot contextual bandit with a reward computed from fixed data, and the "policy" learns nothing about consequences. The environment must encode the causal responses of @sec-ch32a-identification.
+-   **Offline data carry the old policy's confounding.** An agent trained on business-as-usual logs inherits the wrong-signed limit effect of @sec-ch32a-identification unless the logs contain randomized variation or the propensities of the logging policy are known.
+-   **Evaluate before deploying.** A candidate policy should be scored off-policy on logged data with inverse-propensity or doubly robust estimators [@dudik2011doubly] (see also @sec-ch10-cfrm), then validated in a randomized champion-challenger cell before it scales.
+
+------------------------------------------------------------------------
+
+## Approval cut-offs revisited {#sec-ch32a-cutoff}
+
+Once limits are optimized, the approval cut-off is endogenous (@eq-ch32a-approve) and is best understood as a policy on the profit frontier of @fig-ch32a-frontier. Three connections to the rest of the book are worth making explicit.
+
+-   **Model selection.** Comparing two scorecards by AUC asks which ranks accounts better. Comparing them by the expected maximum profit (EMP) of @verbraken2013novel and @verbraken2014novel, developed in @sec-ch04-emp, asks which is worth more at the best cut-off under uncertainty about loss severity. With exposure-dependent profits, the natural extension is to evaluate a model by the frontier it supports when its predictions drive both the limit and the approval decision.
+-   **Constraints.** The loss-rate ceilings, approval floors, and segment caps of @sec-ch04-profit are linear in the approve indicators. They apply to $\Pi_i(L_i^*)$ exactly as they apply to a score, so the linear-programming formulations carry over without change.
+-   **Capital.** Under Basel IRB the capital charge on a revolving facility depends on EAD and therefore on the undrawn line (@sec-ch05-regulation). A risk-adjusted version of @eq-ch32a-profit subtracts the cost of capital on $\mathrm{EAD}_i(L)$, which pushes optimal limits down for customers who rarely draw.
+
+------------------------------------------------------------------------
+
+## Pitfalls {#sec-ch32a-pitfalls}
+
+First attempts at limit and approval optimization tend to fail in the same few ways.
+
+1.  **Outcome-defining variables as features.** If default is defined as 90 or more days past due and the feature set contains days past due measured over the same window, every model reaches perfect accuracy and every comparison between models is meaningless. Features must be measured strictly before the performance window opens.
+2.  **A self-referential profit loss.** Training one network to output approval, limit, rate, PD, and utilization, and defining its loss as the profit computed from *its own* predicted PD and utilization, gives the optimizer an easy way out: predict whatever makes the computed profit look good, or approve nobody. Profit must be computed from observed outcomes, or from response models fitted separately on outcomes and then held fixed during optimization, as in @sec-ch32a-identification.
+3.  **Imitating historical decisions.** Regressing the granted limit on features reproduces the incumbent policy, including its mistakes. Fitting historical limits well is evidence of nothing about profit.
+4.  **Synthetic labels without structure.** Simulations whose outcomes are drawn independently of the features cannot reward any policy, so they cannot test one. A useful simulation, like the one in this chapter, writes down the causal response of balance and default to the decision.
+5.  **Scoring a policy with the model that chose it.** In-sample predicted profit of an optimized policy is biased upward, because the optimizer selects exactly the cases where the model is optimistic. Evaluate on hold-out data, off-policy with known propensities, or in a randomized test cell.
+
+------------------------------------------------------------------------
+
+## Regulatory and governance considerations {#sec-ch32a-regulation}
+
+**Adverse action.** Under Regulation B, a refusal to increase credit for an applicant who requested an increase is adverse action, and so is an unfavorable change in the terms of an account that does not affect all or substantially all accounts in a class, which covers targeted limit decreases [@regb1002]. Actions taken in connection with inactivity, default, or delinquency are excluded. Every model-driven decrease therefore needs reason codes that meet the standard of @sec-ch05-ecoa, and an uplift model that drives decreases needs explanations as much as an origination scorecard does.
+
+**Notice requirements.** Regulation Z requires 45 days' written notice before a significant change in terms on a card account, such as an APR increase, and requires advance notice of a credit limit decrease before an over-the-limit fee or penalty rate can be imposed as a result of it [@regz1026]. The one-month action lag in the MDP of @sec-ch32a-mdp is the modeling counterpart of these rules, and a joint line-and-price policy must carry the longer lag on price changes.
+
+**Fairness.** Limit policies can produce disparate impact even when approval rates are balanced, because the *amount* of credit differs across groups. Fairness metrics in @sec-ch23 should be computed on limits and on line-increase eligibility as well as on approvals.
+
+**Capital and provisioning.** Limit increases raise EAD through the conversion factor on undrawn amounts, which raises both regulatory capital and expected-credit-loss allowances on loan commitments (@sec-ch35). A line-increase program that is profitable before capital can be unprofitable after it.
+
+**Model risk.** A limit strategy is a model under SR 11-7 (@sec-sr117). The documentation should state the response models, the source of identifying variation (pilot, discontinuity, or assumption), the trust region, and the off-policy and champion-challenger evidence behind each change.
+
+------------------------------------------------------------------------
+
+## Takeaways
+
+-   "Minimize risk at a target approval rate" has three readings. Ranking by PD minimizes the default count, ranking by expected loss minimizes dollars lost (mostly by booking small exposures), and ranking by expected profit maximizes profit. Choose the objective deliberately and report all three.
+-   Dollar objectives need a two-part model (default and severity) plus a balance model for revenue. Multi-task networks are an option when defaulters are scarce, but the decision layer is the same.
+-   For revolving credit, approval and limit are one decision. Maximize expected profit over the limit per applicant and approve when the maximum is positive. The marginal propensity to borrow, credit-induced default, and undrawn exposure are the three channels that set the optimum.
+-   Historical limits are confounded with private information about risk. Naive response models get the sign of the limit effect wrong and produce policies worse than the incumbent. Randomized pilots, discontinuities in limit rules, monotone constraints, and trust regions are the practical remedies.
+-   Line increases should go to the accounts with the largest incremental profit, which are not the accounts with the lowest PD. Randomized line-increase tests identify them.
+-   Limit management over the account lifetime is a Markov decision process. Solve the tabular version exactly before reaching for reinforcement learning, and evaluate any learned policy off-policy and in a randomized cell before deployment.
+
+## Further reading
+
+-   @thomas2009consumer on profit scoring, risk-based pricing, and dynamic models of consumer credit, and @thomas2017credit for the standard textbook account.
+-   @trench2003managing for a deployed MDP that manages card lines and prices, and @so2011modelling for the MDP model of card profitability.
+-   @agarwal2018banking, @gross2002liquidity, and @aydin2022consumption for the causal evidence on how balances, spending, and default respond to credit limits.
+-   @tong2016exposure on modeling exposure at default for revolving facilities with and without the credit conversion factor.
+-   @verbraken2014novel for the expected maximum profit measure in credit scoring.
+-   @alfonso2024optimizing for offline reinforcement learning applied to credit limit adjustment.
+-   @kunzel2019metalearners, @gutierrez2017causal, @athey2021policy, and @dudik2011doubly for heterogeneous effects, uplift, policy learning, and off-policy evaluation.
